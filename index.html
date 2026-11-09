@@ -354,6 +354,84 @@
     .mBtn{min-height:48px;padding:7px 14px;} .mBtn.play{min-height:54px;} .mBtn .tt{font-size:20px;} .menuBtns{gap:7px;margin-top:8px;}
   }
   @media (prefers-reduced-motion:reduce){ .fogA,.fogB,.copBlue,.copRed{animation:none;} #menuScreen.on{animation:none;} }
+  /* ---------- FIX A: HUD REBUILD (reference layout, dark charcoal + amber) ---------- */
+  .pill{border-color:rgba(232,179,58,.28);border-radius:10px;}
+  #heatBarOuter{position:relative;}
+  #heatBarOuter::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0,transparent calc(20% - 3px),rgba(8,11,15,.95) calc(20% - 3px),rgba(8,11,15,.95) 20%);pointer-events:none;}
+  /* objective: small + collapsible */
+  #objWrap{position:absolute;top:calc(58px + var(--sat));left:calc(8px + var(--sal));display:flex;align-items:stretch;gap:0;max-width:min(430px,60vw);pointer-events:auto;}
+  #objLine{position:static;background:var(--plate);border-left:3px solid var(--gold);border-radius:4px 0 0 4px;padding:5px 9px;font-size:12.5px;box-shadow:var(--shadow);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);}
+  #objToggle{pointer-events:auto;cursor:pointer;width:26px;flex:none;border:1px solid rgba(232,179,58,.35);border-left:0;border-radius:0 4px 4px 0;background:var(--plate);color:var(--gold);font-size:13px;padding:0;display:flex;align-items:center;justify-content:center;min-height:32px;}
+  body.obj-collapsed #objLine{display:none;}
+  body.obj-collapsed #objToggle{border-left:1px solid rgba(232,179,58,.35);border-radius:4px;}
+  body.ringing #objWrap{display:none;}
+  /* TASKS panel (right side, collapsible) */
+  #tasksPanel{position:absolute;top:calc(58px + var(--sat));right:calc(8px + var(--sar));width:212px;background:var(--plate);border:1px solid rgba(232,179,58,.3);border-radius:10px;box-shadow:var(--shadow);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);pointer-events:auto;overflow:hidden;}
+  #tasksHead{width:100%;min-height:44px;display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:rgba(232,179,58,.1);border:0;color:var(--gold);font-family:'Barlow Condensed';font-size:17px;font-weight:700;letter-spacing:.14em;cursor:pointer;}
+  #tasksBody{padding:8px 10px 10px;}
+  body.tasks-collapsed #tasksBody{display:none;}
+  #taskList{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:5px;}
+  #taskList li{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.35;color:var(--ink);}
+  #taskList li .box{flex:none;width:17px;height:17px;margin-top:1px;border:1.5px solid rgba(255,255,255,.45);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#14100a;}
+  #taskList li.done{color:var(--dim);}
+  #taskList li.done .box{background:var(--gold);border-color:var(--gold);}
+  #taskList li.warn .box{border-color:var(--red);color:var(--red);}
+  #taskList li.now .box{border-color:var(--gold);box-shadow:0 0 0 2px rgba(232,179,58,.25);}
+  #tasksActions{display:flex;flex-direction:column;gap:6px;}
+  #tasksActions .btn{width:100%;padding:10px 12px;font-size:14.5px;min-height:44px;}
+  #tasksActions #endDayBtn{background:var(--gold);color:#14100a;}
+  /* contextual place/crew buttons now sit under the TASKS panel */
+  #sideBtns{top:calc(268px + var(--sat));}
+  body.tasks-collapsed #sideBtns{top:calc(112px + var(--sat));}
+  /* speed / status cluster (bottom-centre, left of the Nokia button) */
+  #speedCluster{position:absolute;bottom:calc(24px + var(--sab));left:50%;transform:translateX(calc(-100% - 40px));display:none;align-items:center;gap:10px;background:var(--plate);border:1px solid rgba(232,179,58,.3);border-radius:12px;padding:7px 13px;box-shadow:var(--shadow);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);pointer-events:none;}
+  body.driving #speedCluster,body.onfoot #speedCluster{display:flex;}
+  #spdMain{display:flex;align-items:baseline;gap:4px;}
+  body.onfoot #spdMain{display:none;}
+  #spdVal{font-family:'Barlow Condensed';font-size:34px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;}
+  #spdUnit{font-size:12px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;}
+  .spdRows{display:flex;flex-direction:column;gap:3px;min-width:104px;}
+  body.driving #spdFootRow{display:none;}
+  body.onfoot #spdCarRow{display:none;}
+  .spdRow{display:flex;align-items:center;gap:6px;font-size:12px;}
+  .spdLbl{color:var(--dim);font-family:'Barlow Condensed';letter-spacing:.08em;flex:none;}
+  .spdRow b{font-variant-numeric:tabular-nums;flex:none;}
+  .spdBar{flex:1;height:5px;background:rgba(255,255,255,.14);border-radius:3px;overflow:hidden;min-width:38px;}
+  #spdCarBar{height:100%;background:var(--green);width:100%;transition:width .25s;}
+  #spdFootBar{height:100%;background:var(--green);width:100%;transition:width .25s;}
+  /* minimap: rounded dark frame + N indicator (drawing code + street strip
+     untouched). Display size keeps the canvas's native 172:132 aspect, so the
+     drawing renders with zero distortion and no corner clipping. */
+  #mmWrap{position:relative;width:164px;height:126px;flex:none;}
+  #minimap{width:164px;height:126px;border-radius:22px;border:2px solid rgba(232,179,58,.4);}
+  #mmN{position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:22px;height:22px;border-radius:50%;background:#0d1218;border:1.5px solid var(--gold);color:var(--gold);font-family:'Barlow Condensed';font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;pointer-events:none;}
+  /* pedals: amber held state already; deepen the dark theme to match */
+  .pedal.gas{background:rgba(46,160,90,.42);border-color:#3fb97f;color:#eafff2;}
+  .pedal.brake{background:rgba(200,60,60,.34);border-color:rgba(229,72,77,.7);color:#ffe9e9;}
+  @media (orientation:landscape) and (max-height:540px){
+    #objWrap{top:calc(48px + var(--sat));max-width:38vw;}
+    #objLine{font-size:11.5px;}
+    #tasksPanel{top:calc(48px + var(--sat));width:196px;}
+    #tasksHead{min-height:40px;font-size:15px;}
+    #taskList li{font-size:12px;}
+    #sideBtns{top:calc(238px + var(--sat));}
+    body.tasks-collapsed #sideBtns{top:calc(100px + var(--sat));}
+    #speedCluster{bottom:calc(20px + var(--sab));padding:5px 10px;transform:translateX(calc(-100% - 34px));}
+    #spdVal{font-size:27px;}
+    #mmWrap{width:146px;height:112px;}
+    #minimap{width:146px;height:112px;}
+  }
+  @media (max-width:560px){
+    #tasksPanel{width:186px;}
+    #speedCluster{transform:translateX(calc(-100% - 32px));}
+    .spdRows{min-width:88px;}
+  }
+  @media (orientation:portrait){
+    /* portrait: gameplay sits behind the rotate prompt on phones; keep the cluster
+       centred above the Nokia so it can never slide off the left edge */
+    #speedCluster{left:50%;transform:translateX(-50%);bottom:calc(98px + var(--sab));}
+  }
+  @media (prefers-reduced-motion:reduce){ #spdCarBar,#spdFootBar{transition:none;} }
 </style>
 </head>
 <body class="noselect">
@@ -449,15 +527,17 @@
 <div id="hud">
   <div class="bar">
     <div class="pill" id="cashPill">
-      <div><span class="k">Cash</span><div class="v gold" id="hCash">£120</div></div>
-      <div class="repBox"><span class="k">Rep</span><div class="v" id="hRep">0</div></div>
+      <div><span class="k">💰 Cash</span><div class="v gold" id="hCash">£120</div></div>
     </div>
-    <div class="pill" id="heatWrap"><span class="k">Heat</span><div id="heatBarOuter"><div id="heatBar"></div></div></div>
+    <div class="pill" id="repPill">
+      <div><span class="k">🤝 Rep</span><div class="v" id="hRep">0</div></div>
+    </div>
+    <div class="pill" id="heatWrap"><span class="k">🔥 Heat</span><div id="heatBarOuter"><div id="heatBar"></div></div></div>
     <div class="pill" id="dayClock"><span class="k" id="hDay">Day 1</span><div class="v" id="hClock">5:00</div></div>
     <button class="iconBtn" id="drawerBtn" aria-label="Stash, weapon, car and area status" title="Stash · Weapon · Car · Area">≡</button>
     <button class="iconBtn" id="pauseBtn" aria-label="Menu" title="Menu">⚙</button>
   </div>
-  <div id="objLine">Wait for the Line to ring…</div>
+  <div id="objWrap"><span id="objLine">Wait for the Line to ring…</span><button id="objToggle" aria-label="Collapse objective" title="Objective">▾</button></div>
   <div id="callBanner">
     <div class="ph">📞 The Line is ringing</div>
     <div class="cb" id="cbTitle">—</div>
@@ -483,7 +563,7 @@
     <span class="k">Health</span><div class="miniBarOuter"><div class="miniBar" id="hpBar" style="width:100%"></div></div>
     <span class="k">Car</span><div class="miniBarOuter"><div class="miniBar" id="carBar" style="width:100%"></div></div>
   </div>
-  <canvas id="minimap" width="172" height="132"></canvas>
+  <div id="mmWrap"><canvas id="minimap" width="172" height="132"></canvas><div id="mmN">N</div></div>
   </div>
   <div id="hpDock">
     <div class="hpRow"><span class="hpLbl">HP</span><div id="hpOuter"><div id="hpFill"></div></div></div>
@@ -520,6 +600,20 @@
   </div>
   <div id="sideBtns">
     <button class="btn gold" id="endDayBtn">End Day · Lay Low</button>
+  </div>
+  <div id="tasksPanel">
+    <button id="tasksHead" aria-label="Tasks panel — collapse or expand"><span>◎ TASKS</span><span id="tasksChev">▾</span></button>
+    <div id="tasksBody">
+      <ul id="taskList"></ul>
+      <div id="tasksActions"></div>
+    </div>
+  </div>
+  <div id="speedCluster">
+    <div id="spdMain"><span id="spdVal">0</span><span id="spdUnit">mph</span></div>
+    <div class="spdRows">
+      <div class="spdRow" id="spdCarRow"><span class="spdLbl">🚗 HP</span><b id="spdCarHp">100%</b><div class="spdBar"><div id="spdCarBar"></div></div></div>
+      <div class="spdRow" id="spdFootRow"><span class="spdLbl">❤ HP</span><b id="spdFootHp">100%</b><div class="spdBar"><div id="spdFootBar"></div></div></div>
+    </div>
   </div>
   <div id="jobCard" style="position:absolute;left:50%;transform:translateX(-50%);bottom:108px;width:min(430px,92vw);background:#0d1a1c;border:1px solid #2ec4b6;border-radius:10px;padding:10px 12px;pointer-events:auto;display:none;box-shadow:0 8px 30px rgba(0,0,0,.55);">
     <div style="font-family:'Barlow Condensed';letter-spacing:.12em;font-size:12px;color:#2ec4b6;text-transform:uppercase;">Side Job · Phone</div>
@@ -938,14 +1032,18 @@ var camera=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,5
    Yaw: fixed at 0 — the camera always sits due SOUTH of the focus and looks due NORTH,
    so the view stays north-up exactly like the old top-down camera and the minimap.
    No free rotation and no player-controlled rotation.
-   Zoom is a camera HEIGHT: 380 world units on foot, rising to 530 at full driving speed
-   (the old top-down rig used 560 -> 790; the tilted rig sits closer, per the phase brief).
+   Zoom is a camera HEIGHT. FIX A (camera closer): 228 world units on foot, rising to
+   318 at full driving speed — 60% of the previous 380 -> 530 rig, which read as too
+   high and miniature. The speed-based zoom-out behaviour is kept, scaled down with it.
+   Explicit zoom limits CAM_H_MIN/CAM_H_MAX clamp every placement, so no state (speed,
+   cutscene, resize) can push the camera outside the intended near band.
    Gameplay coordinates, collision and input mapping are untouched: world -z is still
    screen-up, world +x is still screen-right under this rig. */
 var CAM_TILT=50*Math.PI/180;
 var CAM_TAN=Math.tan(CAM_TILT);
-var CAM_H_FOOT=380, CAM_H_SPEED=150;
-function camPlace(cx,cz,h){camera.position.set(cx,h,cz+h/CAM_TAN);camera.lookAt(cx,0,cz);}
+var CAM_H_FOOT=228, CAM_H_SPEED=90;
+var CAM_H_MIN=205, CAM_H_MAX=325;
+function camPlace(cx,cz,h){h=clamp(h,CAM_H_MIN,CAM_H_MAX);camera.position.set(cx,h,cz+h/CAM_TAN);camera.lookAt(cx,0,cz);}
 /* Stable framing across screen sizes: at narrow aspects the vertical FOV widens so the
    horizontal coverage (what you can see left-right) stays constant instead of pinching in. */
 function fitCamera(){
@@ -1415,23 +1513,41 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
  bMeshes.push({x:-30,z:-120,hw:11,hd:11,top:75,parts:thTParts,fade:0,occ:false});
 })();
 /* text sprite labels for key places */
-function makeLabel(text,color){
- var c=document.createElement('canvas');c.width=512;c.height=96;var g=c.getContext('2d');
- g.font='700 44px "Barlow Condensed", sans-serif';g.textAlign='center';g.lineWidth=8;g.strokeStyle='rgba(0,0,0,.8)';
- g.strokeText(text,256,58);g.fillStyle=color;g.fillText(text,256,58);
+function makeLabel(text,color,icon){
+ /* FIX A pin label: dark pill plate + icon disc + text, like the reference pins.
+    Base scale is stored on the sprite; updateMarkers rescales/fades it by distance. */
+ var c=document.createElement('canvas');c.width=512;c.height=128;var g=c.getContext('2d');
+ if(!icon&&text.length<=2){ /* mini markers ('!', 'NW') keep the original plain centred style */
+  g.font='700 84px "Barlow Condensed", sans-serif';g.textAlign='center';g.textBaseline='middle';g.lineWidth=10;g.strokeStyle='rgba(0,0,0,.8)';
+  g.strokeText(text,256,66);g.fillStyle=color;g.fillText(text,256,66);
+  var t2=new THREE.CanvasTexture(c);var s2=new THREE.Sprite(new THREE.SpriteMaterial({map:t2,depthTest:false,transparent:true}));
+  s2.scale.set(96,24,1);s2.userData.baseW=96;s2.userData.baseH=24;return s2;
+ }
+ g.fillStyle='rgba(8,12,16,.88)';
+ g.beginPath();
+ if(g.roundRect)g.roundRect(56,22,400,84,20);else g.rect(56,22,400,84);
+ g.fill();g.lineWidth=5;g.strokeStyle=color;g.stroke();
+ g.fillStyle=color;g.beginPath();g.arc(112,64,30,0,7);g.fill();
+ g.font='30px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(icon||'📍',112,66);
+ g.font='700 42px "Barlow Condensed", sans-serif';g.textAlign='left';g.fillStyle='#eef1f4';
+ g.fillText(text,156,66);
  var t=new THREE.CanvasTexture(c);var s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,depthTest:false,transparent:true}));
- s.scale.set(104,20,1);return s;
+ s.scale.set(96,24,1);s.userData.baseW=96;s.userData.baseH=24;return s;
 }
 var placeLabels=[];
+var markerPins=[]; /* bobbing pin cones above the static ground rings */
 var SHOP={x:118,z:-108}, LOT={x:-520,z:420};
-function placeMarker(x,z,color,label){
+function placeMarker(x,z,color,label,icon){
  var ring=new THREE.Mesh(new THREE.RingGeometry(26,33,28),new THREE.MeshBasicMaterial({color:color,side:THREE.DoubleSide,transparent:true,opacity:.9}));
  ring.rotation.x=-Math.PI/2;ring.position.set(x,1.2,z);scene.add(ring);
- var lb=makeLabel(label,color);lb.position.set(x,26,z);scene.add(lb);placeLabels.push(lb);return ring;
+ var pin=new THREE.Mesh(new THREE.ConeGeometry(9,24,12),new THREE.MeshBasicMaterial({color:color}));
+ pin.rotation.x=Math.PI;pin.position.set(x,34,z);scene.add(pin);
+ markerPins.push({mesh:pin,ring:ring,phase:Math.random()*6});
+ var lb=makeLabel(label,color,icon);lb.position.set(x,58,z);lb.userData.x=x;lb.userData.z=z;scene.add(lb);placeLabels.push(lb);return ring;
 }
-var shopRing=placeMarker(SHOP.x,SHOP.z,'#ffd23f','CLOTHES SHOP');
-var lotRing=placeMarker(LOT.x,LOT.z,'#4ea8de','USED CARS');
-var safeRing=placeMarker(SAFE.x,SAFE.z,'#3fb97f','SAFE HOUSE');
+var shopRing=placeMarker(SHOP.x,SHOP.z,'#ffd23f','CLOTHES SHOP','👕');
+var lotRing=placeMarker(LOT.x,LOT.z,'#4ea8de','USED CARS','🚗');
+var safeRing=placeMarker(SAFE.x,SAFE.z,'#3fb97f','SAFE HOUSE','🏠');
 /* Safe house — Phase 2 house build (pitched slate roof + chimney) in the SAME green tint
    as before, same position/footprint, so it stays identifiable; ring + label unchanged. */
 var safeGroup=new THREE.Group();safeGroup.position.set(SAFE.x,0,SAFE.z-13);scene.add(safeGroup);
@@ -1451,6 +1567,57 @@ pinCone.rotation.x=Math.PI;pinCone.position.y=26;
 var pinRing=new THREE.Mesh(new THREE.RingGeometry(16,22,24),new THREE.MeshBasicMaterial({color:0xe8b33a,side:THREE.DoubleSide,transparent:true,opacity:.85}));
 pinRing.rotation.x=-Math.PI/2;pinRing.position.y=1.4;
 pinGroup.add(pinCone);pinGroup.add(pinRing);pinGroup.visible=false;scene.add(pinGroup);
+var pinLabel=makeLabel('DROP','#e8b33a','📦');pinLabel.position.y=58;pinGroup.add(pinLabel);
+/* FIX A objective guide: a short chevron trail on the road toward the ACTIVE
+   objective only (active drop / side-job pin, or the safe house when laying low).
+   Five pooled flat chevrons, recoloured per target — cheap DOM-free canvas work. */
+var guideGroup=new THREE.Group();scene.add(guideGroup);
+var guideChevs=[];
+(function(){
+ var c=document.createElement('canvas');c.width=c.height=64;var g=c.getContext('2d');
+ g.strokeStyle='#ffffff';g.lineWidth=13;g.lineCap='round';g.lineJoin='round';
+ g.beginPath();g.moveTo(14,10);g.lineTo(46,32);g.lineTo(14,54);g.stroke();
+ var tex=new THREE.CanvasTexture(c);
+ for(var i=0;i<5;i++){var m=new THREE.Mesh(new THREE.PlaneGeometry(17,17),new THREE.MeshBasicMaterial({map:tex,color:0x3fb97f,transparent:true,opacity:.75,side:THREE.DoubleSide,depthWrite:false}));
+  m.rotation.x=-Math.PI/2;m.visible=false;guideGroup.add(m);guideChevs.push(m);}
+})();
+function updateMarkers(fx,fz){
+ /* pin labels: scale with distance, fade out beyond range, declutter overlaps
+    (nearest wins; a label close behind another shrinks and fades) */
+ var all=placeLabels.slice();
+ if(pinGroup.visible){pinLabel.userData.x=pinGroup.position.x;pinLabel.userData.z=pinGroup.position.z;all.push(pinLabel);}
+ var info=all.map(function(lb){
+  var d=dist2(fx,fz,lb.userData.x,lb.userData.z);
+  return {lb:lb,d:d,sc:clamp(360/(d+180),.55,1.3),op:d>980?0:clamp(1.15-d/900,.12,1)};
+ });
+ info.sort(function(a,b){return a.d-b.d;});
+ for(var i=0;i<info.length;i++){
+  for(var j=0;j<i;j++){
+   if(dist2(info[i].lb.userData.x,info[i].lb.userData.z,info[j].lb.userData.x,info[j].lb.userData.z)<110){info[i].sc*=.62;info[i].op*=.35;}
+  }
+  var s=info[i];s.lb.scale.set(s.lb.userData.baseW*s.sc,s.lb.userData.baseH*s.sc,1);
+  s.lb.material.opacity=s.op;s.lb.visible=s.op>0.02;
+ }
+ /* static place pins bob gently; their rings breathe */
+ for(var p=0;p<markerPins.length;p++){var mp=markerPins[p];
+  mp.mesh.position.y=34+Math.sin(gameT*2.2+mp.phase)*2.6;
+  mp.ring.material.opacity=.62+.3*Math.sin(gameT*2.2+mp.phase);}
+ /* guide chevrons toward the one active objective */
+ var tx=null,tz=null,col=0xe8b33a;
+ if(job){tx=job.spot.x;tz=job.spot.z;}
+ else if(sideJob&&pinGroup.visible){tx=pinGroup.position.x;tz=pinGroup.position.z;}
+ else if(S&&(S.heat>=55||S.clock<60)){tx=SAFE.x;tz=SAFE.z;col=0x3fb97f;}
+ var showGuide=tx!==null&&dist2(fx,fz,tx,tz)>70;
+ for(var k=0;k<guideChevs.length;k++){var ch=guideChevs[k];
+  if(!showGuide){ch.visible=false;continue;}
+  var f=.16+k*.15,gx=fx+(tx-fx)*f,gzz=fz+(tz-fz)*f;
+  if(dist2(fx,fz,gx,gzz)>430){ch.visible=false;continue;}
+  ch.visible=true;ch.position.set(gx,1.7,gzz);
+  ch.rotation.z=Math.atan2(tx-fx,tz-fz)-Math.PI/2;
+  ch.material.color.setHex(col);
+  ch.material.opacity=.42+.33*Math.sin(gameT*5-k*.9);
+ }
+}
 /* player marker: soft shadow + gold ground ring so the player always reads against road/buildings */
 var pMark=new THREE.Group();
 var pShadow=new THREE.Mesh(new THREE.CircleGeometry(19,20),new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:.34,depthWrite:false}));
@@ -2811,6 +2978,38 @@ function updateHUD(){
  document.body.classList.toggle('driving',!footMode);
  var hpf=$('hpFill');if(hpf){hpf.style.width=clamp(S.hp,0,100)+'%';hpf.classList.toggle('low',S.hp<=30);}
  var cf=$('carFill');if(cf)cf.style.width=clamp(100-S.carDamage,0,100)+'%';
+ updateFixAHud(nearSafe);
+}
+/* ================= FIX A HUD: TASKS panel + speed cluster + collapsibles =================
+   Presentation/relocation only: every button below is the ORIGINAL element with its
+   ORIGINAL handler — endDayBtn and the Safe House button are moved (appendChild),
+   never recreated, so endDay()/openScreen('safe') fire exactly as before. */
+var tasksCache='';
+(function(){
+ var ta=$('tasksActions');
+ if(ta){ta.appendChild($('endDayBtn'));if(typeof safeBtn!=='undefined'&&safeBtn)ta.appendChild(safeBtn);}
+ $('tasksHead').onclick=function(){document.body.classList.toggle('tasks-collapsed');$('tasksChev').textContent=document.body.classList.contains('tasks-collapsed')?'▸':'▾';};
+ $('objToggle').onclick=function(){var c=document.body.classList.toggle('obj-collapsed');$('objToggle').textContent=c?'▸':'▾';};
+})();
+function updateFixAHud(nearSafe){
+ if(!S)return;
+ /* speed / status cluster — mph() is the game's own honest conversion (speedNow()*.28);
+    car HP is the real damage state (100 - S.carDamage). No fuel: the game has none. */
+ if(!footMode){$('spdVal').textContent=Math.round(mph());
+  var chp=Math.round(clamp(100-S.carDamage,0,100));$('spdCarHp').textContent=chp+'%';$('spdCarBar').style.width=chp+'%';$('spdCarBar').style.background=chp<=30?'var(--red)':'var(--green)';}
+ else{var fhp=Math.round(clamp(S.hp,0,100));$('spdFootHp').textContent=fhp+'%';$('spdFootBar').style.width=fhp+'%';$('spdFootBar').style.background=fhp<=30?'var(--red)':'var(--green)';}
+ /* TASKS checklist — drawn from real game state only */
+ var items=[];
+ if(job){items.push({t:'Wait for the Line',st:'done'});
+  items.push({t:'Drop: '+PROD[job.product].label+' ×'+job.qty+' → '+job.spot.street+', '+job.area.short+' · '+Math.ceil(job.timeLeft)+'s · £'+job.payout,st:'now'});}
+ else if(ringing){items.push({t:'Answer the Line — it\u2019s ringing',st:'now'});items.push({t:'Make a sale',st:'todo'});}
+ else{items.push({t:'Wait for the Line',st:'now'});items.push({t:'Make a sale',st:S.drops>0?'done':'todo'});}
+ if(sideJob)items.push({t:'Side job: '+JOB_NAMES[sideJob.type]+' — follow the teal pin',st:'now'});
+ items.push({t:'Keep Heat low ('+Math.round(S.heat)+'%)',st:S.heat<45?'done':(S.heat>=75?'warn':'todo')});
+ if(nearSafe)items.push({t:'At the safe house — lay low or end the day',st:'done'});
+ var key=items.map(function(i){return i.st+':'+i.t;}).join('|');
+ if(key!==tasksCache){tasksCache=key;
+  $('taskList').innerHTML=items.map(function(i){return '<li class="'+i.st+'"><span class="box">'+(i.st==='done'?'✓':(i.st==='warn'?'!':''))+'</span><span>'+i.t+'</span></li>';}).join('');}
 }
 
 /* ================= CAR FILE (garage paperwork + ANPR records) ================= */
@@ -3561,13 +3760,19 @@ function updateOcclusion(dt){
   for(var i=0;i<bMeshes.length;i++){
    var e=bMeshes[i];e.occ=false;
    if(e.z+(e.hd-5)<=fz)continue; /* building entirely north of the player can never block a due-south camera */
+   /* FIX A retune for the closer rig (camera height 228–318, sitting at most ~273
+      units south of the player): a building whose south face is further south than
+      the camera itself can never enter the sight line — skip it outright. */
+   if(e.z+e.hd>fz+285)continue;
    var t=segBoxT(cx,cz,dx,dz,e);
    if(t>=0&&segT0<1){
     /* the sight line descends toward the player, so its lowest point inside the footprint
        is at the exit face: if it is below roof height there, the line passes through the
-       building (south face or roof) before reaching the player */
+       building (south face or roof) before reaching the player. FIX A: +5 clearance —
+       at the closer, lower rig the effective angle over a roof edge is shallower, so
+       near-miss buildings fade too instead of crowding the player's silhouette. */
     var rayY=cy+(10-cy)*t; /* sight line aimed at the player's mid-body (y=10) */
-    if(rayY<e.top)e.occ=true;
+    if(rayY<e.top+5)e.occ=true;
    }
   }
  }
@@ -3610,18 +3815,18 @@ function loop(ms){
   /* camera follows foot or car */
   var fx=footMode?footMode.x:player.x,fz=footMode?footMode.z:player.z;
   var spd=footMode?0:speedNow();
-  var zoom=CAM_H_FOOT+clamp(spd/340,0,1)*CAM_H_SPEED;
+  var zoom=clamp(CAM_H_FOOT+clamp(spd/340,0,1)*CAM_H_SPEED,CAM_H_MIN,CAM_H_MAX);
   camPos.x+=(fx-camPos.x)*Math.min(1,dt*5);camPos.z+=(fz-camPos.z)*Math.min(1,dt*5);
   shake=Math.max(0,shake-dt*30);
   var shx=(Math.random()-.5)*shake,shz=(Math.random()-.5)*shake;
   if(spd>290)shx+=(Math.random()-.5)*3;
   camPlace(camPos.x+shx,camPos.z+shz,zoom);
   updateOcclusion(dt);
-  /* player marker tracks the focus point; place labels fade as the camera pulls back */
+  /* player marker tracks the focus point; FIX A markers: distance-scaled, fading,
+     decluttered pin labels + objective guide chevrons (see updateMarkers) */
   pMark.position.set(fx,0,fz);
   var psc=footMode?0.72:1.45;pMark.scale.set(psc,1,psc);
-  var lblOp=clamp(1-(zoom-CAM_H_FOOT)/320,.45,1);
-  for(var li=0;li<placeLabels.length;li++)placeLabels[li].material.opacity=lblOp;
+  updateMarkers(fx,fz);
   /* bubble + rival hp projection */
   if(bubbleTarget){bubbleT-=dt;var v=new THREE.Vector3();bubbleTarget.getWorldPosition(v);v.y+=34;v.project(camera);
     $('bubble').style.left=((v.x*.5+.5)*window.innerWidth)+'px';$('bubble').style.top=((-v.y*.5+.5)*window.innerHeight)+'px';
