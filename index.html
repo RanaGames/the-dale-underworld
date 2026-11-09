@@ -118,6 +118,20 @@
   .pedal.held{background:var(--gold);color:#14100a;}
   #attackBtn{background:#8c2b2e;color:#fff;font-size:20px;padding:14px 22px;display:none;}
   #attackBtn.ready{display:block;background:#c23338;}
+  /* F3: stamina bar — a second thin row in the hp dock, same chip language
+     (gold fill: effort, not health); flashes red when a dodge is denied
+     for low stamina */
+  #hpDock .stamRow{margin-top:3px;}
+  #stamOuter{flex:1;height:4px;background:rgba(255,255,255,.13);border-radius:2px;overflow:hidden;}
+  #stamFill{height:100%;width:100%;background:var(--gold);transition:width .15s;}
+  #stamFill.low{background:#c97b2d;}
+  #stamOuter.deny{animation:stamDeny .32s ease-out;}
+  @keyframes stamDeny{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,0);}50%{box-shadow:0 0 0 3px rgba(229,72,77,.85);}}
+  /* F3: Block (hold) / Dodge (tap) — join the fight cluster only while
+     body.f3fight (on foot, hostiles live); driving controls untouched */
+  #blockBtn,#dodgeBtn{display:none;font-size:15px;padding:11px 16px;touch-action:none;}
+  body.f3fight #blockBtn,body.f3fight #dodgeBtn{display:block;}
+  #blockBtn.held,#dodgeBtn.held{background:var(--gold);color:#14100a;}
   body.driving:not(.combat) #weaponBtn{display:none;}
   #rivalHp{position:absolute;display:none;background:rgba(0,0,0,.65);border-radius:4px;padding:2px 6px;font-size:12px;transform:translate(-50%,-100%);white-space:nowrap;}
   #toast{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);background:var(--plate);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:10px 18px;font-family:'Barlow Condensed';font-size:22px;font-weight:600;letter-spacing:.04em;display:none;text-align:center;max-width:88vw;}
@@ -567,6 +581,7 @@
   </div>
   <div id="hpDock">
     <div class="hpRow"><span class="hpLbl">HP</span><div id="hpOuter"><div id="hpFill"></div></div></div>
+    <div class="hpRow stamRow"><span class="hpLbl">ST</span><div id="stamOuter"><div id="stamFill"></div></div></div>
     <div id="carOuter"><div id="carFill"></div></div>
   </div>
 
@@ -584,6 +599,8 @@
   <div id="stick"><div id="stickKnob"></div></div>
   <div id="fightBtns">
     <button class="btn" id="attackBtn">Attack</button>
+    <button class="btn ghost" id="blockBtn">Block</button>
+    <button class="btn ghost" id="dodgeBtn">Dodge</button>
     <button class="btn ghost" id="weaponBtn" style="font-size:14px;padding:9px 13px;">Switch Weapon</button>
     <button class="btn ghost" id="sprintBtn" style="font-size:14px;padding:9px 13px;">Run</button>
     <button class="btn ghost" id="shopBtn" style="font-size:14px;padding:9px 13px;">Buy Bat · £150</button>
@@ -1005,6 +1022,14 @@ function sfx(name){
  if(name==='hit'){beep(180,0,.08,'square',.14);beep(90,.05,.12,'square',.1);}
  if(name==='crash'){beep(120,0,.2,'sawtooth',.16);beep(70,.08,.3,'sawtooth',.12);}
  if(name==='skid'){beep(1400,0,.1,'sawtooth',.02);}
+}
+function sfxHit(idx,wk){
+ /* F2: the hit voice steps DOWN the chain (1 bright, 2 lower, finisher a
+    low thump) and shifts character per weapon — same Web Audio beep kit,
+    no new assets. Direction is carried by the knockback, not the pan. */
+ if(wk==='bat'){beep(idx===2?95:135,0,.1,'triangle',.16);beep(60,.04,.15,'sine',.12);}
+ else if(wk==='knife'){beep(idx===2?680:920,0,.05,'sawtooth',.07);beep(300,.03,.06,'square',.06);}
+ else{beep(idx===2?120:(idx===1?160:190),0,.08,'square',.14);if(idx===2)beep(70,.03,.15,'square',.12);}
 }
 
 /* ================= HELPERS ================= */
@@ -2427,8 +2452,16 @@ function animateFigure(fig,dt,speed,run,dive){
    u.armR.fore.rotation.x=.32+Math.max(0,-s1)*.3;
    u.body.rotation.y*=Math.max(0,1-dt*10);
  }
+ /* F2 stagger wobble: stagT is set from combat state (combatReact /
+    combatPlayerHit) — a recoiling rock that settles as the timer runs
+    out; presentation only, the logic timers live on the character. */
+ if(u.stagT>0){u.stagT-=dt;u.body.rotation.z=Math.sin(u.stagT*38)*.13*Math.min(1,u.stagT*3);u.body.rotation.x-=.16;}
+ else if(u.body.rotation.z)u.body.rotation.z*=Math.max(0,1-dt*10);
  u.armL.sh.rotation.x=sw2*(run?.95:.75);
  u.armL.fore.rotation.x=.32+Math.max(0,-s2)*.3;
+ /* F3 block pose: both forearms raised across the body while combat state
+    says blocking (userData.blk is presentation only, set from combat) */
+ if(u.blk&&!atk){u.armL.sh.rotation.x=-1.85;u.armL.fore.rotation.x=-.55;u.armR.sh.rotation.x=-1.7;u.armR.fore.rotation.x=-.75;}
  /* dive pose amount eases in/out */
  u.diveAmt+=((dive?1:0)-u.diveAmt)*Math.min(1,dt*11);
  var targetLean=u.diveAmt>0.03?-1.15*u.diveAmt:-(run?.17:(sp>4?.06:0));
@@ -2436,6 +2469,13 @@ function animateFigure(fig,dt,speed,run,dive){
  u.body.rotation.x=u.lean;
  u.body.position.y=u.diveAmt*-4.6+(sp>4?Math.abs(Math.cos(u.phase))*(run?1.05:.55):Math.sin(gameT*1.9+u.seed)*.16);
  u.torso.scale.y=1+Math.sin(gameT*1.9+u.seed)*.012;
+ /* F4 telegraph pose: teleT (0..1 wind-up progress from the enemy AI's
+    prepare state) rears the figure back — chest leaned away, both arms
+    cocked high, a slight crouch — a silhouette readable from directly
+    above that deepens as the strike nears, distinct from the forward
+    swing (atkT) and the crossed-forearm block (blk). Presentation
+    only; the brain owns the timer. */
+ if(u.teleT>0){var tp=Math.min(1,u.teleT);u.body.rotation.x-=.42*tp;u.armR.sh.rotation.x=-.5-2.1*tp;u.armR.fore.rotation.x=-.95*tp;u.armL.sh.rotation.x=-.4-1.8*tp;u.armL.fore.rotation.x=-.85*tp;u.body.position.y-=1.3*tp;}
 }
 
 /* ================= PHASE 3 — ROADS & ENVIRONMENT (presentation only) =================
@@ -2971,6 +3011,7 @@ var shopBtn,lotBtn,safeBtn;
  $('safeEndDay').onclick=function(){closeScreens();endDay();};
 })();
 function openScreen(which){
+ if(typeof combatClearInputs==='function')combatClearInputs(); /* F1: any menu open clears queued/held combat inputs */
  S.paused=true;renderScreens(which);
  $('shopScreen').classList.toggle('on',which==='shop');
  $('lotScreen').classList.toggle('on',which==='lot');
@@ -3054,6 +3095,7 @@ var stickVec={x:0,y:0};
  $('drawerBtn').onclick=function(){document.body.classList.toggle('drawer-open');};
  $('exitCarBtn').onclick=function(){if(!S||!S.playing||footMode||S.paused)return;if(speedNow()>15){toast('Too fast to get out');return;}enterFoot(player.x+Math.cos(player.h)*24,player.z+Math.sin(player.h)*24,'roam');toast('On foot — walk back to the car to get in');};
  window.addEventListener('keydown',function(e){input.keys[e.key.toLowerCase()]=true;if(e.key===' ')input.keys.space=true;if(['arrowup','arrowdown','arrowleft','arrowright',' '].indexOf(e.key)>=0)e.preventDefault();
+   if(e.key===' '&&!e.repeat&&typeof combatPressDodge==='function')combatPressDodge(); /* F3: Space = dodge — combatPressDodge self-gates to ON FOOT only; in a car it returns at once and the key still reaches the driving block as handbrake (input.keys.space above, driving code untouched) */
    if((e.key==='f'||e.key==='F')&&S&&S.playing){if(!footMode){var eb=$('exitCarBtn');if(eb)eb.click();}else tryAttack();}
    /* E = Enter/Exit vehicle (Stage A §4): unified with the F exit path —
       while driving it routes through the SAME exitCarBtn handler (speed
@@ -3073,12 +3115,53 @@ var stickVec={x:0,y:0};
      }
    }
    if((e.key==='h'||e.key==='H')&&typeof hornBtn!=='undefined'&&hornBtn)hornBtn.click();
-   if((e.key==='q'||e.key==='Q')&&S&&S.playing)cycleWeapon();});
+   if((e.key==='q'||e.key==='Q')&&S&&S.playing){/* F1: Q cycles the soft-target lock while hostiles are live on foot; out of combat it keeps its v24 job (weapon cycle) — no binding removed */
+     if(footMode&&typeof combatCycleTarget==='function'&&combatCycleTarget()){}else cycleWeapon();}});
  window.addEventListener('keyup',function(e){input.keys[e.key.toLowerCase()]=false;if(e.key===' ')input.keys.space=false;});
- $('attackBtn').addEventListener('pointerdown',function(e){e.preventDefault();tryAttack();});
+ /* F1: attack button on Pointer Events WITH pointer capture — the same
+    discipline as the v24 pedal fix — so a move-stick touch and an attack
+    touch register together (multi-touch) and the press survives the
+    pointer drifting off the button. pointerdown fires the press into the
+    combat state machine (via tryAttack); up/cancel/capture-loss only
+    release the held flag. */
+ (function(){var ab=$('attackBtn'),abPid=null;
+  ab.addEventListener('pointerdown',function(e){e.preventDefault();abPid=e.pointerId;try{ab.setPointerCapture(abPid);}catch(err){} if(typeof combat!=='undefined')combat.heldAtk=true; tryAttack();});
+  function abEnd(e){if(abPid!==null&&e.pointerId!==undefined&&e.pointerId!==abPid)return;abPid=null;if(typeof combat!=='undefined')combat.heldAtk=false;}
+  ab.addEventListener('pointerup',abEnd);ab.addEventListener('pointercancel',abEnd);ab.addEventListener('lostpointercapture',abEnd);})();
+ /* F3: Block (hold) + Dodge (tap) buttons — the SAME pointer-capture
+    discipline as the attack button and the v24 pedals, each tracking its
+    own pointer id, so stick + Attack + Block held together all register
+    (full multitouch). Block is a held input into combat.blockHeld;
+    blocking itself is derived by the combat state machine. */
+ (function(){var bb=$('blockBtn'),bbPid=null;
+  bb.addEventListener('pointerdown',function(e){e.preventDefault();bbPid=e.pointerId;try{bb.setPointerCapture(bbPid);}catch(err){} bb.classList.add('held');if(typeof combat!=='undefined')combat.blockHeld=true;});
+  function bbEnd(e){if(bbPid!==null&&e.pointerId!==undefined&&e.pointerId!==bbPid)return;bbPid=null;bb.classList.remove('held');if(typeof combat!=='undefined')combat.blockHeld=false;}
+  bb.addEventListener('pointerup',bbEnd);bb.addEventListener('pointercancel',bbEnd);bb.addEventListener('lostpointercapture',bbEnd);
+  var db=$('dodgeBtn'),dbPid=null;
+  db.addEventListener('pointerdown',function(e){e.preventDefault();dbPid=e.pointerId;try{db.setPointerCapture(dbPid);}catch(err){} db.classList.add('held');if(typeof combatPressDodge==='function')combatPressDodge();});
+  function dbEnd(e){if(dbPid!==null&&e.pointerId!==undefined&&e.pointerId!==dbPid)return;dbPid=null;db.classList.remove('held');}
+  db.addEventListener('pointerup',dbEnd);db.addEventListener('pointercancel',dbEnd);db.addEventListener('lostpointercapture',dbEnd);})();
+ /* F3 DESKTOP MOUSE: left button = attack, right button (held) = block,
+    on the game canvas only (HUD buttons sit above the canvas and never
+    reach this listener). The context menu is suppressed over the page
+    while playing so a held right button never pops it mid-fight. All
+    additive — every pre-existing binding (F attack, Q, WASD, Space
+    handbrake in the car) keeps working exactly as before. */
+ (function(){var cv=renderer.domElement;
+  cv.addEventListener('mousedown',function(e){
+   if(!S||!S.playing||S.paused||!footMode)return;
+   if(typeof phoneOpen!=='undefined'&&phoneOpen)return;
+   if(document.querySelector('.screen.on'))return;
+   if(e.button===0)tryAttack();
+   else if(e.button===2&&typeof combat!=='undefined')combat.blockHeld=true;
+  });
+  window.addEventListener('mouseup',function(e){if(e.button===2&&typeof combat!=='undefined')combat.blockHeld=false;});
+  window.addEventListener('blur',function(){if(typeof combat!=='undefined')combat.blockHeld=false;});
+  document.addEventListener('contextmenu',function(e){if(S&&S.playing)e.preventDefault();});
+ })();
  $('weaponBtn').onclick=function(){cycleWeapon();};
  $('shopBtn').onclick=function(){ if(S.cash>=WEAPONS.bat.price&&!S.ownedWeapons.bat){S.cash-=WEAPONS.bat.price;S.ownedWeapons.bat=true;toast('Bought Baseball Bat');updateHUD();} else if(S.ownedWeapons.bat){toast('Bat already owned');} else toast('Bat costs £150'); };
- $('pauseBtn').onclick=function(){if(!S.playing)return;S.paused=true;$('pauseScreen').classList.add('on');};
+ $('pauseBtn').onclick=function(){if(!S.playing)return;if(typeof combatClearInputs==='function')combatClearInputs();S.paused=true;$('pauseScreen').classList.add('on');};
  $('resumeBtn').onclick=function(){S.paused=false;$('pauseScreen').classList.remove('on');};
  $('restartBtn').onclick=function(){$('pauseScreen').classList.remove('on');startDay(true);};
  $('muteBtn').onclick=function(){S.muted=!S.muted;$('muteBtn').textContent=S.muted?'Sound: Off':'Sound: On';if(engGain)engGain.gain.value=0;};
@@ -3091,22 +3174,797 @@ function cycleWeapon(){
  var i=owned.indexOf(S.weapon);S.weapon=owned[(i+1)%owned.length];
  toast('Weapon: '+WEAPONS[S.weapon].name);updateHUD();
 }
-function tryAttack(){
- if(!S||!S.playing||S.paused||!rival||rival.down)return;
- if(S.atkCd>0)return;
- var d=dist2(player.x,player.z,rival.x,rival.z);
- if(d>95){toast('Too far — get close to swing');return;}
- var w=WEAPONS[S.weapon];S.atkCd=w.cd;
- if(player.fig)player.fig.userData.atkT=.32;
- rival.hp-=w.dmg;sfx('hit');
- var ang=Math.atan2(rival.x-player.x,rival.z-player.z);
- rival.x+=Math.sin(ang)*w.knock;rival.z+=Math.cos(ang)*w.knock;
- addHeat(w.heat);addTension(rival.areaId,w.tension);
- toast(WEAPONS[S.weapon].name+' hit! Rival HP '+Math.max(0,Math.round(rival.hp)));
- if(rival.hp<=0){rival.down=true;rival.downT=3;toast('He\u2019s down — interception cleared!');addTension(rival.areaId,4);setTimeout(function(){},0);}
+/* ================= F1 — GTA FIGHTING OVERHAUL · STAGE F1 =================
+   TARGETING + ONE RELIABLE PUNCH. This EXTENDS the v24 melee (same WEAPONS
+   table, same damage/heat/tension numbers, same win/loss wiring in
+   updateCombat/robbery/fightersDown) — it replaces only HOW a player swing
+   is aimed, timed and resolved. Combat LOGIC lives here; the procedural
+   figure animation stays in animateFigure, driven from state via the same
+   fig.userData.atkT hook the v24 code used. All updates are delta-time.
+   F2 (combos/reactions), F3 (defence/stamina) and F4 (group AI) extend the
+   COMBAT config block and this state machine — no parallel system.
+   F2 (this build): the swing is now chain hit 1/2/3 from COMBAT.chain —
+   per-hit phase fractions + damage/knockback multipliers on the frozen
+   WEAPONS row, fed by the same one-deep buffer; landed hits drive
+   combatReact (stagger, collision-checked knockback, finisher knockdown,
+   stun-cap immunity) on enemies, and enemy hits route through
+   combatPlayerHit, the exact mirror for the player (interrupt rule is
+   stated on that function). Hit-pause freezes only the combatant pair.
+   F3 (this build): DEFENCE + STAMINA in the same machine — a held BLOCK
+   state (frontal ~120° arc, chip damage, heavy hits add blockstun and
+   real pushback, rear arc unprotected), a DODGE step (i-frames, cooldown,
+   recovery/block cancel only) and one stamina pool per combatant (swing /
+   block-impact / dodge costs, delayed regen, low-stamina slow attacks +
+   weakened block; movement never gated). combatPlayerHit now returns the
+   EFFECTIVE damage so callers apply chip verbatim.
+   F4 (this build): GROUP AI + POLISH — every enemy (rival + crash-fight
+   fighters) is driven by ONE explicit state machine (combatBrain:
+   approach / circle / prepare / attack / recover / defend / stagger /
+   retreat / regroup) on top of the shipped F1–F3 mechanics: strikes
+   resolve through combatPlayerHit after a telegraphed wind-up, movement
+   through combatKnockSlide, defence through the o.blocking flag F3
+   built. Engagement TOKENS cap simultaneous attackers at two and a
+   global strike gap staggers their blows; per-archetype variance
+   (crew vs thug) tunes aggression, reaction and stamina pool size.
+   Mates fight under the same token discipline against their targets.
+   Fight outcome wiring is untouched: wins and losses still resolve
+   exactly where they did in v27. */
+var COMBAT={
+ acquireRange:150,   /* soft-target acquisition range (world units) */
+ acquireArc:2.4,     /* acquisition facing arc, radians total (~137°) */
+ lockRange:175,      /* an existing lock is dropped beyond this range */
+ hitRange:62,        /* punch reach: contact-arc radius from player centre */
+ hitArc:1.9,         /* attack arc, radians total (~109°), centred on facing */
+ stepInMin:30,       /* step-in band: swings start a step-in when the target */
+ stepInMax:96,       /*   is farther than hitRange-14 and at most this far */
+ stepInDist:46,      /* max distance one step-in may travel */
+ bufferWindow:.5,    /* seconds a queued follow-up press stays valid */
+ /* ---- F2: THREE-HIT CHAIN (left → right → FINISHER). Per weapon, per hit:
+    ph = [startup, contact, recovery] as fractions of the weapon's cd (the
+    F1 phase fractions, now per-hit); dmg/knock are MULTIPLIERS on the
+    frozen WEAPONS row, so the table's numbers never move and the chain
+    carries each weapon's character. Hits 1-2 quick; the finisher winds up
+    slower, hits hardest, knocks furthest and leaves the longest recovery
+    (the commitment that F3 defence will punish on a miss). ---- */
+ chainWindow:1.1,    /* s after a swing ends with no follow-up press: chain resets to hit 1 */
+ chain:{
+  fists:[ /* cd .45 → swings .45/.45/.70 s; dmg 12/13.5/22.5; knock 3.5/4.2/14 */
+   {ph:[.26,.22,.52],dmg:.80,knock:.50,stag:.26},
+   {ph:[.26,.22,.52],dmg:.90,knock:.60,stag:.26},
+   {ph:[.42,.28,.85],dmg:1.50,knock:2.00,stag:.45}],
+  bat:[ /* cd .8 → swings .96/.96/1.44 s; dmg 20.25/22.95/39.15; knock 9/10.8/32.4 — slow, huge shove */
+   {ph:[.34,.24,.62],dmg:.75,knock:.50,stag:.30},
+   {ph:[.34,.24,.62],dmg:.85,knock:.60,stag:.30},
+   {ph:[.50,.30,1.00],dmg:1.45,knock:1.80,stag:.50}],
+  knife:[ /* cd .65 → swings .40/.40/.65 s; dmg 33.6/37.8/58.8; knock 2/2.4/8 — fastest chain of the three, Heat/Tension stay the table's */
+   {ph:[.18,.16,.28],dmg:.80,knock:.50,stag:.22},
+   {ph:[.18,.16,.28],dmg:.90,knock:.60,stag:.22},
+   {ph:[.28,.22,.50],dmg:1.40,knock:2.00,stag:.40}]
+ },
+ /* ---- F2: HIT REACTIONS (player and enemies, same rules) ---- */
+ kdHpFrac:.35,       /* knockdown gate: a FINISHER that leaves the target alive at <=35% of max HP... */
+ kdChance:.5,        /* ...knocks them down on this roll. Hits 1-2 NEVER knock down. */
+ kdDownTime:1.6,     /* s spent downed before getting up */
+ kdProtect:.9,       /* s of full protection after standing: hits do nothing at all */
+ stunCap:3,          /* consecutive staggers (no gap) that trip hitstun immunity */
+ stunImmune:1.2,     /* s of stagger/knockback/knockdown immunity after the cap; damage still lands */
+ stunGap:.6,         /* s without being staggered before the consecutive counter resets */
+ hitStop:[.05,.05,.09], /* s of hit-pause per chain hit, finisher longest — freezes ONLY the two combatants */
+ shakeFin:3.5,       /* camera shake added on a finisher connect (existing shake channel; hits 1-2: none) */
+ enemyHeavyEvery:3,  /* every 3rd enemy swing is HEAVY class: breaks finisher poise, can knock the player down */
+ enemyKnock:{light:6,heavy:13}, /* enemy knockback on the player, world units */
+ enemyStag:{light:.30,heavy:.45}, /* enemy stagger inflicted on the player, seconds */
+ /* ---- F3: DEFENCE + STAMINA (same state machine; block/dodge are states
+    and timers on the combat object / enemy objects, never a parallel
+    system). Block is a HELD state: while block is held and the swing
+    machine is idle the combatant is BLOCKING — frontal arc only. An
+    attack press exits block straight into the swing; a dodge press
+    cancels out of block freely. Movement while blocking is scaled to
+    blockMoveFrac of the input vector by the combat layer in updateGame
+    (the walker's own constants are untouched, and stamina NEVER touches
+    movement — walking/running/sprinting cost nothing at any pool level).
+    Dodge cancels a swing out of RECOVERY only (never startup/contact,
+    never hitstun/knockdown); Space is dodge ONLY on foot — in a car the
+    key still reaches the untouched driving block as handbrake. ---- */
+ blockArc:2.09,        /* frontal block arc, radians total (~120°) centred on facing; the rear arc is fully unprotected */
+ blockChip:.20,        /* fraction of a frontal LIGHT hit's damage that lands through a block (chip) — no stagger, small pushback */
+ blockChipHeavy:.40,   /* fraction of a frontal HEAVY hit (enemy heavy swing / a FINISHER against a blocking enemy) that lands */
+ blockStunHeavy:.35,   /* s of blockstun after blocking a heavy hit: the blocker cannot start a swing (dodge still allowed) */
+ blockKnock:{light:3,heavy:12}, /* pushback ON THE BLOCKER when a frontal hit is blocked, world units */
+ blockMoveFrac:.45,    /* movement input scale while blocking (<= walking speed; sprint-block stays under plain walk) */
+ blockRegenFrac:.25,   /* stamina regen runs at this fraction of the normal rate while block is held */
+ dodgeDist:64,         /* world units travelled by one dodge step */
+ dodgeTime:.22,        /* s the dodge step takes */
+ dodgeIFrames:.30,     /* s of invulnerability from the dodge press (covers the step + a beat) */
+ dodgeCd:.65,          /* s cooldown before the next dodge */
+ stamMax:100,          /* one pool per combatant: the player (combat.stam) and every enemy (o.stam) */
+ stamSwing:[6,7,10],   /* stamina cost per swing, by chain index (enemies pay [0], or [2] on a heavy swing) */
+ stamBlock:6,          /* stamina the BLOCKER pays per blocked impact */
+ stamDodge:18,         /* stamina cost of one dodge; below this a dodge fails (bar flashes — no partial step) */
+ stamRegenDelay:1.0,   /* s after the last spend before regen starts */
+ stamRegen:26,         /* stamina per second once regen is running */
+ lowStamFrac:.25,      /* below 25% of the pool the combatant is LOW on stamina */
+ lowStamSlow:1.35,     /* attack phase durations x1.35 while low (player swing phases; enemy swing cadence alike) */
+ lowStamChipAdd:.20,   /* chip fractions rise by +.20 while the BLOCKER is low (block weakens) */
+ /* ---- F4: ENEMY GROUP AI (the brain lives below updateCombatF1; it
+    drives the SAME combat functions the player uses — combatPlayerHit
+    for strikes, combatKnockSlide for movement, combatSpendStamE for
+    costs, combatBlockChip via o.blocking for defence. There is no
+    AI-only damage path.) Archetypes: 'crew' = the rival interceptor
+    (drawn from a named gang — tougher, meaner), 'thug' = crash-fight
+    fighters (random lads piling out of a motor). ---- */
+ aiTokens:2,           /* max enemies holding an engagement token vs the player at once */
+ aiStrikeGap:.45,      /* min seconds between any two enemy strike RESOLUTIONS on the player */
+ aiTokenBeat:.5,       /* s a freed token rests before it can be re-granted */
+ aiRange:40,           /* a token holder starts its wind-up at/below this range */
+ aiCircleR:82,         /* circling spacing for non-token / cooling-down enemies */
+ aiTelegraph:{crew:.38,thug:.52}, /* PREPARE (wind-up) duration band, s — the readable tell */
+ aiRecoverT:.40,       /* post-swing RECOVER vulnerability, s */
+ aiCd:{crew:.55,thug:.85},        /* post-recover cooldown before the next wind-up (aggression) */
+ aiDefend:{crew:.45,thug:.25},    /* chance a cued enemy reacts to your swing: block (70%) or dodge step (30%) */
+ aiReact:{crew:.16,thug:.26},     /* s after your swing starts before that defend roll resolves */
+ aiBlockHold:.70,      /* s an AI block stays raised in the defend state */
+ aiDodgeStep:52,       /* distance of an AI dodge step (collision-checked slide) */
+ aiRetreatHp:.30,      /* retreat at/below this fraction of max HP (once per enemy — cornered after) */
+ aiRetreatStam:15,     /* retreat/regroup at/below this stamina (repeatable — the breathing rhythm) */
+ aiRetreatDist:170,    /* retreat until at least this far from the player */
+ aiRegroupStam:65,     /* regroup ends (token-eligible again) at this stamina */
+ aiStamMax:{crew:120,thug:90},    /* per-archetype stamina pool size */
+ aiSpeed:{crew:168,thug:158},     /* approach speed — the v27 approach speeds, unchanged */
+ aiMateWindow:1.0      /* mate token discipline: at most 2 mate strikes per target inside this window */
+};
+var combat={target:null,phase:'idle',t:0,phaseT:0,hitReg:null,buffered:false,bufferT:0,heldAtk:false,swingId:0,
+ chainIdx:0,chainT:0,curIdx:0,curHit:null,hitStopT:0,hitStopPair:null,
+ /* F3: defence + stamina state (player side; enemies carry stam/blockStunT
+    on their own objects). phaseMul is the low-stamina phase stretch,
+    latched at swing start. blocking is DERIVED each tick from blockHeld. */
+ blockHeld:false,blocking:false,blockStunT:0,dodgeT:0,dodgeCdT:0,iT:0,dodgeDir:{x:0,z:-1},
+ stam:COMBAT.stamMax,stamIdleT:99,phaseMul:1};
+/* F2: the PLAYER's reaction state — same fields/rules as an enemy's
+   (staggerT, kdT, protectT, stunN, stunImmuneT, stagGapT live on the
+   enemy objects themselves; the player's live here). */
+var pReact={staggerT:0,kdT:0,protectT:0,stunN:0,stunImmuneT:0,stagGapT:0};
+var targetRing=null;
+function combatHostiles(){
+ var list=[];
+ if(rival&&!rival.down&&rival.hp>0)list.push({o:rival,isRival:true});
+ if(typeof fighters!=='undefined')fighters.forEach(function(f){if(!f.down&&f.hp>0)list.push({o:f,isRival:false});});
+ return list;
+}
+function combatHasHostiles(){return combatHostiles().length>0;}
+/* line of sight against the EXISTING buildings[] footprints (exact hw/hd —
+   the walls as drawn): segment vs AABB slab test. No locks, no hits
+   through walls, ever. */
+function combatLOS(x1,z1,x2,z2){
+ var dx=x2-x1,dz=z2-z1;
+ for(var i=0;i<buildings.length;i++){var b=buildings[i];
+  var t0=0,t1=1,ok=true;
+  if(Math.abs(dx)<1e-9){if(x1<b.x-b.hw||x1>b.x+b.hw)ok=false;}
+  else{var ta=(b.x-b.hw-x1)/dx,tb=(b.x+b.hw-x1)/dx;if(ta>tb){var tt=ta;ta=tb;tb=tt;}if(ta>t0)t0=ta;if(tb<t1)t1=tb;if(t0>t1)ok=false;}
+  if(ok){if(Math.abs(dz)<1e-9){if(z1<b.z-b.hd||z1>b.z+b.hd)ok=false;}
+   else{var tc=(b.z-b.hd-z1)/dz,td=(b.z+b.hd-z1)/dz;if(tc>td){var te=tc;tc=td;td=te;}if(tc>t0)t0=tc;if(td<t1)t1=td;if(t0>t1)ok=false;}}
+  if(ok&&t1>0&&t0<1)return false; /* segment crosses this building */
+ }
+ return true;
+}
+function combatFaceAng(){ /* player facing as an atan2(x,z) heading */
+ if(footMode&&footMode.h!==undefined)return footMode.h-Math.PI;
+ return player.fig?player.fig.rotation.y-Math.PI:0;
+}
+function combatAngDiff(a,b){var d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return d;}
+function combatValid(h,range){
+ if(!h||h.o.down||h.o.hp<=0)return false;
+ var d=dist2(player.x,player.z,h.o.x,h.o.z);
+ if(d>range)return false;
+ return combatLOS(player.x,player.z,h.o.x,h.o.z);
+}
+function combatAcquire(){
+ /* nearest hostile inside the facing arc (point-blank counts in any
+    direction), unobstructed — the acquisition rule the lock, the Q cycle
+    fallbacks and the mobile attack-press re-aim all share. */
+ var face=combatFaceAng(),best=null,bd=1e9;
+ combatHostiles().forEach(function(h){
+  if(!combatValid(h,COMBAT.acquireRange))return;
+  var d=dist2(player.x,player.z,h.o.x,h.o.z);
+  var ad=Math.abs(combatAngDiff(Math.atan2(h.o.x-player.x,h.o.z-player.z),face));
+  if(d>40&&ad>COMBAT.acquireArc/2)return;
+  if(d<bd){bd=d;best=h;}
+ });
+ return best;
+}
+function combatCycleTarget(){
+ /* Q: cycle to the next valid hostile (by bearing around the player).
+    Returns false when there is nothing to cycle between, so the caller
+    can fall back to the v24 weapon cycle. */
+ var list=combatHostiles().filter(function(h){return combatValid(h,COMBAT.lockRange);});
+ if(!list.length){combat.target=null;return false;}
+ if(list.length===1){combat.target=list[0];return true;}
+ list.sort(function(a,b){return Math.atan2(a.o.x-player.x,a.o.z-player.z)-Math.atan2(b.o.x-player.x,b.o.z-player.z);});
+ var idx=-1;for(var i=0;i<list.length;i++)if(combat.target&&list[i].o===combat.target.o)idx=i;
+ combat.target=list[(idx+1)%list.length];
+ return true;
+}
+function combatClearInputs(){
+ combat.buffered=false;combat.bufferT=0;combat.heldAtk=false;
+ combat.chainIdx=0;combat.chainT=0; /* F2: a pause/menu/vehicle break drops the chain */
+ if(combat.phase!=='idle'){combat.phase='idle';combat.t=0;combat.hitReg=null;}
+ /* F3: held block, blockstun, an in-flight dodge and its i-frames all
+    clear on the same breaks (pause / menu / vehicle / blur) */
+ combat.blockHeld=false;combat.blocking=false;combat.blockStunT=0;combat.dodgeT=0;combat.iT=0;
+}
+/* ================= F3 — STAMINA (one pool per combatant) =================
+   Player pool lives on combat.stam; every enemy carries o.stam (+ its own
+   o.stamIdleT). Spends reset the idle timer; regen starts only after
+   COMBAT.stamRegenDelay with no spend, and runs at blockRegenFrac while
+   that combatant's block is held. LOW stamina (< lowStamFrac of the pool)
+   stretches attack phases by lowStamSlow and weakens that combatant's
+   block (chip +lowStamChipAdd). Stamina never gates or slows movement. */
+function combatSpendStam(n){combat.stam=Math.max(0,combat.stam-n);combat.stamIdleT=0;}
+function combatLowStam(){return combat.stam<COMBAT.stamMax*COMBAT.lowStamFrac;}
+function combatEnsureStam(o){if(o.stam===undefined){o.stam=o.stamMax||COMBAT.stamMax;o.stamIdleT=99;}}
+function combatSpendStamE(o,n){combatEnsureStam(o);o.stam=Math.max(0,o.stam-n);o.stamIdleT=0;}
+function combatLowStamE(o){combatEnsureStam(o);return o.stam<(o.stamMax||COMBAT.stamMax)*COMBAT.lowStamFrac;}
+function combatTickStamE(o,dt){
+ combatEnsureStam(o);o.stamIdleT+=dt;
+ var cap=o.stamMax||COMBAT.stamMax; /* F4: per-archetype pool size (o.stamMax set by combatAIInit); default unchanged */
+ if(o.stamIdleT>COMBAT.stamRegenDelay&&o.stam<cap)
+  o.stam=Math.min(cap,o.stam+COMBAT.stamRegen*dt*(o.blocking?COMBAT.blockRegenFrac:1));
+}
+/* F3: is an incoming hit BLOCKED by this defender? Shared by the player
+   (combatPlayerHit) and enemies (combatApplyHit) so the mechanics are
+   literally the same code path: the defender must be blocking and the
+   attacker must stand inside the frontal blockArc around the defender's
+   facing. Returns the chip fraction to apply, or -1 when not blocked
+   (rear arc / not blocking) — the caller then runs the normal F2 path. */
+function combatBlockChip(defBlocking,defX,defZ,defFace,atkX,atkZ,heavy,defLow){
+ if(!defBlocking)return -1;
+ var d=Math.abs(combatAngDiff(Math.atan2(atkX-defX,atkZ-defZ),defFace));
+ if(d>COMBAT.blockArc/2)return -1;
+ var f=heavy?COMBAT.blockChipHeavy:COMBAT.blockChip;
+ if(defLow)f+=COMBAT.lowStamChipAdd;
+ return f;
+}
+function combatMoveVec(){
+ /* the walker's own input mapping (stick + WASD/arrows), read-only —
+    used for the dodge direction so a dodge goes where you'd walk */
+ var mx=stickVec.x,mz=stickVec.y;
+ if(input.keys.w||input.keys.arrowup)mz=-1;if(input.keys.s||input.keys.arrowdown)mz=1;
+ if(input.keys.a||input.keys.arrowleft)mx=-1;if(input.keys.d||input.keys.arrowright)mx=1;
+ var ml=Math.sqrt(mx*mx+mz*mz);if(ml>1){mx/=ml;mz/=ml;}
+ return {x:mx,z:mz};
+}
+function combatPressDodge(){
+ /* F3 DODGE — a quick step in the current movement direction (backward
+    step when stationary) with i-frames. Cancels a swing out of RECOVERY
+    and out of block; NEVER out of startup/contact, hitstun or knockdown.
+    On foot only — this is never called from the driving input path, so
+    Space keeps its handbrake job in the car. */
+ if(!S||!S.playing||S.paused||!footMode)return false;
+ if(typeof phoneOpen!=='undefined'&&phoneOpen)return false;
+ if(combat.hitStopT>0||combat.dodgeT>0||combat.dodgeCdT>0)return false;
+ if(pReact.staggerT>0||pReact.kdT>0)return false; /* no cancelling hitstun/knockdown */
+ if(combat.phase==='startup'||combat.phase==='contact')return false;
+ if(combat.stam<COMBAT.stamDodge){
+  /* denied: subtle cue only — the stamina bar flashes, nothing moves */
+  var so=$('stamOuter');if(so){so.classList.remove('deny');void so.offsetWidth;so.classList.add('deny');}
+  return false;
+ }
+ if(combat.phase==='recovery'){ /* dodge-cancel: the swing ends as if it
+    had finished — the chain pends on the next hit exactly as at a natural
+    swing end, and any buffered press dies with the cancelled recovery */
+  combat.phase='idle';combat.t=0;combat.hitReg=null;combat.buffered=false;
+  combat.chainIdx=combat.curIdx<2?combat.curIdx+1:0;combat.chainT=COMBAT.chainWindow;
+ }
+ var mv=combatMoveVec(),dx=mv.x,dz=mv.z;
+ if(Math.sqrt(dx*dx+dz*dz)<.1){var f=combatFaceAng();dx=-Math.sin(f);dz=-Math.cos(f);}
+ var dl=Math.sqrt(dx*dx+dz*dz);combat.dodgeDir={x:dx/dl,z:dz/dl};
+ combatSpendStam(COMBAT.stamDodge);
+ combat.dodgeT=COMBAT.dodgeTime;combat.iT=COMBAT.dodgeIFrames;combat.dodgeCdT=COMBAT.dodgeCd;
+ return true;
+}
+window.addEventListener('blur',function(){if(typeof combatClearInputs==='function')combatClearInputs();});
+function combatFaceTarget(h){
+ var ang=Math.atan2(h.o.x-player.x,h.o.z-player.z);
+ if(footMode){footMode.h=ang+Math.PI;player.fig.rotation.y=footMode.h;}
+ return ang;
+}
+function combatStepIn(h){
+ /* short collision-checked step toward the target as the punch starts:
+    advances in small increments, stopping at building footprints
+    (footBlocked, the walker's own test), at other people, and short of
+    the target — never through anyone or anything. */
+ var d=dist2(player.x,player.z,h.o.x,h.o.z);
+ var want=Math.min(COMBAT.stepInDist,d-(COMBAT.hitRange-16));
+ if(want<=0)return;
+ var ang=Math.atan2(h.o.x-player.x,h.o.z-player.z),sx=Math.sin(ang),cz=Math.cos(ang);
+ var others=combatHostiles();
+ for(var moved=0;moved<want;moved+=3){
+  var nx=footMode.x+sx*3,nz=footMode.z+cz*3;
+  if(footBlocked(nx,nz))break;
+  var blocked=false;
+  for(var i=0;i<others.length;i++){if(dist2(nx,nz,others[i].o.x,others[i].o.z)<17){blocked=true;break;}}
+  if(blocked)break;
+  footMode.x=nx;footMode.z=nz;
+ }
+ player.x=footMode.x;player.z=footMode.z;
+ player.fig.position.set(footMode.x,0,footMode.z);
+}
+function combatStartSwing(){
+ var w=WEAPONS[S.weapon];
+ var h=combat.target;
+ if(!h||!combatValid(h,COMBAT.lockRange)){h=combatAcquire();combat.target=h;}
+ if(!h){return false;}
+ var d=dist2(player.x,player.z,h.o.x,h.o.z);
+ if(d>COMBAT.stepInMax){toast('Too far — get close to swing');return false;}
+ combatFaceTarget(h);
+ if(h.o.aiInit)combatAIDefendCue(h.o); /* F4: your wind-up is the enemy's defend cue — its reaction timer starts now */
+ if(d>COMBAT.hitRange-14&&d>=COMBAT.stepInMin)combatStepIn(h);
+ combat.swingId++;
+ combat.curIdx=combat.chainIdx; /* F2: this swing IS chain hit curIdx+1 */
+ combat.curHit=COMBAT.chain[S.weapon][combat.curIdx];
+ combatSpendStam(COMBAT.stamSwing[combat.curIdx]); /* F3: every swing costs; at 0 the swing still goes (just slower while low) */
+ combat.phaseMul=combatLowStam()?COMBAT.lowStamSlow:1; /* F3: low-stamina phase stretch, latched for the whole swing */
+ combat.phase='startup';combat.t=0;
+ combat.phaseT=w.cd*combat.curHit.ph[0]*combat.phaseMul;
+ combat.hitReg={};
+ S.atkCd=w.cd; /* same cooldown bookkeeping the v24 swing used */
+ if(player.fig)player.fig.userData.atkT=combat.curIdx===2?.4:.32; /* existing swing-animation hook, driven from combat state; finisher swings wider */
+ return true;
+}
+function combatKnockSlide(o,ang,dist){
+ /* F2: collision-checked knockback — the step-in's incremental discipline:
+    buildings (footBlocked) and other people stop the slide, so nobody is
+    ever knocked through a wall or another character. */
+ var sx=Math.sin(ang),cz=Math.cos(ang),others=combatHostiles();
+ for(var moved=0;moved<dist;){
+  var step=Math.min(3,dist-moved),nx=o.x+sx*step,nz=o.z+cz*step;
+  if(footBlocked(nx,nz))break;
+  var blocked=dist2(nx,nz,player.x,player.z)<17;
+  if(!blocked)for(var i=0;i<others.length;i++){if(others[i].o!==o&&dist2(nx,nz,others[i].o.x,others[i].o.z)<17){blocked=true;break;}}
+  if(blocked)break;
+  o.x=nx;o.z=nz;moved+=step;
+ }
+}
+function combatKnockSlidePlayer(ang,dist){
+ if(!footMode)return;
+ var sx=Math.sin(ang),cz=Math.cos(ang),others=combatHostiles();
+ for(var moved=0;moved<dist;){
+  var step=Math.min(3,dist-moved),nx=footMode.x+sx*step,nz=footMode.z+cz*step;
+  if(footBlocked(nx,nz))break;
+  var blocked=false;
+  for(var i=0;i<others.length;i++){if(dist2(nx,nz,others[i].o.x,others[i].o.z)<17){blocked=true;break;}}
+  if(blocked)break;
+  footMode.x=nx;footMode.z=nz;moved+=step;
+ }
+ player.x=footMode.x;player.z=footMode.z;footMode.vx=0;footMode.vz=0;
+}
+function combatReact(o,prof,ci){
+ /* F2: an enemy takes a landed hit's reaction. Stagger is a timed state
+    (the figure wobble is animateFigure reading mesh.userData.stagT);
+    the consecutive-stagger counter trips brief hitstun immunity at the
+    cap, and a FINISHER can knock down under the COMBAT.kd* gate. */
+ o.staggerT=prof.stag;o.stagGapT=0;
+ if(o.mesh&&o.mesh.userData)o.mesh.userData.stagT=prof.stag;
+ o.stunN=(o.stunN||0)+1;
+ if(o.stunN>=COMBAT.stunCap){o.stunN=0;o.stunImmuneT=COMBAT.stunImmune;}
+ if(ci===2&&o.hp<=(o.maxHp||100)*COMBAT.kdHpFrac&&Math.random()<COMBAT.kdChance){
+  o.kdT=COMBAT.kdDownTime;o.staggerT=0;o.stunN=0;
+  if(o.mesh)o.mesh.rotation.z=Math.PI/2;
+ }
+}
+function combatTickReact(o,dt){
+ /* F2: advance one enemy's reaction timers; returns true while the
+    character is incapacitated (hit-paused pair member, staggered or
+    downed) so updateCombat holds their movement and attacks. Standing
+    up from a knockdown grants the kdProtect window. */
+ combatTickStamE(o,dt); /* F3: this enemy's stamina pool ticks with its reactions */
+ if(o.blockStunT>0){o.blockStunT-=dt;return true;} /* F3: blocking a heavy hit holds the enemy briefly */
+ if(combat.hitStopT>0&&combat.hitStopPair&&(combat.hitStopPair.a===o||combat.hitStopPair.b===o))return true;
+ if(o.kdT>0){o.kdT-=dt;if(o.kdT<=0){o.kdT=0;o.protectT=COMBAT.kdProtect;if(o.mesh)o.mesh.rotation.z=0;}return true;}
+ if(o.protectT>0)o.protectT-=dt;
+ if(o.stunImmuneT>0)o.stunImmuneT-=dt;
+ if(o.staggerT>0){o.staggerT-=dt;o.stagGapT=0;return true;}
+ o.stagGapT=(o.stagGapT||0)+dt;if(o.stagGapT>COMBAT.stunGap)o.stunN=0;
+ return false;
+}
+function combatPlayerHit(attackerO,heavy,dmg){
+ /* F2: an enemy's landed hit on the PLAYER — the mirror of combatApplyHit.
+    F3: returns the EFFECTIVE damage (a number): 0 when the hit does
+    NOTHING (player downed, inside the get-up protection window, or in
+    dodge i-frames) so the caller skips every consequence wired to a
+    landed hit; chip damage when the hit is BLOCKED; full dmg otherwise.
+    mates/robbery wiring is untouched — it fires on any damage > 0.
+    INTERRUPT RULE (as shipped): a landed hit cancels the player's swing
+    in STARTUP (chain cleared) and in RECOVERY; in CONTACT the player's
+    hit always resolves first; during the FINISHER the player has poise —
+    a LIGHT hit never cancels it, a HEAVY hit (every COMBAT.enemyHeavyEvery-th
+    enemy swing) cancels it outside CONTACT. The hit's damage lands either
+    way (the caller's), poise only saves the swing. */
+ if(!footMode)return dmg; /* in a car the v24 behaviour is untouched */
+ if(pReact.kdT>0||pReact.protectT>0)return 0;
+ if(combat.iT>0)return 0; /* F3: dodge i-frames — the swing whiffs clean past */
+ combat.hitStopT=heavy?COMBAT.hitStop[2]:COMBAT.hitStop[0];
+ combat.hitStopPair={a:attackerO,b:null};
+ /* F3 BLOCK: holding block with the attacker inside the frontal arc —
+    chip damage only, NO stagger, NO swing interrupt; the blocker pays
+    stamina and takes the block pushback, and a HEAVY hit adds blockstun.
+    From the rear arc combatBlockChip returns -1 and the hit falls
+    through to the full F2 reaction below, exactly as if not blocking. */
+ var chipF=combatBlockChip(combat.blocking,footMode.x,footMode.z,combatFaceAng(),attackerO.x,attackerO.z,heavy,combatLowStam());
+ if(chipF>=0){
+  combatSpendStam(COMBAT.stamBlock);
+  combatKnockSlidePlayer(Math.atan2(footMode.x-attackerO.x,footMode.z-attackerO.z),heavy?COMBAT.blockKnock.heavy:COMBAT.blockKnock.light);
+  if(heavy)combat.blockStunT=COMBAT.blockStunHeavy;
+  if(player.fig)player.fig.userData.stagT=.12; /* presentation-only brace flinch; pReact is untouched */
+  return Math.round(dmg*chipF*10)/10;
+ }
+ if(combat.phase!=='idle'){
+  var fin=combat.curIdx===2,cancel=false;
+  if(combat.phase==='startup'||combat.phase==='recovery')cancel=true;
+  if(fin&&!heavy)cancel=false;          /* finisher poise vs light hits */
+  if(combat.phase==='contact')cancel=false; /* contact always resolves */
+  if(cancel){combat.phase='idle';combat.t=0;combat.hitReg=null;combat.buffered=false;combat.chainIdx=0;combat.chainT=0;}
+ }
+ if(pReact.stunImmuneT>0)return dmg; /* damage lands; no stagger/knockback/knockdown */
+ var ang=Math.atan2(footMode.x-attackerO.x,footMode.z-attackerO.z);
+ combatKnockSlidePlayer(ang,heavy?COMBAT.enemyKnock.heavy:COMBAT.enemyKnock.light);
+ pReact.staggerT=heavy?COMBAT.enemyStag.heavy:COMBAT.enemyStag.light;
+ if(player.fig)player.fig.userData.stagT=pReact.staggerT;
+ pReact.stagGapT=0;pReact.stunN=(pReact.stunN||0)+1;
+ if(pReact.stunN>=COMBAT.stunCap){pReact.stunN=0;pReact.stunImmuneT=COMBAT.stunImmune;}
+ /* knockdown: HEAVY (finisher-class) hits only, same gate as enemies */
+ if(heavy&&(S.hp-dmg)>0&&(S.hp-dmg)<=100*COMBAT.kdHpFrac&&Math.random()<COMBAT.kdChance){
+  pReact.kdT=COMBAT.kdDownTime;pReact.staggerT=0;pReact.stunN=0;
+ }
+ return dmg;
+}
+function combatApplyHit(h){
+ /* one registered hit: effects mirror the v24 tryAttack for the rival
+    (damage, heat, tension, down wiring); crash-fight fighters take the
+    same damage and go down through the existing updateCombat allDown ->
+    fightersDown path. F2: damage/knockback/stagger come from the active
+    chain hit's profile (multipliers on the frozen WEAPONS row). */
+ var w=WEAPONS[S.weapon];
+ var prof=combat.curHit||COMBAT.chain[S.weapon][0],ci=combat.curIdx||0,o=h.o;
+ if(o.kdT>0||o.protectT>0)return; /* F2: downed or just stood up — the hit does nothing */
+ if(o.maxHp===undefined)o.maxHp=h.isRival?100:o.hp;
+ /* F3 BLOCK (enemy side): the SAME combatBlockChip mechanics as the
+    player — an enemy whose AI has raised a block (o.blocking; the AI
+    states land in F4) takes chip damage from the front, pays the block
+    stamina cost and the block pushback, and a FINISHER (heavy class)
+    adds blockstun. From behind, or not blocking, the hit runs the full
+    F2 path below. Heat/Tension/down wiring after this is unchanged. */
+ var eChip=combatBlockChip(!!o.blocking,o.x,o.z,o.mesh?o.mesh.rotation.y-Math.PI:0,player.x,player.z,ci===2,combatLowStamE(o));
+ var blocked=eChip>=0,dmgDealt=w.dmg*prof.dmg*(blocked?eChip:1);
+ if(blocked)combatSpendStamE(o,COMBAT.stamBlock);
+ o.hp-=dmgDealt;sfxHit(ci,S.weapon);
+ combat.hitStopT=COMBAT.hitStop[ci];combat.hitStopPair={a:null,b:o};
+ if(ci===2)shake=Math.max(shake,COMBAT.shakeFin); /* finisher only */
+ var ang=Math.atan2(o.x-player.x,o.z-player.z);
+ var immune=o.stunImmuneT>0;
+ if(!immune)combatKnockSlide(o,ang,blocked?(ci===2?COMBAT.blockKnock.heavy:COMBAT.blockKnock.light):w.knock*prof.knock);
+ if(blocked&&ci===2)o.blockStunT=COMBAT.blockStunHeavy;
+ addHeat(w.heat);
+ if(h.isRival){
+  addTension(o.areaId,w.tension);
+  toast(w.name+' hit! Rival HP '+Math.max(0,Math.round(o.hp)));
+  if(o.hp<=0){o.down=true;o.downT=3;toast('He\u2019s down — interception cleared!');addTension(o.areaId,4);}
+ } else {
+  toast(w.name+' hit!');
+  if(o.hp<0)o.hp=0;
+ }
+ if(o.hp>0&&!o.down&&!immune&&!blocked)combatReact(o,prof,ci); /* F3: a blocked hit never staggers */
  updateHUD();
 }
-
+function combatResolveContact(){
+ /* contact window only: every hostile inside the attack ARC (facing +
+    reach) with clear LOS takes the hit — at most once per swing
+    (per-swing hit registry keyed by swing id + hostile). */
+ var face=combatFaceAng();
+ combatHostiles().forEach(function(h){
+  var key=combat.swingId+':'+(h.isRival?'rival':'fighter');
+  if(combat.hitReg[key])return;
+  var d=dist2(player.x,player.z,h.o.x,h.o.z);
+  if(d>COMBAT.hitRange)return;
+  var ad=Math.abs(combatAngDiff(Math.atan2(h.o.x-player.x,h.o.z-player.z),face));
+  if(d>22&&ad>COMBAT.hitArc/2)return;
+  if(!combatLOS(player.x,player.z,h.o.x,h.o.z))return;
+  combat.hitReg[key]=true;
+  combatApplyHit(h);
+ });
+}
+function combatPressAttack(){
+ if(!S||!S.playing||S.paused||!footMode)return;
+ if(pReact.staggerT>0||pReact.kdT>0)return; /* F2: you can't swing while staggered or downed */
+ if(combat.blockStunT>0||combat.dodgeT>0)return; /* F3: blockstun holds your arms; a dodge step can't be swung out of */
+ /* F3: while BLOCKING the press is still honoured — it exits block
+    straight into the swing (blocking is derived from the swing state,
+    so starting the swing drops the block by itself). */
+ /* MOBILE TARGET SWITCH (as shipped): an attack press re-runs the
+    facing-arc acquisition — if a DIFFERENT hostile is now the closest in
+    the arc, the lock (and the step-in) re-aims to them. Between presses
+    the lock persists. Desktop gets the same re-aim free; Q is its
+    deliberate switch. */
+ var acq=combatAcquire();
+ if(acq&&(!combat.target||acq.o!==combat.target.o))combat.target=acq;
+ if(combat.phase==='idle'){combatStartSwing();}
+ else if(!combat.buffered){combat.buffered=true;combat.bufferT=COMBAT.bufferWindow;}
+}
+function updateCombatF1(dt){
+ if(!S||!S.playing)return;
+ if(!footMode){ /* entered a vehicle (or never got out): queue/held cleared, lock + ring dropped */
+  if(combat.buffered||combat.heldAtk||combat.phase!=='idle'||combat.blockHeld||combat.dodgeT>0)combatClearInputs();
+  combat.target=null;if(targetRing)targetRing.visible=false;
+  document.body.classList.remove('f3fight');
+  pReact.staggerT=0;pReact.kdT=0;pReact.protectT=0;if(player.fig)player.fig.rotation.z=0; /* F2: reactions are an on-foot state */
+  return;
+ }
+ /* --- F3: contextual combat buttons (Block/Dodge join Attack only while
+    on foot with hostiles live — the user's contextual-controls rule) --- */
+ document.body.classList.toggle('f3fight',combatHasHostiles());
+ /* --- soft-target maintenance: stable until out of range, obstructed or downed --- */
+ if(combat.target&&!combatValid(combat.target,COMBAT.lockRange))combat.target=null;
+ if(!combat.target)combat.target=combatAcquire();
+ /* --- target ground ring (restrained gold ring, HUD language) --- */
+ if(!targetRing){
+  targetRing=new THREE.Mesh(new THREE.RingGeometry(12.5,15.5,28),new THREE.MeshBasicMaterial({color:0xe8b33a,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));
+  targetRing.rotation.x=-Math.PI/2;scene.add(targetRing);
+ }
+ if(combat.target){targetRing.visible=true;targetRing.position.set(combat.target.o.x,1.2,combat.target.o.z);var rp=1+Math.sin(gameT*5)*.05;targetRing.scale.set(rp,1,rp);}
+ else targetRing.visible=false;
+ /* --- F2 hit-pause: while hitStopT runs, the two combatants freeze
+    (attack state machine, buffer and reaction timers hold); the rest of
+    the world keeps moving. --- */
+ if(combat.hitStopT>0){combat.hitStopT-=dt;}
+ else{
+  /* --- F3: defence + stamina timers (player side; enemies tick theirs
+     inside combatTickReact). Blocking is DERIVED: held input + swing
+     machine idle + not downed + not mid-dodge. The dodge step moves the
+     player through the same collision-checked slide as knockback, so a
+     dodge can never pass through a wall or another character. --- */
+  combat.blocking=combat.blockHeld&&combat.phase==='idle'&&pReact.kdT<=0&&combat.dodgeT<=0;
+  if(player.fig)player.fig.userData.blk=combat.blocking; /* block pose hook for animateFigure (presentation only) */
+  if(combat.blockStunT>0)combat.blockStunT-=dt;
+  if(combat.dodgeCdT>0)combat.dodgeCdT-=dt;
+  if(combat.iT>0)combat.iT-=dt;
+  if(combat.dodgeT>0){
+   combatKnockSlidePlayer(Math.atan2(combat.dodgeDir.x,combat.dodgeDir.z),COMBAT.dodgeDist*dt/COMBAT.dodgeTime);
+   combat.dodgeT-=dt;
+  }
+  combat.stamIdleT+=dt;
+  if(combat.stamIdleT>COMBAT.stamRegenDelay&&combat.stam<COMBAT.stamMax)
+   combat.stam=Math.min(COMBAT.stamMax,combat.stam+COMBAT.stamRegen*dt*(combat.blockHeld?COMBAT.blockRegenFrac:1));
+  /* --- F2: player reaction timers (the enemy mirror lives in combatTickReact) --- */
+  if(pReact.kdT>0){pReact.kdT-=dt;if(player.fig)player.fig.rotation.z=Math.PI/2;
+   if(pReact.kdT<=0){pReact.kdT=0;pReact.protectT=COMBAT.kdProtect;if(player.fig)player.fig.rotation.z=0;}}
+  else{
+   if(pReact.protectT>0)pReact.protectT-=dt;
+   if(pReact.stunImmuneT>0)pReact.stunImmuneT-=dt;
+   if(pReact.staggerT>0){pReact.staggerT-=dt;pReact.stagGapT=0;}
+   else{pReact.stagGapT+=dt;if(pReact.stagGapT>COMBAT.stunGap)pReact.stunN=0;}
+  }
+  /* --- punch state machine: startup -> contact -> recovery, dt-based --- */
+  if(combat.buffered&&combat.phase==='idle'){combat.bufferT-=dt;if(combat.bufferT<0)combat.buffered=false;}
+  /* F2 note: the buffer is NOT timed out mid-swing. F1's flat .5s expiry
+     is shorter than a bat swing (.96s), which would make the bat's chain
+     impossible from an early press; a queued press is the follow-up for
+     the swing it was pressed in, and is consumed (or cleared by an
+     interrupt / input clear) at that swing's end. */
+  if(combat.phase==='idle'&&combat.chainT>0){combat.chainT-=dt;if(combat.chainT<=0){combat.chainT=0;combat.chainIdx=0;}}
+  if(combat.phase!=='idle'){
+   combat.t+=dt;
+   if(combat.phase==='contact')combatResolveContact();
+   if(combat.t>=combat.phaseT){
+    var w=WEAPONS[S.weapon],prof=combat.curHit||COMBAT.chain[S.weapon][0];
+    if(combat.phase==='startup'){combat.phase='contact';combat.t=0;combat.phaseT=w.cd*prof.ph[1]*(combat.phaseMul||1);combatResolveContact();}
+    else if(combat.phase==='contact'){combat.phase='recovery';combat.t=0;combat.phaseT=w.cd*prof.ph[2]*(combat.phaseMul||1);}
+    else{combat.phase='idle';combat.t=0;combat.hitReg=null;
+     combat.chainIdx=combat.curIdx<2?combat.curIdx+1:0; /* the chain PENDS on the next hit from here; chainWindow decides whether it survives the pause */
+     if(combat.buffered){combat.buffered=false;
+      if(!combatStartSwing()){combat.chainIdx=combat.curIdx;combat.chainT=COMBAT.chainWindow;}}
+     else combat.chainT=COMBAT.chainWindow;}
+   }
+  }
+ }
+}
+/* ================= F4 — ENEMY GROUP AI =================
+   One explicit state machine per combatant (o.aiState), driven from
+   updateCombat for the rival ('crew') and every crash-fight fighter
+   ('thug'). The brain only DECIDES; everything it does resolves through
+   the shared F1–F3 functions — movement via combatKnockSlide (building
+   + people collision), strikes via the caller's combatPlayerHit path,
+   stamina via combatSpendStamE and the pool ticked in combatTickReact,
+   defence via o.blocking (read by combatBlockChip inside
+   combatApplyHit). There is no AI-only damage, range or LOS rule.
+   STATES: approach (close to aiRange) · circle (strafe at aiCircleR —
+   non-token enemies and cooling-down holders; they never strike) ·
+   prepare (TELEGRAPH: aiTelegraph seconds of reared-back wind-up,
+   mesh.userData.teleT runs 0→1 for animateFigure) · attack (the shared
+   swing resolves at its contact moment) · recover (post-swing
+   vulnerability, then the archetype cooldown) · defend (block raised
+   on a reaction-gated roll; a dodge step instead on 30% of rolls) ·
+   stagger/down (owned by combatTickReact — callers hold the brain
+   while it reports incapacitated) · retreat (gain aiRetreatDist at low
+   HP — once only, they re-engage cornered — or at low stamina,
+   repeatable) · regroup (catch breath to aiRegroupStam, token-free).
+   TOKENS: at most COMBAT.aiTokens enemies hold one against the player;
+   only holders may wind up. A freed token rests aiTokenBeat before
+   re-grant. combatAI.lastStrikeT enforces aiStrikeGap between ANY two
+   enemy strike resolutions on the player — a holder whose wind-up ends
+   inside the gap holds the pose a beat longer. If the player
+   disengages, the existing confrontation rules end the fight as
+   before; tokens are per-fight bookkeeping and die with their enemy.
+   Retreat is NOT a win: fights still end only by the pre-existing
+   downed / fled / resolved conditions in updateCombat. */
+var combatAI={lastStrikeT:-99,freeAt:0};
+function combatAIInit(o,arch){
+ o.aiInit=true;o.aiArch=arch;o.aiState='approach';o.aiT=0;o.aiToken=false;
+ o.aiCircleDir=Math.random()<.5?-1:1;
+ o.aiJit=.9+Math.random()*.25; /* per-enemy variance on cadence + telegraph length */
+ o.aiDefendT=0;o.aiBlockT=0;o.aiHpRetreated=false;o.aiSpeedNow=0;o.aiTeleDur=0;
+ o.stamMax=COMBAT.aiStamMax[arch];
+ if(o.stam===undefined){o.stam=o.stamMax;o.stamIdleT=99;}
+ else if(o.stam>o.stamMax)o.stam=o.stamMax; /* combatTickReact seeds the default pool before the brain's first tick — clamp to the archetype's */
+}
+function combatAIDefendCue(o){
+ /* the player's swing starting IS the cue: after the archetype's
+    reaction delay the brain rolls its defend chance */
+ if(!o||!o.aiInit||o.down||o.hp<=0||o.blocking||o.aiDefendT>0)return;
+ var s=o.aiState;
+ if(s==='retreat'||s==='regroup'||s==='defend'||s==='attack')return;
+ o.aiDefendT=COMBAT.aiReact[o.aiArch]*(0.85+Math.random()*.3);
+}
+function combatAIMove(o,ang,dist){
+ /* movement through the shared collision slide (buildings + people
+    stop it — the same rule as knockback). An enemy who somehow starts
+    INSIDE a footprint (spawn overlap) walks straight out, as in v27,
+    until clear — nobody stays trapped inside a wall. */
+ if(dist<=0)return;
+ if(footBlocked(o.x,o.z)){o.x+=Math.sin(ang)*dist;o.z+=Math.cos(ang)*dist;return;}
+ combatKnockSlide(o,ang,dist);
+}
+function combatAICircle(o,dt,face,d,arch){
+ var sp=COMBAT.aiSpeed[arch]*.62,tang=face+o.aiCircleDir*Math.PI/2,rad=0;
+ if(d<COMBAT.aiCircleR-12)rad=-1;else if(d>COMBAT.aiCircleR+12)rad=1;
+ var ang=Math.atan2(Math.sin(tang)+Math.sin(face)*rad*1.4,Math.cos(tang)+Math.cos(face)*rad*1.4);
+ combatAIMove(o,ang,sp*dt);o.aiSpeedNow=sp;
+ if(Math.random()<dt*.25)o.aiCircleDir*=-1; /* occasional direction flip keeps it human */
+}
+function combatBrain(o,dt,tx,tz,arch,land){
+ if(!o.aiInit)combatAIInit(o,arch);
+ arch=o.aiArch;
+ var A=COMBAT,d=dist2(o.x,o.z,tx,tz),face=Math.atan2(tx-o.x,tz-o.z);
+ o.aiSpeedNow=0;
+ /* --- defend reaction (its timer runs in any live state) --- */
+ if(o.aiDefendT>0){o.aiDefendT-=dt;
+  if(o.aiDefendT<=0&&o.aiState!=='retreat'&&o.aiState!=='regroup'){
+   if(Math.random()<A.aiDefend[arch]){
+    if(Math.random()<.3){ /* dodge: a quick step off the line, same slide */
+     combatAIMove(o,face+Math.PI+(Math.random()<.5?1.15:-1.15),A.aiDodgeStep);
+    } else { /* block: enter the defend state; any wind-up is abandoned */
+     o.aiState='defend';o.aiBlockT=A.aiBlockHold;o.blocking=true;
+     if(o.mesh)o.mesh.userData.teleT=0;
+    }
+   }
+  }
+ }
+ /* --- retreat triggers --- */
+ if(o.aiState!=='retreat'&&o.aiState!=='regroup'){
+  var lowHp=o.hp<=(o.maxHp||100)*A.aiRetreatHp;
+  if((lowHp&&!o.aiHpRetreated)||o.stam<=A.aiRetreatStam){
+   if(lowHp)o.aiHpRetreated=true;
+   o.aiState='retreat';o.blocking=false;o.aiBlockT=0;o.aiDefendT=0;
+   if(o.aiToken){o.aiToken=false;combatAI.freeAt=gameT+A.aiTokenBeat;}
+   if(o.mesh)o.mesh.userData.teleT=0;
+  }
+ }
+ switch(o.aiState){
+ case 'retreat':
+  if(d<A.aiRetreatDist){combatAIMove(o,face+Math.PI,A.aiSpeed[arch]*dt);o.aiSpeedNow=A.aiSpeed[arch];}
+  else o.aiState='regroup';
+  break;
+ case 'regroup':
+  if(o.stam>=A.aiRegroupStam)o.aiState='circle';
+  break;
+ case 'defend':
+  o.aiBlockT-=dt;
+  if(o.aiBlockT<=0){o.blocking=false;o.aiState='circle';}
+  break;
+ case 'prepare':
+  o.aiT-=dt;
+  if(o.mesh)o.mesh.userData.teleT=o.aiTeleDur>0?1-Math.max(0,o.aiT)/o.aiTeleDur:1;
+  if(o.aiT<=0){
+   if(gameT-combatAI.lastStrikeT<A.aiStrikeGap){o.aiT=.04;break;} /* stagger gate: hold the wind-up a beat — never two strikes at once */
+   /* ATTACK: the swing resolves at its contact moment through the
+      caller's combatPlayerHit path (land), gated by the same range +
+      LOS rules the player faces — otherwise a clean whiff. */
+   o.aiState='attack';o.aiT=.12;
+   if(o.mesh)o.mesh.userData.teleT=0;
+   o.swingN=(o.swingN||0)+1;var heavy=o.swingN%A.enemyHeavyEvery===0;
+   combatSpendStamE(o,heavy?A.stamSwing[2]:A.stamSwing[0]);
+   if(o.mesh)o.mesh.userData.atkT=heavy?.45:.32;
+   combatAI.lastStrikeT=gameT;
+   if(d<=A.hitRange+8&&combatLOS(o.x,o.z,tx,tz))land(heavy);
+  }
+  break;
+ case 'attack':
+  o.aiT-=dt;if(o.aiT<=0){o.aiState='recover';o.aiT=A.aiRecoverT;}
+  break;
+ case 'recover':
+  o.aiT-=dt;
+  if(o.aiT<=0){o.atkT=A.aiCd[arch]*o.aiJit*(combatLowStamE(o)?A.lowStamSlow:1);o.aiState=o.aiToken?'approach':'circle';}
+  break;
+ default: /* approach / circle */
+  if(o.atkT>0)o.atkT-=dt;
+  if(o.aiToken&&o.atkT<=0){
+   if(o.stam<A.stamSwing[0]){ /* stamina-locked: hand the token on and go breathe */
+    o.aiToken=false;combatAI.freeAt=gameT+A.aiTokenBeat;o.aiState='regroup';break;
+   }
+   if(d<=A.aiRange&&combatLOS(o.x,o.z,tx,tz)){o.aiState='prepare';o.aiTeleDur=A.aiTelegraph[arch]*o.aiJit;o.aiT=o.aiTeleDur;break;}
+   o.aiState='approach';
+   var before=d;
+   combatAIMove(o,face,Math.min(A.aiSpeed[arch]*dt,Math.max(0,d-30)));
+   o.aiSpeedNow=A.aiSpeed[arch];
+   if(dist2(o.x,o.z,tx,tz)>=before-.01)combatAIMove(o,face+o.aiCircleDir*1.0,A.aiSpeed[arch]*dt*.8); /* wall-hug sidestep */
+  }
+  else {o.aiState='circle';combatAICircle(o,dt,face,d,arch);} /* no token, or cooling down with one: circle, never strike */
+ }
+}
+function combatAITokens(){
+ /* one grant pass per combat tick, across rival + fighters together */
+ var list=[],i,o;
+ if(rival&&!rival.down&&rival.hp>0)list.push(rival);
+ if(typeof fighters!=='undefined')fighters.forEach(function(f){if(!f.down&&f.hp>0)list.push(f);});
+ var held=0;
+ for(i=0;i<list.length;i++){o=list[i];
+  if(o.aiToken&&(o.aiState==='retreat'||o.aiState==='regroup')){o.aiToken=false;combatAI.freeAt=gameT+COMBAT.aiTokenBeat;}
+  if(o.aiToken)held++;
+ }
+ /* a holder lost any other way (downed) also rests the token for the
+    beat before it passes on — fresh pressure, never a pile-on */
+ if(combatAI.prevHeld!==undefined&&held<combatAI.prevHeld&&combatAI.freeAt<gameT)combatAI.freeAt=gameT+COMBAT.aiTokenBeat;
+ combatAI.prevHeld=held;
+ if(held<COMBAT.aiTokens&&gameT>=combatAI.freeAt){
+  var best=null,bd=1e9;
+  for(i=0;i<list.length;i++){o=list[i];
+   if(o.aiToken||!o.aiInit||o.aiState==='retreat'||o.aiState==='regroup'||o.aiState==='prepare'||o.aiState==='attack'||o.aiState==='defend')continue;
+   var dd=dist2(o.x,o.z,player.x,player.z);if(dd<bd){bd=dd;best=o;}
+  }
+  if(best)best.aiToken=true;
+ }
+}
+/* MATES under the same token discipline: at most two mate strikes land
+   on one target inside aiMateWindow — extra mates hold off, exactly
+   like non-token enemies. The damage and injury wiring stays v27's. */
+function combatMateStrikeOK(t){
+ var now=gameT,h=t._mateHits||(t._mateHits=[]);
+ while(h.length&&now-h[0]>=COMBAT.aiMateWindow)h.shift();
+ return h.length<2;
+}
+function combatMateHit(t){(t._mateHits||(t._mateHits=[])).push(gameT);}
+function tryAttack(){
+ if(!S||!S.playing||S.paused)return;
+ if(!footMode){
+  /* v24 legacy path, unchanged: a swing from the car at the rival
+     (F while driving exits the car instead, so this is the Attack
+     button's driving behaviour, preserved as it was). */
+  if(!rival||rival.down)return;
+  if(S.atkCd>0)return;
+  var d=dist2(player.x,player.z,rival.x,rival.z);
+  if(d>95){toast('Too far — get close to swing');return;}
+  var w=WEAPONS[S.weapon];S.atkCd=w.cd;
+  if(player.fig)player.fig.userData.atkT=.32;
+  rival.hp-=w.dmg;sfx('hit');
+  var ang=Math.atan2(rival.x-player.x,rival.z-player.z);
+  rival.x+=Math.sin(ang)*w.knock;rival.z+=Math.cos(ang)*w.knock;
+  addHeat(w.heat);addTension(rival.areaId,w.tension);
+  toast(WEAPONS[S.weapon].name+' hit! Rival HP '+Math.max(0,Math.round(rival.hp)));
+  if(rival.hp<=0){rival.down=true;rival.downT=3;toast('He\u2019s down — interception cleared!');addTension(rival.areaId,4);setTimeout(function(){},0);}
+  updateHUD();
+  return;
+ }
+ combatPressAttack();
+}
 /* ================= THE LINE — CALLS ================= */
 var ringing=null,ringT=0,job=null,nextCallT=5,gameT=0;
 function scheduleCall(t){nextCallT=t;}
@@ -3154,7 +4012,7 @@ function spawnRival(area){
  var a=areaById(area.id);
  var fig=makeFigure(parseInt(a.color.slice(1),16),0x1c1e22,0xc9a189);
  fig.position.set(player.x+180,0,player.z-140);scene.add(fig);
- rival={x:player.x+180,z:player.z-140,hp:100,mesh:fig,areaId:area.id,timer:34,atkT:0,down:false,downT:0};
+ rival={x:player.x+180,z:player.z-140,hp:100,maxHp:100,mesh:fig,areaId:area.id,timer:34,atkT:0,down:false,downT:0};
  toast(a.gang+' runner is coming for you! Fight (Attack / F), run him down (loud!), or drive off');
  sfx('rob');
 }
@@ -3405,6 +4263,7 @@ $('cbAnswer').onclick=function(){acceptCall();};
 $('cbDecline').onclick=function(){declineCall();};
 function fmtClock(){var s=Math.max(0,Math.ceil(S.clock));return Math.floor(s/60)+':'+('0'+(s%60)).slice(-2);}
 function openPhone(){
+ if(typeof combatClearInputs==='function')combatClearInputs(); /* F1: Nokia open = menu open for combat inputs */
  phoneOpen=true;$('phoneScreen').classList.add('on');
  $('nkBadge').style.display='none';
  if(ringing)phoneView='call'; else if(phoneView==='call')phoneView='home';
@@ -3578,6 +4437,7 @@ function updateHUD(){
  document.body.classList.toggle('onfoot',!!footMode);
  document.body.classList.toggle('driving',!footMode);
  var hpf=$('hpFill');if(hpf){hpf.style.width=clamp(S.hp,0,100)+'%';hpf.classList.toggle('low',S.hp<=30);}
+ var stf=$('stamFill');if(stf&&typeof combat!=='undefined'){stf.style.width=clamp(combat.stam,0,100)+'%';stf.classList.toggle('low',combat.stam<COMBAT.stamMax*COMBAT.lowStamFrac);} /* F3: stamina dock fill (the stamina-bar addition) */
  var cf=$('carFill');if(cf)cf.style.width=clamp(100-S.carDamage,0,100)+'%';
  updateFixAHud(nearSafe);
 }
@@ -3908,7 +4768,7 @@ function startCrashFight(){
  for(var i=0;i<occ;i++){
    var fig=makeFigure(parseInt(a.color.slice(1),16),0x141519,0xc9a189);var fx=player.x+30+i*16,fz=player.z+20-i*10;
    fig.position.set(fx,0,fz);scene.add(fig);
-   fighters.push({x:fx,z:fz,hp:i===0?90:70,mesh:fig,areaId:a.id,atkT:0,down:false,dmg:i===0?11:8});
+   fighters.push({x:fx,z:fz,hp:i===0?90:70,maxHp:i===0?90:70,mesh:fig,areaId:a.id,atkT:0,down:false,dmg:i===0?11:8});
  }
  if(!footMode)enterFoot(player.x+18,player.z+4,'fight');
  toast('It\u2019s kicked off — '+occ+' of them! Attack (F / Attack button)');
@@ -4469,6 +5329,8 @@ function updateGame(dt,realDt){
    if(input.keys.w||input.keys.arrowup)mz=-1;if(input.keys.s||input.keys.arrowdown)mz=1;
    if(input.keys.a||input.keys.arrowleft)mx=-1;if(input.keys.d||input.keys.arrowright)mx=1;
    var ml=Math.sqrt(mx*mx+mz*mz);if(ml>1){mx/=ml;mz/=ml;}
+   if(typeof pReact!=='undefined'&&(pReact.staggerT>0||pReact.kdT>0)){mx=0;mz=0;ml=0;} /* F2: staggered/downed = no movement input (combat layer on top of the walker; its constants below are untouched) */
+   if(typeof combat!=='undefined'&&combat.blocking){mx*=COMBAT.blockMoveFrac;mz*=COMBAT.blockMoveFrac;ml=Math.sqrt(mx*mx+mz*mz);} /* F3: blocking slows the INPUT vector (combat layer again — walker constants and stamina never touch movement speed) */
    /* v21 ON-FOOT FEEL: velocity-based movement to match the v20 driving —
       the walker's velocity chases the input direction exponentially (fast
       attack 13/s, harder stop 17/s), so starts, stops and reversals are
@@ -4900,24 +5762,36 @@ function updatePolice(dt){
  rollWheels(police.mesh,pdx*-Math.sin(police.mesh.rotation.y)+pdz*-Math.cos(police.mesh.rotation.y),0);
 }
 function updateCombat(dt){
+ updateCombatF1(dt); /* F1: soft targeting + punch state machine (player side) */
+ combatAITokens(); /* F4: engagement-token grant/release across rival + fighters */
  /* rival interceptor */
  if(rival){
    var rr=rival;
    if(rr.down){rr.downT-=dt;rr.mesh.rotation.z=Math.PI/2;if(rr.downT<0){var wasDebt=rr.debt;clearRival();if(wasDebt)jobDoneDebt();}}
    else{
      rr.timer-=dt;
+     var rrIncap=combatTickReact(rr,dt); /* F2: hit-pause pair / staggered / downed — held below */
      var tx=footMode?footMode.x:player.x,tz=footMode?footMode.z:player.z;
      var d=dist2(rr.x,rr.z,tx,tz);
      var a=Math.atan2(tx-rr.x,tz-rr.z);
-     if(d>26){rr.x+=Math.sin(a)*168*dt;rr.z+=Math.cos(a)*168*dt;}
-     rr.mesh.position.set(rr.x,0,rr.z);rr.mesh.rotation.y=a+Math.PI;
-     animateFigure(rr.mesh,dt,d>26?168:0,true,false);
-     /* crew mates hit rival */
-     crew.forEach(function(c){if(c.withYou&&c.mode==='follow'){c.atkT=(c.atkT||0)-dt;if(d<70&&c.atkT<0){c.atkT=1;c.fig.userData.atkT=.32;rr.hp-=(c.def.role==='MUSCLE'?13:6);if(rr.hp<0)rr.hp=0;}}});
-     rr.atkT-=dt;
-     if(d<36&&rr.atkT<0){rr.atkT=1.05;rr.mesh.userData.atkT=.32;var dmgR=(S.injured?13:10);S.hp-=dmgR;sfx('hit');toast('Rival hits you! HP '+Math.round(S.hp));
+     if(rrIncap){rr.mesh.position.set(rr.x,0,rr.z);if(rr.kdT>0)rr.mesh.rotation.z=Math.PI/2;rr.aiHeld=rr.kdT>0?'down':'stagger';} /* aiState itself is NEVER overwritten here — the brain resumes exactly where the reaction interrupted it */
+     else {rr.aiHeld=null;combatBrain(rr,dt,tx,tz,'crew',function(rrHeavy){
+       /* F4: the brain's strike resolves here, through the SAME
+          combatPlayerHit path as v27's instant swing — protection and
+          dodge i-frames make it do nothing at all (returns 0); a
+          blocked hit returns chip damage; otherwise damage + mates
+          wiring run as before, on the EFFECTIVE damage */
+       var dmgR=(S.injured?13:10);
+       var edR=combatPlayerHit(rr,rrHeavy,dmgR);if(edR>0){S.hp-=edR;sfx('hit');toast('Rival hits you! HP '+Math.round(S.hp));
        crew.forEach(function(c){if(c.withYou&&Math.random()<.4){c.hp-=14;if(c.hp<30&&Math.random()<.4){mateState[c.def.id].injured=2;mateState[c.def.id].loyalty=clamp(mateState[c.def.id]-0,0,100);toast(c.def.name+' is INJURED — out for 2 days. Sort him a get-well £60 from Contacts.');dropMate(c);}}});
        if(S.hp<0){S.hp=0;robbery();}}
+     });}
+     d=dist2(rr.x,rr.z,tx,tz);a=Math.atan2(tx-rr.x,tz-rr.z);
+     rr.mesh.position.set(rr.x,0,rr.z);rr.mesh.rotation.y=a+Math.PI;
+     animateFigure(rr.mesh,dt,rrIncap?0:(rr.aiSpeedNow||0),true,false);
+     /* crew mates hit rival — F4: under the same token discipline
+        (combatMateStrikeOK) as enemy engagement; damage unchanged */
+     crew.forEach(function(c){if(c.withYou&&c.mode==='follow'){c.atkT=(c.atkT||0)-dt;if(d<70&&c.atkT<0&&combatMateStrikeOK(rr)){c.atkT=1;combatMateHit(rr);c.fig.userData.atkT=.32;rr.hp-=(c.def.role==='MUSCLE'?13:6);if(rr.hp<0)rr.hp=0;}}});
      if(rr.timer<0&&d>280){clearRival();toast('He gave up the chase');}
      if(rr.hp<0)rr.hp=0;
      if(rr.hp===0&&!rr.down){rr.down=true;rr.downT=2.5;toast('Rival down — interception cleared');addTension(rr.areaId,4);}
@@ -4931,20 +5805,27 @@ function updateCombat(dt){
    fighters.forEach(function(f){
      if(f.down){f.mesh.rotation.z=Math.PI/2;return;}
      allDown=false;
+     var fIncap=combatTickReact(f,dt); /* F2: hit-pause pair / staggered / downed */
+     if(fIncap){f.mesh.position.set(f.x,0,f.z);if(f.kdT>0)f.mesh.rotation.z=Math.PI/2;f.aiHeld=f.kdT>0?'down':'stagger';return;} /* aiHeld only reports the hold; aiState stays the brain's own */
+     f.aiHeld=null;
      var tx=footMode?footMode.x:player.x,tz=footMode?footMode.z:player.z;
-     var d=dist2(f.x,f.z,tx,tz);var a=Math.atan2(tx-f.x,tz-f.z);
-     if(d>28){f.x+=Math.sin(a)*158*dt;f.z+=Math.cos(a)*158*dt;}
-     f.mesh.position.set(f.x,0,f.z);f.mesh.rotation.y=a+Math.PI;
-     animateFigure(f.mesh,dt,d>28?158:0,true,false);
-     crew.forEach(function(c){if(c.withYou&&c.mode==='follow'){c.atkT=(c.atkT||0)-dt;if(dist2(f.x,f.z,c.fig.position.x,c.fig.position.z)<60&&c.atkT<0){c.atkT=1.1;c.fig.userData.atkT=.32;f.hp-=(c.def.role==='MUSCLE'?13:6);}}});
-     f.atkT-=dt;
-     if(d<36&&f.atkT<0){f.atkT=1.1;f.mesh.userData.atkT=.32;S.hp-=f.dmg;sfx('hit');if(S.hp<0){S.hp=0;
+     combatBrain(f,dt,tx,tz,'thug',function(fHeavy){
+       /* F4: the brain's strike resolves here, through the SAME
+          combatPlayerHit path as v27's instant swing — a protected or
+          dodging player takes nothing (returns 0), a blocked hit
+          chips; loss wiring below unchanged, on the EFFECTIVE damage */
+       var edF=combatPlayerHit(f,fHeavy,f.dmg);if(edF>0){S.hp-=edF;sfx('hit');if(S.hp<0){S.hp=0;
        /* lose the fight: wake up robbed */
        var loss=Math.round(S.cash*.3);S.cash-=loss;S.stock.crack=Math.floor(S.stock.crack*.75);S.goods.cigs=Math.floor(S.goods.cigs*.7);
        S.injured=true;fighters.forEach(function(x){scene.remove(x.mesh);});fighters=[];crashFeed('Crash fight LOST — robbed £'+loss);
        if(footMode){footMode.x=SAFE.x;footMode.z=SAFE.z;}toast('You wake up robbed (−£'+loss+'), dumped near your ends. Injured too.');updateHUD();}
-     }
-     if(f.hp<0){f.down=true;f.hp=0;}
+     }});
+     var d=dist2(f.x,f.z,tx,tz);var a=Math.atan2(tx-f.x,tz-f.z);
+     f.mesh.position.set(f.x,0,f.z);f.mesh.rotation.y=a+Math.PI;
+     animateFigure(f.mesh,dt,f.aiSpeedNow||0,true,false);
+     /* crew mates hit fighters — F4: same token discipline as above */
+     crew.forEach(function(c){if(c.withYou&&c.mode==='follow'){c.atkT=(c.atkT||0)-dt;if(dist2(f.x,f.z,c.fig.position.x,c.fig.position.z)<60&&c.atkT<0&&combatMateStrikeOK(f)){c.atkT=1.1;combatMateHit(f);c.fig.userData.atkT=.32;f.hp-=(c.def.role==='MUSCLE'?13:6);}}});
+     if(f.hp<=0){f.down=true;f.hp=0;} /* F4 fix: combatApplyHit clamps fighter hp at 0, so v27's hp<0 test was unreachable from player hits — a solo crash fight could never be won by punching (mates' unclamped damage masked it). <=0 makes the EXISTING downed -> fightersDown path reachable as designed; no new outcome code. */
    });
    if(allDown&&fighters.length)fightersDown();
  }
