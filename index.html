@@ -1635,23 +1635,41 @@ var CARS={
  suv:{name:'White Luxury SUV',desc:'Range Rover style. The boss car — huge boot, highest Flex, noticed everywhere, too wide for alleys.',price:4200,rep:55,speed:342,accel:400,handling:.82,boot:24,attention:80,flex:18,w:19,l:38,body:'suv',defColor:0xf2f3f5}
 };
 var CAR_COLORS=[{n:'Stock',c:null},{n:'Black',c:0x14161a},{n:'Silver',c:0xb9bdc2},{n:'White',c:0xf2f3f5},{n:'Red',c:0x9e1b1e},{n:'Blue',c:0x1d3f8f},{n:'Gold',c:0xc9a227}];
-/* ---- GTA-style handling + drift tuning (player car only) ----
-   gripF/gripR: lateral grip per end of the car (rear lower = looser tail).
-   drive: which end breaks loose under power. roll: body-roll multiplier.
-   WET_GRIP is the single grip-multiplier hook for Phase 5 rain (1.0 = dry). */
+/* ---- GTA-STYLE ARCADE DRIVING (v20 — replaces the v13 per-end grip /
+   slip-angle model wholesale; there is NO spin state in normal driving) ----
+   Kinematic planted model: the heading turns with a speed-sensitive bicycle
+   yaw rate, and the world velocity is pulled into line with the heading at
+   ALIGN_RATE per second — strong lateral grip, the car goes where it points.
+   The ONLY way the tail steps out is a deliberate handbrake drift: while the
+   handbrake is held at speed, driftAmt blends in and the alignment rate
+   collapses toward HB_ALIGN; on release it blends back out and the car
+   straightens. Slip angle is hard-capped at SLIP_CAP_DEG with speed scrub,
+   so a slide can NEVER escalate into a spin, on any surface, wet or dry.
+   align: per-car lateral alignment (grip) multiplier. steer: per-car lock
+   multiplier (hot hatch sharpest, SUV heaviest/loosest). roll: body roll.
+   WET_GRIP stays the single weather grip multiplier (1.0 dry, ~0.82 rain,
+   0.75 downpour — set by the Phase 5 tick as 1 − 0.25·wetness). */
 var WET_GRIP=1.0;
 var CAR_TUNE={
- battered:{gripF:.92,gripR:.76,roll:1.15,drive:'fwd'},
- hot:{gripF:1.14,gripR:.95,roll:.85,drive:'fwd'},
- saloon:{gripF:1.06,gripR:1.0,roll:.8,drive:'rwd'},
- coupe:{gripF:1.1,gripR:.96,roll:.7,drive:'rwd'},
- suv:{gripF:.96,gripR:.8,roll:1.55,drive:'awd'}
+ battered:{align:.92,steer:1.0,roll:1.15},
+ hot:{align:1.18,steer:1.12,roll:.85},
+ saloon:{align:1.05,steer:1.0,roll:.8},
+ coupe:{align:1.08,steer:.97,roll:.7},
+ suv:{align:.9,steer:.95,roll:1.5}
 };
 var DRIVE_TUNE={
- STEER_IN:7.0,STEER_OUT:10.5,STEER_TOP:.34,MAX_YAW:2.35,
- GRIP_RATE:11.5,SLIDE_RATE:0.9,BREAK_RATE:5.5,RECOVER_RATE:1.7,
- REAR_LIMIT:305,BRAKE_DECEL:660,REV_MAX:118,
- DRIFT_MIN_DEG:13,DRIFT_MAX_DEG:58,SPIN_DEG:63
+ STEER_IN:11,STEER_OUT:16,      /* steer ramp toward input / fast return to centre (per sec) */
+ STEER_MAX:.55,STEER_TOP:.36,   /* front-wheel lock (rad) at parking speed / fraction left at top speed */
+ WHEELBASE:27,                  /* kinematic bicycle wheelbase (world units) */
+ MAX_YAW:2.0,                   /* hard yaw-rate cap (rad/s) — calm at A-road speed */
+ YAW_RESPONSE:14,               /* how fast actual yaw chases the bicycle target (per sec) */
+ ALIGN_RATE:9.5,                /* planted lateral grip: velocity->heading alignment (per sec) */
+ HB_ALIGN:1.1,                  /* alignment rate while handbrake-drifting (tail out) */
+ DRIFT_IN:3.2,DRIFT_OUT:2.6,    /* drift blend in/out rates (per sec) */
+ DRIFT_MIN_SPD:85,              /* handbrake only starts a drift above this speed */
+ SLIP_CAP_DEG:52,               /* absolute slip ceiling — beyond this, speed scrubs, never a spin */
+ BRAKE_DECEL:660,REV_MAX:118,
+ DRIFT_MIN_DEG:13               /* slip needed (while drifting) for tyre marks / DRIFT +Rep */
 };
 /* ================= PHASE 4 — VEHICLE MODELS (visual only) =================
    Recognisable primitive-built models for the existing archetypes. Models fit
@@ -1867,9 +1885,9 @@ function setHat(fig,kind,color){
    rotation (heading, downed rotation.z) is never fought. */
 function animateFigure(fig,dt,speed,run,dive){
  var u=fig.userData;if(!u||!u.body)return;
- u.curSpd+=(speed-u.curSpd)*Math.min(1,dt*9);
+ u.curSpd+=(speed-u.curSpd)*Math.min(1,dt*14);
  var sp=u.curSpd;
- if(sp>4)u.phase+=dt*clamp(sp*.068,5.5,13.5);
+ if(sp>4)u.phase+=dt*clamp(sp*.068,5.5,15.5);
  var amp=sp<=4?0:clamp(.34+sp*.0035,.4,run?.92:.68);
  var s1=Math.sin(u.phase),s2=Math.sin(u.phase+Math.PI);
  var sw1=s1*amp,sw2=s2*amp;
@@ -2272,7 +2290,7 @@ function addTension(areaId,n){
 }
 
 /* ================= ENTITIES ================= */
-var player={x:SAFE.x,z:SAFE.z+30,h:0,vx:0,vz:0,spin:0,mesh:null,fig:null,steer:0,yawVel:0,gripBlend:0,slip:0,rollV:0,pitchV:0,prevVf:0,liftT:0,spinT:0,spinBuild:0,wasThr:false};
+var player={x:SAFE.x,z:SAFE.z+30,h:0,vx:0,vz:0,mesh:null,fig:null,steer:0,yawVel:0,driftAmt:0,slip:0,rollV:0,pitchV:0,prevVf:0};
 var police={x:-200,z:-300,h:0,vx:0,vz:0,mode:'wander',wp:0,catchT:0,loseT:0,mesh:null,sirenT:0};
 var rival=null; /* {x,z,hp,mesh,areaId,timer,atkT,down} */
 var traffic=[],peds=[];
@@ -2468,7 +2486,7 @@ var stickVec={x:0,y:0};
  hold('steerR',function(v){input.sR=v;});
  hold('sprintBtn',function(v){input.throttle=v?1:0;});
  $('drawerBtn').onclick=function(){document.body.classList.toggle('drawer-open');};
- $('exitCarBtn').onclick=function(){if(!S||!S.playing||footMode||S.paused)return;if(speedNow()>30){toast('Slow right down to get out');return;}enterFoot(player.x+18,player.z+6,'roam');toast('On foot — walk back to the car to get in');};
+ $('exitCarBtn').onclick=function(){if(!S||!S.playing||footMode||S.paused)return;if(speedNow()>30){toast('Slow right down to get out');return;}enterFoot(player.x+Math.cos(player.h)*24,player.z+Math.sin(player.h)*24,'roam');toast('On foot — walk back to the car to get in');};
  window.addEventListener('keydown',function(e){input.keys[e.key.toLowerCase()]=true;if(e.key===' ')input.keys.space=true;if(['arrowup','arrowdown','arrowleft','arrowright',' '].indexOf(e.key)>=0)e.preventDefault();
    if((e.key==='f'||e.key==='F')&&S&&S.playing){if(!footMode){var eb=$('exitCarBtn');if(eb)eb.click();}else tryAttack();}
    if((e.key==='h'||e.key==='H')&&typeof hornBtn!=='undefined'&&hornBtn)hornBtn.click();
@@ -2547,7 +2565,7 @@ function completeJob(){
  if(!S.ownedWeapons.knife&&S.rep>=WEAPONS.knife.repReq){S.ownedWeapons.knife=true;toast('Rep '+S.rep+' — Knife unlocked (Q / Switch). Careful: it spikes Heat.');}
  updateObjective();updateHUD();
 }
-function failJob(why){toast(why);S.rep=Math.max(0,S.rep-2);pinGroup.visible=false;job=null;scheduleCall(8);updateObjective();updateHUD();}
+function failJob(why){toast(why);S.rep=Math.max(0,S.rep-2);pinGroup.visible=false;job=null;scheduleCall(7);updateObjective();updateHUD();}
 function spawnRival(area){
  if(rival)return;
  var a=areaById(area.id);
@@ -2643,7 +2661,7 @@ function completeJob(){
  S.lastDropArea=job.area.id;S.lastDropTime=gameT;
  toast('Drop done: +£'+job.payout+' · '+PROD[job.product].label+(sameArea?' · Same turf again — Heat up more':''));
  $('miniText').innerHTML='Nice 1. Cash sent.<br>Ring u again soon x';
- sfx('good');pinGroup.visible=false;job=null;scheduleCall(9);
+ sfx('good');pinGroup.visible=false;job=null;scheduleCall(7);
  if(!S.ownedWeapons.knife&&S.rep>=WEAPONS.knife.repReq){S.ownedWeapons.knife=true;toast('Rep '+S.rep+' — Knife unlocked (Switch Weapon). Careful: it spikes Heat.');}
  updateObjective();updateHUD();
 }
@@ -2872,7 +2890,7 @@ document.querySelector('.nk-soft').addEventListener('click',function(e){
 function declineCall(){
  if(!ringing)return;ringing=null;stopRing();S.missed++;S.missedTotal++;
  $('miniText').innerHTML='U declined.<br>He\u2019ll ring sum1 else.';
- phoneView='home';renderPhone();scheduleCall(8);updateObjective();
+ phoneView='home';renderPhone();scheduleCall(7);updateObjective();
 }
 $('nkPad').querySelectorAll('button').forEach(function(b){
  b.addEventListener('pointerdown',function(){
@@ -3322,6 +3340,11 @@ function fightersDown(){
 }
 function enterFoot(x,z,reason){
  footMode={x:x,z:z,reason:reason};
+ /* GET OUT FIX (v20): a deliberate exit starts INSIDE the proximity re-entry
+    radius, which used to bounce the player straight back into the car. A
+    'roam' exit now arms re-entry only after the walker has actually stepped
+    away from the car (>=34 units) and a short settle time has passed. */
+ if(reason==='roam'){footMode.leftCar=false;footMode.exitT=0;}
  player.fig.visible=true;player.fig.position.set(x,0,z);
  crew.forEach(function(c){if(c.withYou){c.fig.visible=true;}});
 }
@@ -3589,7 +3612,7 @@ function findInteract(){
  interactNPC=null;
  if(!footMode){$('interactBar').style.display='none';return;}
  var fx=footMode.x,fz=footMode.z,best=44;
- peds.forEach(function(p){var d=dist2(fx,fz,p.x,p.z);if(d<best){best=d;interactNPC={type:Math.random()<.4?'punter':'civ',fig:p.mesh,x:p.x,z:p.z};}});
+ peds.forEach(function(p){var d=dist2(fx,fz,p.x,p.z);if(d<best){best=d;if(p.role===undefined)p.role=Math.random()<.4?'punter':'civ';interactNPC={type:p.role,fig:p.mesh,x:p.x,z:p.z};}});
  aunties.forEach(function(a){var d=dist2(fx,fz,a.x,a.z);if(d<best){best=d;interactNPC={type:'aunty',fig:a.fig,x:a.x,z:a.z,ref:a};}});
  crew.forEach(function(c){if(c.withYou){var d=dist2(fx,fz,c.fig.position.x,c.fig.position.z);if(d<best+10){interactNPC={type:'mate',fig:c.fig,crewRef:c};}}});
  if(rival&&!rival.down){var d2=dist2(fx,fz,rival.x,rival.z);if(d2<best+16)interactNPC={type:'rival',fig:rival.mesh};}
@@ -3695,7 +3718,7 @@ function startDay(first){
  if(!S.carDamageBy)S.carDamageBy={};
  S.carDamage=S.carDamageBy[S.car]||0;
  Object.keys(S.carRecords).forEach(function(k){S.carRecords[k].scansToday=0;});
- scheduleCall(5);nextJobT=22;nextCallT=5;
+ scheduleCall(4);nextJobT=22;nextCallT=4;
  MATES.forEach(function(m){mateState[m.id].rodeToday=false;mateState[m.id].cutToday=0;if(mateState[m.id].swearSpam)mateState[m.id].swearSpam=0;});
  updateObjective();updateHUD();
 }
@@ -3793,6 +3816,10 @@ function updateOcclusion(dt){
 /* ================= MAIN LOOP ================= */
 var lastMs=0,hudT=0,mmT=0,shake=0,driftT=0,driftScore=0,losT=0,carPark=null,prevCarKey=null;
 var camPos={x:0,z:0};
+/* v21: on-foot building test — same buildings[] footprints the car collision
+   uses (the Phase 3 inBuilding helper is IIFE-scoped, so the walker gets its
+   own global copy of the identical test). */
+function footBlocked(x,z){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(Math.abs(x-b.x)<b.hw+5&&Math.abs(z-b.z)<b.hd+5)return true;}return false;}
 function speedNow(){return Math.sqrt(player.vx*player.vx+player.vz*player.vz);}
 function mph(){return speedNow()*.28;}
 function loop(ms){
@@ -3816,7 +3843,8 @@ function loop(ms){
   var fx=footMode?footMode.x:player.x,fz=footMode?footMode.z:player.z;
   var spd=footMode?0:speedNow();
   var zoom=clamp(CAM_H_FOOT+clamp(spd/340,0,1)*CAM_H_SPEED,CAM_H_MIN,CAM_H_MAX);
-  camPos.x+=(fx-camPos.x)*Math.min(1,dt*5);camPos.z+=(fz-camPos.z)*Math.min(1,dt*5);
+  var camK=footMode?9:5; /* v21: on-foot follow tightened (same exponential form, no overshoot) so it keeps up with sprint starts/stops; driving follow unchanged */
+  camPos.x+=(fx-camPos.x)*Math.min(1,dt*camK);camPos.z+=(fz-camPos.z)*Math.min(1,dt*camK);
   shake=Math.max(0,shake-dt*30);
   var shx=(Math.random()-.5)*shake,shz=(Math.random()-.5)*shake;
   if(spd>290)shx+=(Math.random()-.5)*3;
@@ -3856,16 +3884,43 @@ function updateGame(dt,realDt){
    if(input.keys.w||input.keys.arrowup)mz=-1;if(input.keys.s||input.keys.arrowdown)mz=1;
    if(input.keys.a||input.keys.arrowleft)mx=-1;if(input.keys.d||input.keys.arrowright)mx=1;
    var ml=Math.sqrt(mx*mx+mz*mz);if(ml>1){mx/=ml;mz/=ml;}
-   var fspd=(S.injured?95:150)*(input.throttle?1.35:1);
-   footMode.x=clamp(footMode.x+mx*fspd*dt,-1270,1270);footMode.z=clamp(footMode.z+mz*fspd*dt,-970,970);
+   /* v21 ON-FOOT FEEL: velocity-based movement to match the v20 driving —
+      the walker's velocity chases the input direction exponentially (fast
+      attack 13/s, harder stop 17/s), so starts, stops and reversals are
+      direct with no slide or drift past the stop point. Building collision
+      resolves axis-by-axis against the SAME buildings[] footprints the car
+      uses: a blocked axis is cancelled (and its velocity killed) while the
+      free axis keeps moving — the walker slides along walls and round
+      corners instead of sticking, and still cannot enter a building. A
+      walker who STARTS inside a footprint (swipe interior, station release)
+      is never trapped: the inside check only blocks entering from outside. */
+   if(footMode.vx===undefined){footMode.vx=0;footMode.vz=0;footMode.h=player.fig.rotation.y;}
+   var fspd=(S.injured?95:150)*(input.throttle?1.45:1);
+   var fk=(ml>.1)?13:17,fb=1-Math.exp(-fk*dt);
+   footMode.vx+=(mx*fspd-footMode.vx)*fb;
+   footMode.vz+=(mz*fspd-footMode.vz)*fb;
+   if(ml<=.1&&Math.abs(footMode.vx)<2.5&&Math.abs(footMode.vz)<2.5){footMode.vx=0;footMode.vz=0;}
+   var fWasIn=footBlocked(footMode.x,footMode.z);
+   var fnx=clamp(footMode.x+footMode.vx*dt,-1270,1270);
+   if(fWasIn||!footBlocked(fnx,footMode.z))footMode.x=fnx;else footMode.vx=0;
+   var fnz=clamp(footMode.z+footMode.vz*dt,-970,970);
+   if(fWasIn||!footBlocked(footMode.x,fnz))footMode.z=fnz;else footMode.vz=0;
    player.x=footMode.x;player.z=footMode.z;
    player.fig.position.set(footMode.x,0,footMode.z);
-   if(ml>.1)player.fig.rotation.y=Math.atan2(mx,mz)+Math.PI;
-   animateFigure(player.fig,dt,ml>.1?fspd:0,!!input.throttle&&ml>.1,false);
+   var fSpdNow=Math.sqrt(footMode.vx*footMode.vx+footMode.vz*footMode.vz);
+   if(ml>.1){var fhT=Math.atan2(mx,mz)+Math.PI,fhD=fhT-footMode.h;
+     while(fhD>Math.PI)fhD-=2*Math.PI;while(fhD<-Math.PI)fhD+=2*Math.PI;
+     footMode.h+=clamp(fhD,-20*dt,20*dt);player.fig.rotation.y=footMode.h;}
+   animateFigure(player.fig,dt,fSpdNow,!!input.throttle&&fSpdNow>60,false);
    /* mates follow */
    crew.forEach(function(c,i){if(c.withYou&&c.mode==='follow'){var tx=footMode.x-16+i*14,tz=footMode.z+14;var d=dist2(c.fig.position.x,c.fig.position.z,tx,tz);if(d>8){var a=Math.atan2(tx-c.fig.position.x,tz-c.fig.position.z);c.fig.position.x+=Math.sin(a)*Math.min(d,170*dt);c.fig.position.z+=Math.cos(a)*Math.min(d,170*dt);c.fig.rotation.y=a+Math.PI;animateFigure(c.fig,dt,170,true,false);}else animateFigure(c.fig,dt,0,false,false);}});
-   /* get back in car */
-   var nearCar=dist2(footMode.x,footMode.z,carPark.x,carPark.z)<30;
+   /* get back in car — after a deliberate Get Out, re-entry stays locked
+      until the walker has stepped clear of the car and come back to it */
+   if(footMode.reason==='roam'){
+     footMode.exitT=(footMode.exitT||0)+dt;
+     if(carPark&&dist2(footMode.x,footMode.z,carPark.x,carPark.z)>=34)footMode.leftCar=true;
+   }
+   var nearCar=dist2(footMode.x,footMode.z,carPark.x,carPark.z)<30&&(footMode.reason!=='roam'||(footMode.leftCar&&footMode.exitT>.8));
    var nearSafe=dist2(footMode.x,footMode.z,SAFE.x,SAFE.z)<80;
    if((nearCar&&!carDead)||(nearSafe&&footMode.reason==='station')){
      if(footMode.reason==='station'&&S.impounded[S.car]&&nearSafe){/* swap to another car at home */
@@ -3877,15 +3932,17 @@ function updateGame(dt,realDt){
    }
    if(footMode&&footMode.reason==='deadcar'&&nearSafe){footMode=null;carPark=null;player.fig.visible=false;player.x=SAFE.x;player.z=SAFE.z+30;toast('Home. The dead car\u2019s still at the scene — tow it from the lot, or it links back tomorrow.');}
  } else {
- /* ---------- CAR PHYSICS (GTA-style handling + per-end grip drift model) ----------
-    Velocity is kept in the world frame. Each frame it is decomposed against the
-    car's heading, the heading is advanced by a yaw velocity, and the (unchanged)
-    world velocity is re-decomposed against the NEW heading — so the velocity
-    direction lags the nose and a real slip angle appears. Lateral tyre grip then
-    bleeds that sideways velocity away: strong grip = the car goes where it
-    points; when rear lateral load beats rear grip (gripBlend -> 1) the bleed
-    rate collapses and the tail steps out until counter-steer, throttle control
-    or grip recovery brings it back. */
+ /* ---------- CAR PHYSICS (v20 GTA-style planted arcade model) ----------
+    Velocity is kept in the world frame and decomposed against the heading.
+    The heading advances by a speed-sensitive bicycle yaw rate (generous lock
+    at parking speed, capped and calm at speed); the world velocity is then
+    re-decomposed against the NEW heading and its sideways component is bled
+    away at ALIGN_RATE — planted grip, the car goes where it points, and
+    there is NO spin state. The only slide is a deliberate handbrake drift:
+    driftAmt drops the bleed rate toward HB_ALIGN so the tail steps out and
+    can be held on counter-steer; releasing the handbrake restores grip
+    progressively. Slip is hard-capped (SLIP_CAP_DEG) with speed scrub, so a
+    slide self-straightens and can never escalate. */
    var spec=carSpec();
    var tune=CAR_TUNE[S.car]||CAR_TUNE.battered;
    var DT=DRIVE_TUNE;
@@ -3910,78 +3967,85 @@ function updateGame(dt,realDt){
    if(!surf)maxSpd*=.55;
    if(carDead){throttleIn=0;brakePedal=false;}
    var spdF=clamp(Math.abs(vf)/(maxSpd||1),0,1);
-   /* analogue-feel steering from digital inputs: quick ramp-in, fast return to
-      centre, and maximum lock shrinks as speed rises */
+   /* direct steering from digital inputs: fast ramp-in the same frame the
+      input lands, quicker return to centre, and the effective lock shrinks
+      smoothly as speed rises so the car stays calm at A-road speed */
    var sRate=(Math.abs(steerTarget)>Math.abs(player.steer))?DT.STEER_IN:DT.STEER_OUT;
    player.steer+=clamp(steerTarget-player.steer,-sRate*dt,sRate*dt);
-   var steerEff=player.steer*(1-(1-DT.STEER_TOP)*spdF);
-   /* longitudinal: weighty accel curve, engine braking off throttle,
+   var steerLock=DT.STEER_MAX*tune.steer*(1-(1-DT.STEER_TOP)*spdF);
+   var steerAng=player.steer*steerLock;
+   /* longitudinal: eager accel curve, engine braking off throttle,
       brake pedal brakes while moving and reverses from a standstill */
    var thr=throttleIn>0?throttleIn:0;
    if(thr>0)vf+=spec.accel*thr*(1-clamp(vf/maxSpd,-1,1))*dt;
    if(brakePedal){if(vf>10)vf-=DT.BRAKE_DECEL*dt;else vf=Math.max(-DT.REV_MAX,vf-spec.accel*.55*dt);}
    else if(thr<=0){vf-=vf*.55*dt;var eb=Math.min(Math.abs(vf),16*dt);vf-=vf>0?eb:-eb;}
-   if(hb)vf-=vf*2.2*dt;
+   if(hb)vf-=vf*1.5*dt; /* handbrake drag — throttle can sustain a drift against it */
    vf*=Math.exp(-(.18+sInfo.drag*.55)*dt);
-   /* rear breakaway: handbrake, power oversteer on rear-drive-feel cars,
-      lift-off mid-corner, or lateral load simply beating rear grip */
-   if(player.wasThr&&thr<=0&&Math.abs(player.yawVel)>.65&&Math.abs(vf)>150)player.liftT=.5;
-   player.wasThr=thr>0;
-   if(player.liftT>0)player.liftT-=dt;
-   if(player.spinT>0)player.spinT-=dt;
+   /* surface grip: surfaceInfo x the single WET_GRIP weather hook x damage */
    var surfGrip=sInfo.grip*WET_GRIP;
-   var rearLimit=DT.REAR_LIMIT*tune.gripR*surfGrip*dmgGrip*(player.liftT>0?.72:1);
-   var latDemand=Math.abs(player.yawVel*vf);
-   var powerSlide=(tune.drive!=='fwd')&&thr>0&&Math.abs(player.steer)>.5&&Math.abs(vf)<75;
-   var prevSlip=Math.abs(player.slip);
-   var holdSlide=player.gripBlend>.55&&(latDemand>rearLimit*.45||(thr>0&&prevSlip>11&&Math.abs(player.steer)>.25));
-   var breakaway=hb||powerSlide||latDemand>rearLimit||holdSlide;
-   var gbRate=breakaway?DT.BREAK_RATE:(thr<=0?DT.RECOVER_RATE*1.7:DT.RECOVER_RATE);
-   player.gripBlend+=clamp((breakaway?1:0)-player.gripBlend,-gbRate*dt,gbRate*dt);
-   var sliding=player.gripBlend>.35;
-   /* yaw: gripping, front grip pulls yaw toward the steering target. Sliding,
-      yaw settles toward the equilibrium implied by a desired slip angle —
-      throttle and steering into the turn wind the angle up, counter-steer
-      winds it back down, so a drift can be held, trimmed or unwound */
-   var speedFac=clamp(Math.abs(vf)/55,0,1);
-   var targetYaw=steerEff*DT.MAX_YAW*speedFac*spec.handling*(vf<0?-1:1);
-   var ySign=player.yawVel>0?1:(player.yawVel<0?-1:0);
-   var latRate=(DT.GRIP_RATE*(1-player.gripBlend)+DT.SLIDE_RATE*player.gripBlend)*surfGrip*spec.handling*dmgGrip;
-   if(sliding){
-     var desiredSlip=clamp(14+thr*16*(tune.drive==='fwd'?.6:1)+player.steer*ySign*22,10,52);
-     var yawEq=ySign*Math.tan(desiredSlip*.0174533)*Math.max(latRate,.55);
-     player.yawVel+=(yawEq+targetYaw*.25-player.yawVel)*Math.min(1,3.0*dt);
-   }else{
-     player.yawVel+=(targetYaw-player.yawVel)*Math.min(1,(6+5*tune.gripF)*dmgGrip*dt);
-   }
-   if(hb&&Math.abs(vf)>60)player.yawVel+=(Math.abs(player.steer)>.2?player.steer:ySign)*1.9*dt*clamp(Math.abs(vf)/120,0,1);
-   player.yawVel=clamp(player.yawVel,-3.4,3.4);
-   var dh=0;
-   if(player.spin>0){dh=player.spin*dt;player.spin*=Math.exp(-3*dt);if(Math.abs(player.spin)<.2)player.spin=0;player.yawVel=0;}
-   else dh=player.yawVel*dt;
+   /* deliberate drift only: the handbrake held at speed blends driftAmt in;
+      in every other state it blends back out and full planted grip returns */
+   var wantDrift=(hb&&Math.abs(vf)>DT.DRIFT_MIN_SPD)?1:0;
+   var dRate=wantDrift?DT.DRIFT_IN:DT.DRIFT_OUT;
+   player.driftAmt+=clamp(wantDrift-player.driftAmt,-dRate*dt,dRate*dt);
+   var driftingNow=player.driftAmt>.35;
+   /* yaw: kinematic bicycle — the yaw rate follows the front-wheel angle and
+      forward speed (sign flips in reverse, as it should), hard-capped so the
+      car stays calm at speed; steering keeps full authority while drifting
+      so a slide is held and trimmed on counter-steer */
+   var targetYaw=clamp(vf*Math.tan(steerAng)/DT.WHEELBASE,-DT.MAX_YAW,DT.MAX_YAW);
+   if(driftingNow)targetYaw*=1.25;
+   player.yawVel+=(targetYaw-player.yawVel)*Math.min(1,DT.YAW_RESPONSE*dmgGrip*dt);
+   var dh=player.yawVel*dt;
    player.h+=dh;
-   /* re-decompose the world velocity against the new heading, then let lateral
-      grip bleed the sideways component (rate collapses while the rear is loose) */
+   /* re-decompose the world velocity against the new heading, then bleed the
+      sideways component away: ALIGN_RATE planted grip normally, collapsing
+      toward HB_ALIGN only while a handbrake drift is on */
+   var alignRate=(DT.ALIGN_RATE*(1-player.driftAmt)+DT.HB_ALIGN*player.driftAmt)*tune.align*surfGrip*dmgGrip;
    var cdh=Math.cos(dh),sdh=Math.sin(dh);
    var vf2=vf*cdh+vr*sdh,vr2=-vf*sdh+vr*cdh;
-   vr2*=Math.exp(-latRate*dt);
-   vf2*=Math.exp(-(player.gripBlend*.5+Math.min(.5,Math.abs(vr2)/Math.max(60,Math.abs(vf2))*.4))*dt);
+   vr2*=Math.exp(-alignRate*dt);
+   /* forward scrub only while sliding: bleeds the excess speed a big angle makes */
+   vf2*=Math.exp(-(player.driftAmt*Math.min(.9,Math.abs(vr2)/Math.max(60,Math.abs(vf2))))*dt);
+   /* hard slip cap: a slide can never pass SLIP_CAP_DEG — the velocity is
+      pulled back inside the cap and the excess scrubbed, so any slide
+      self-straightens instead of escalating. There is no spin state. */
+   if(Math.abs(vf2)>25&&Math.abs(vr2)>Math.tan(DT.SLIP_CAP_DEG*.0174533)*Math.abs(vf2)){
+     vr2=Math.tan(DT.SLIP_CAP_DEG*.0174533)*Math.abs(vf2)*(vr2<0?-1:1);vf2*=Math.exp(-1.2*dt);
+   }
    vf=vf2;vr=vr2;
    fx=Math.sin(player.h);fz=-Math.cos(player.h);rx=Math.cos(player.h);rz=Math.sin(player.h);
    player.vx=fx*vf+rx*vr;player.vz=fz*vf+rz*vr;
    player.x=clamp(player.x+player.vx*dt,-1280,1280);player.z=clamp(player.z+player.vz*dt,-980,980);
-   /* slip angle: heading vs velocity direction, in degrees */
+   /* slip angle: heading vs velocity direction, in degrees (feedback only —
+      drift popups and tyre marks; it drives no physics any more) */
    player.slip=Math.abs(vf)>25?Math.atan2(vr,Math.abs(vf))*57.2958:player.slip*Math.exp(-6*dt);
    var slipAbs=Math.abs(player.slip);
-   if(sliding&&(slipAbs>58||(slipAbs>46&&player.steer*ySign>.7&&thr>.5)))player.spinBuild+=dt;else player.spinBuild=Math.max(0,player.spinBuild-dt*2);
-   if(player.spinT<=0&&player.spin<=0&&Math.abs(vf)>80&&(player.spinBuild>.35||Math.abs(player.yawVel)>3.15)){player.spin=2.9;player.spinT=1.6;player.gripBlend=0;player.yawVel=0;player.spinBuild=0;toast('SPUN OUT');sfx('skid');}
    /* SUV too wide for the tightest streets: scrape slowdown on S roads handled by collisions below */
-   /* collisions: buildings */
+   /* collisions: buildings — forgiving glance-off. The crash tier system
+      (onCrash: damage amounts, injury, incident flow, witness/plate capture)
+      is untouched; only the physical response changes: resolve along the
+      axis of least penetration, kill the into-wall velocity component, keep
+      the along-wall component, shed speed by impact. The impact fed to
+      onCrash is the INTO-WALL speed only, so a head-on hit tiers exactly as
+      before while a glancing scrape registers as a scrape — and sliding
+      along a wall cannot re-trigger a crash every frame. No bounce-back,
+      no spin, no sticking to walls, heading unchanged. */
    for(var bi=0;bi<buildings.length;bi++){var b=buildings[bi];
-     var bcm=(b.cm!==undefined?b.cm:13);if(Math.abs(player.x-b.x)<b.hw+bcm&&Math.abs(player.z-b.z)<b.hd+bcm){
-       var impact=Math.abs(vf)+Math.abs(vr);
-       if(impact>40){onCrash(impact*.8,'building');if(impact>190)player.spin=2.6;}
-       player.x+=(player.x>b.x?1:-1)*4;player.vx*=-.25;player.vz*=-.25;vf*=.3;
+     var bcm=(b.cm!==undefined?b.cm:13);
+     var penX=(b.hw+bcm)-Math.abs(player.x-b.x),penZ=(b.hd+bcm)-Math.abs(player.z-b.z);
+     if(penX>0&&penZ>0){
+       var alongX=penX<penZ;
+       var nSign=alongX?(player.x>b.x?1:-1):(player.z>b.z?1:-1);
+       var vn=alongX?player.vx*nSign:player.vz*nSign; /* <0 = moving into the wall */
+       var impact=Math.max(0,-vn);
+       if(impact>40)onCrash(impact*.8,'building');
+       var shed=impact>170?.35:(impact>90?.5:.78);
+       if(alongX){player.x=b.x+nSign*(b.hw+bcm+.5);if(player.vx*nSign<0)player.vx=0;}
+       else{player.z=b.z+nSign*(b.hd+bcm+.5);if(player.vz*nSign<0)player.vz=0;}
+       player.vx*=shed;player.vz*=shed;
+       vf=player.vx*fx+player.vz*fz;vr=player.vx*rx+player.vz*rz;
      }}
    player.mesh.position.set(player.x,0,player.z);
    player.mesh.rotation.order='YXZ';
@@ -3993,12 +4057,12 @@ function updateGame(dt,realDt){
    player.pitchV+=(clamp(accNow*.00016,-.06,.05)-player.pitchV)*Math.min(1,dt*6);
    player.mesh.rotation.z=player.rollV;
    player.mesh.rotation.x=player.pitchV;
-   /* drift + tyre marks, driven by the real slip angle: rear wheels while the
-      tail is out, fronts too under heavy lock */
-   var drifting=slipAbs>DT.DRIFT_MIN_DEG&&slipAbs<DT.DRIFT_MAX_DEG+14&&Math.abs(vf)>120;
+   /* drift + tyre marks: ONLY during a genuine handbrake drift (driftAmt up,
+      real slip angle, real speed) — planted cornering lays no rubber and
+      earns no drift rep */
+   var drifting=driftingNow&&slipAbs>DT.DRIFT_MIN_DEG&&Math.abs(vf)>110;
    var rearOff=spec.l*.32,sideOff=spec.w/2-1;
-   if(slipAbs>9&&Math.abs(vf)>70&&Math.random()<.85){dropMark(player.x-rx*sideOff-fx*rearOff,player.z-rz*sideOff-fz*rearOff,player.h);dropMark(player.x+rx*sideOff-fx*rearOff,player.z+rz*sideOff-fz*rearOff,player.h);}
-   if(Math.abs(player.steer)>.78&&Math.abs(vf)>130&&slipAbs>16&&Math.random()<.5){dropMark(player.x-rx*sideOff+fx*rearOff,player.z-rz*sideOff+fz*rearOff,player.h);dropMark(player.x+rx*sideOff+fx*rearOff,player.z+rz*sideOff+fz*rearOff,player.h);}
+   if(drifting&&Math.random()<.85){dropMark(player.x-rx*sideOff-fx*rearOff,player.z-rz*sideOff-fz*rearOff,player.h);dropMark(player.x+rx*sideOff-fx*rearOff,player.z+rz*sideOff-fz*rearOff,player.h);}
    if(drifting){driftT+=dt;if(Math.random()<dt*3)sfx('skid');
      if(driftT>1.4){driftT=0;S.rep+=1;toast('DRIFT +1 Rep');}}
    else driftT=Math.max(0,driftT-dt*2);
@@ -4037,21 +4101,51 @@ function updateGame(dt,realDt){
  }
  /* ---------- TRAFFIC ---------- */
  traffic.forEach(function(t){
-   if(t.chaseT>0){t.chaseT-=dt;var a2=Math.atan2(player.x-t.x,player.z-t.z);t.x+=Math.sin(a2)*190*dt;t.z+=Math.cos(a2)*190*dt;}
+   if(t.chaseT>0){t.chaseT-=dt;var a2=Math.atan2(player.x-t.x,player.z-t.z);t.x+=Math.sin(a2)*190*dt;t.z+=Math.cos(a2)*190*dt;t.spd=190;}
    else{
-     if(t.crashT>0)t.crashT-=dt;
-     else{t.t+=t.dir*t.speed*dt/2600;if(t.t>1){t.t=1;t.dir=-1;}if(t.t<0){t.t=0;t.dir=1;}}
+     if(t.rlen===undefined){t.rlen=0;for(var li=0;li<t.road.pts.length-1;li++)t.rlen+=dist2(t.road.pts[li][0],t.road.pts[li][1],t.road.pts[li+1][0],t.road.pts[li+1][1]);if(t.spd===undefined)t.spd=t.speed;}
+     if(t.crashT>0){t.crashT-=dt;t.spd=Math.max(0,t.spd-420*dt);}
+     else{
+       /* v21 TRAFFIC: t.spd is a real speed (world units/s along the road's
+          own length — the old fixed /2600 divisor made short A-roads crawl).
+          Cruise is the car's spawned speed scaled by road class (A full,
+          B .72, S .55); the car slows for corners by comparing its segment
+          heading with the heading a braking-distance ahead, and brakes for
+          the player (car or walker — player.x/z track both) or another
+          traffic car ahead in its lane, stopping ~44 units short instead of
+          ramming or piling up. Brakes bite at 300/s, the engine pulls at
+          95/s, so queues form and clear instead of gridlocking. */
+       var cruise=t.speed*(t.road.cls==='A'?1:(t.road.cls==='B'?.72:.55));
+       var pp0=pathPoint(t.road.pts,t.t);
+       var pp1=pathPoint(t.road.pts,clamp(t.t+t.dir*(t.spd*1.15+30)/t.rlen,0,1));
+       var tDot=clamp(pp0.dx*pp1.dx+pp0.dz*pp1.dz,-1,1);
+       var want=cruise*clamp(1-Math.acos(tDot)*1.15,.42,1);
+       var ffx=pp0.dx*t.dir,ffz=pp0.dz*t.dir,ahead=1e9;
+       var rpx=player.x-t.x,rpz=player.z-t.z,pa=rpx*ffx+rpz*ffz;
+       if(pa>0&&Math.abs(rpx-ffx*pa)<17&&Math.abs(rpz-ffz*pa)<17)ahead=pa;
+       /* other traffic only counts as a blocker when it is travelling roughly
+          OUR way (same carriageway flow): cross-traffic at a junction is not
+          braked for, so two cars can never deadlock nose-to-nose at a
+          crossing — queues only form behind same-direction cars, a crashed
+          car (3 s) or the player, all of which clear. */
+       for(var oi=0;oi<traffic.length;oi++){var o=traffic[oi];if(o===t)continue;if(o.hdx!==undefined&&ffx*o.hdx+ffz*o.hdz<.5)continue;var rox=o.x-t.x,roz=o.z-t.z,oa=rox*ffx+roz*ffz;if(oa>0&&oa<ahead&&Math.abs(rox-ffx*oa)<17&&Math.abs(roz-ffz*oa)<17)ahead=oa;}
+       if(ahead<110)want=Math.min(want,cruise*clamp((ahead-44)/66,0,1));
+       var tRate=want<t.spd?300:95;
+       t.spd+=clamp(want-t.spd,-tRate*dt,tRate*dt);if(t.spd<0)t.spd=0;
+       t.t+=t.dir*t.spd*dt/t.rlen;if(t.t>1){t.t=1;t.dir=-1;}if(t.t<0){t.t=0;t.dir=1;}
+     }
      var pp=pathPoint(t.road.pts,t.t);
      var ln={x:pp.dz*t.dir,z:-pp.dx*t.dir};
      t.x=pp.x+ln.x*11;t.z=pp.z+ln.z*11;
+     t.hdx=pp.dx*t.dir;t.hdz=pp.dz*t.dir; /* stored heading for other cars' blocker test */
      t.mesh.rotation.y=Math.atan2(pp.dx*t.dir,pp.dz*t.dir)+Math.PI;
    }
    t.mesh.position.set(t.x,0,t.z);
-   rollWheels(t.mesh,(t.chaseT>0?190:(t.crashT>0?0:t.speed))*dt,0);
+   rollWheels(t.mesh,(t.chaseT>0?190:(t.spd||0))*dt,0);
    t.nearCd-=dt;
    if(!footMode){
      var d=dist2(player.x,player.z,t.x,t.z);
-     if(d<30&&speedNow()>30){t.crashT=3;var imp=speedNow();player.vx*=-.3;player.vz*=-.3;if(imp>200)player.spin=2.4;onCrash(imp*.85,'traffic');onCrashRef(t);}
+     if(d<30&&speedNow()>30){t.crashT=3;t.spd=0;var imp=speedNow();player.vx*=.35;player.vz*=.35;onCrash(imp*.85,'traffic');onCrashRef(t);}
      else if(d<58&&d>=30&&speedNow()>205&&t.nearCd<0){t.nearCd=6;S.rep+=1;toast('NEAR MISS +1 Rep');styleEvent('reckless','near miss');}
    }
  });
@@ -4071,7 +4165,7 @@ function updateGame(dt,realDt){
    animateFigure(p.mesh,dt,p.diveT>0?200:22,false,p.diveT>0);
  });
  /* ---------- CALLS ---------- */
- if(ringing){ringT-=dt;if(ringT<5&&ringT>4.9)ringNokia();if(ringT<=0){ringing=null;stopRing();S.missed++;S.missedTotal++;S.rep=Math.max(0,S.rep-1);$('miniText').innerHTML='Missed call.<br>Rep −1';var mb=$('nkBadge');mb.style.display='flex';mb.textContent='1';toast('Missed call — Rep −1');scheduleCall(9);updateObjective();}}
+ if(ringing){ringT-=dt;if(ringT<5&&ringT>4.9)ringNokia();if(ringT<=0){ringing=null;stopRing();S.missed++;S.missedTotal++;S.rep=Math.max(0,S.rep-1);$('miniText').innerHTML='Missed call.<br>Rep −1';var mb=$('nkBadge');mb.style.display='flex';mb.textContent='1';toast('Missed call — Rep −1');scheduleCall(8);updateObjective();}}
  else if(!job&&!sideJob){nextCallT-=dt;if(nextCallT<0){if(!(S.areaMute&&areaOf(player.x,player.z)&&areaOf(player.x,player.z).id===S.areaMute))makeCall();else scheduleCall(6);}}
  if(S.areaMuteT>0){S.areaMuteT-=dt;if(S.areaMuteT<0)S.areaMute=null;}
  if(job){job.timeLeft-=dt;
