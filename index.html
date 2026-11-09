@@ -1053,10 +1053,10 @@ var camera=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,5
    cutscene, resize) can push the camera outside the intended near band.
    Gameplay coordinates, collision and input mapping are untouched: world -z is still
    screen-up, world +x is still screen-right under this rig. */
-var CAM_TILT=50*Math.PI/180;
+var CAM_TILT=58*Math.PI/180; /* CONCEPT SAMPLE (v23): tilt test variable — 58° for BOTH foot and driving (user spec §1, 55–65° band), overriding the v22 50° foot / 44° driving angles for this sample build only */
 var CAM_TAN=Math.tan(CAM_TILT);
 var CAM_H_FOOT=228, CAM_H_SPEED=90;
-var CAM_TILT_DRIVE=44*Math.PI/180, camTiltCur=CAM_TILT; /* §9 driving tilt, eased over ~0.6s on enter/exit car */
+var CAM_TILT_DRIVE=58*Math.PI/180, camTiltCur=CAM_TILT; /* CONCEPT SAMPLE (v23): driving tilt also 58° (was 44°); heights/clamps/follow unchanged */
 var CAM_H_MIN=205, CAM_H_MAX=325;
 function camPlace(cx,cz,h,tilt){h=clamp(h,CAM_H_MIN,CAM_H_MAX);var tt=(tilt!==undefined)?tilt:CAM_TILT;camera.position.set(cx,h,cz+h/Math.tan(tt));camera.lookAt(cx,0,cz);} /* MAP REBUILD §9: tilt argument — foot calls keep 50°, driving passes an eased 44° */
 /* Stable framing across screen sizes: at narrow aspects the vertical FOV widens so the
@@ -1127,6 +1127,61 @@ function buildGroundTexture(){
    g.stroke();
  }
  ROADS.forEach(drawRoad);
+ /* ---- CONCEPT SAMPLE (v23) — illustrated ground repaint, SAMPLE AREA ONLY ----
+    Region: Deeplish Rd x Ann St junction, centre (375,650), radius ~200
+    (frame x 100..580, z 450..850 incl. the safe house at the west edge).
+    A repaint of this region of the world ground canvas is inherently
+    area-scoped: every other district keeps the v22 ground painting exactly.
+    Uses a private LCG (never the shared rnd() stream) so building layout,
+    which is seeded downstream of this texture, is byte-identical to v22.
+    Texture scale: canvas is 2048x1576 px over 2600x2000 units (~0.788 px/unit,
+    1 unit = 0.15 m). Pavement tile drawn 10x10 units = 2x2 slabs of 5 units;
+    asphalt patching repeats on a ~36-unit rhythm along the carriageway. */
+ (function(){
+   var sl=1234567; function srnd(){sl=(sl*48271)%2147483647;return (sl-1)/2147483646;}
+   var SAMP_ROADS=['Deeplish Road','Ann Street','Lower Tweedale Street','Derby Street','Back Ann Ginnel'];
+   function inSamp(x,z){var dx=x-375,dz=z-650;return dx*dx+dz*dz<220*220;}
+   SAMP_ROADS.forEach(function(nm){
+     var r=null;for(var i=0;i<ROADS.length;i++)if(ROADS[i].name===nm)r=ROADS[i];
+     if(!r||r.cls==='R')return;
+     var wpx=roadWpx(r),pv=pvPx(r);
+     /* pavement: full 10-unit slab grid (longitudinal joint + cross joints every 5 units of run) */
+     g.strokeStyle='rgba(28,30,33,.34)';g.lineWidth=1;
+     [-1,1].forEach(function(sd){
+       var off=wpx/2+pv*0.52;
+       g.beginPath();
+       var pp=offPath(r,sd*off);pp.forEach(function(p,i){i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]);});g.stroke();
+       var pp2=offPath(r,sd*(wpx/2+2));g.beginPath();pp2.forEach(function(p,i){i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]);});g.stroke(); /* kerb-edge contrast line */
+     });
+     for(var si=0;si<r.pts.length-1;si++){
+       var ax=X(r.pts[si][0]),ay=Y(r.pts[si][1]),bx=X(r.pts[si+1][0]),by=Y(r.pts[si+1][1]);
+       var dx=bx-ax,dy=by-ay,L=Math.sqrt(dx*dx+dy*dy);if(!L)continue;dx/=L;dy/=L;
+       var nx=-dy,ny=dx;
+       g.beginPath();
+       for(var s=4;s<L;s+=4){ /* 4px ~ 5 units: slab cross-joints */
+         var cxp=ax+dx*s,cyp=ay+dy*s,wx=(cxp/cw)*2600-1300,wz=(cyp/ch)*2000-1000;
+         if(!inSamp(wx,wz))continue;
+         g.moveTo(cxp+nx*(wpx/2+1),cyp+ny*(wpx/2+1));g.lineTo(cxp+nx*(wpx/2+pv-1),cyp+ny*(wpx/2+pv-1));
+         g.moveTo(cxp-nx*(wpx/2+1),cyp-ny*(wpx/2+1));g.lineTo(cxp-nx*(wpx/2+pv-1),cyp-ny*(wpx/2+pv-1));
+       }
+       g.stroke();
+     }
+     /* asphalt: tonal patching on a ~36-unit rhythm + darker repair patches */
+     for(var pi=0;pi<r.pts.length-1;pi++){
+       var ax2=X(r.pts[pi][0]),ay2=Y(r.pts[pi][1]),bx2=X(r.pts[pi+1][0]),by2=Y(r.pts[pi+1][1]);
+       var dx2=bx2-ax2,dy2=by2-ay2,L2=Math.sqrt(dx2*dx2+dy2*dy2);if(!L2)continue;dx2/=L2;dy2/=L2;
+       var nx2=-dy2,ny2=dx2;
+       for(var s2=10;s2<L2;s2+=28){ /* 28px ~ 36 units */
+         var cx2=ax2+dx2*s2,cy2=ay2+dy2*s2,wx2=(cx2/cw)*2600-1300,wz2=(cy2/ch)*2000-1000;
+         if(!inSamp(wx2,wz2))continue;
+         var lo=(srnd()-.5)*(wpx-10);
+         g.fillStyle=srnd()>.5?'rgba(255,255,255,.045)':'rgba(0,0,0,.07)';
+         g.save();g.translate(cx2+nx2*lo,cy2+ny2*lo);g.rotate(Math.atan2(dy2,dx2));g.fillRect(-13,-wpx*.28,26,wpx*.56);g.restore();
+         if(srnd()>.55){g.fillStyle='rgba(12,14,16,.13)';g.save();g.translate(cx2+nx2*(srnd()-.5)*8,cy2+ny2*(srnd()-.5)*8);g.rotate(Math.atan2(dy2,dx2));g.fillRect(-8,-5,16,10);g.restore();}
+       }
+     }
+   });
+ })();
  /* ---- UK road markings pass (painted on the tarmac, under the 3D kerbs) ---- */
  function offPath(r,off){
    var pts=r.pts.map(function(p){return [X(p[0]),Y(p[1])];});
@@ -1193,6 +1248,37 @@ function buildGroundTexture(){
    g.restore();
  }
  busStopMark('A58 · St Mary\u2019s Gate',.6,1);busStopMark('Spotland Road',.5,-1);busStopMark('B6223 · Milkstone Road',.45,1);busStopMark('Manchester Road',.55,-1);busStopMark('Tweedale Street',.82,1); /* §8 bus cage near Derby St end */
+ /* ---- CONCEPT SAMPLE (v23) pass B — junction dressing, SAMPLE AREA ONLY ----
+    Zebra crossing over Deeplish Road at its closest approach to Ann Street
+    (t=.565 — presentation only, reuses the v22 zebra painter, no logic);
+    wet-sheen streaks along the sample carriageways (stronger at lamp pools);
+    two drain grates at the kerb edge. Wet look is texture/decal only — the
+    Phase 5 weather/wetness system and WET_GRIP are untouched. */
+ zebra('Deeplish Road',.565);
+ (function(){
+   var sl2=987654; function sr2(){sl2=(sl2*48271)%2147483647;return (sl2-1)/2147483646;}
+   [['Deeplish Road',.3],['Deeplish Road',.55],['Deeplish Road',.8],['Ann Street',.35],['Ann Street',.7],['Lower Tweedale Street',.5]].forEach(function(cfg){
+     var f=roadFrame(cfg[0],cfg[1]);if(!f)return;
+     g.save();g.translate(f.x,f.y);g.rotate(f.ang);
+     for(var k=0;k<3;k++){var yo=(sr2()-.5)*f.half*1.1;
+       var gr=g.createLinearGradient(-16,yo,16,yo);gr.addColorStop(0,'rgba(168,196,226,0)');gr.addColorStop(.5,'rgba(168,196,226,.13)');gr.addColorStop(1,'rgba(168,196,226,0)');
+       g.fillStyle=gr;g.fillRect(-16,yo-1.6,32,3.2);}
+     g.restore();
+   });
+   /* lamp pools: brighter wet sheen discs on the carriageway near lamp points */
+   [['Deeplish Road',.42],['Ann Street',.5],['Lower Tweedale Street',.62]].forEach(function(cfg){
+     var f=roadFrame(cfg[0],cfg[1]);if(!f)return;
+     var gr2=g.createRadialGradient(f.x,f.y,2,f.x,f.y,17);gr2.addColorStop(0,'rgba(255,196,110,.16)');gr2.addColorStop(1,'rgba(255,196,110,0)');
+     g.fillStyle=gr2;g.beginPath();g.arc(f.x,f.y,17,0,7);g.fill();
+   });
+   /* drain grates: dark slatted decals at the kerb edge by the junction */
+   [[352,644,.72],[398,700,.72]].forEach(function(d){
+     g.save();g.translate(X(d[0]),Y(d[1]));g.rotate(d[2]);
+     g.fillStyle='#22262a';g.fillRect(-5,-3.4,10,6.8);
+     g.fillStyle='rgba(160,170,178,.5)';for(var gx=-4;gx<5;gx+=2)g.fillRect(gx,-3,1,6);
+     g.restore();
+   });
+ })();
  /* Town Hall marker */
  g.textAlign='center';
  g.fillStyle='#e8b33a';g.beginPath();g.arc(X(-30),Y(-120),13,0,7);g.fill();g.fillStyle='#14100a';g.font='700 15px Barlow';g.fillText('★',X(-30),Y(-114));
@@ -1698,6 +1784,232 @@ bMeshes.push({x:SAFE.x,z:SAFE.z-19,hw:24,hd:18,top:54,parts:[safeHouseMesh,safeR
   window.__MAP_AUDIT={buildings:buildings.length,aabbPass:aPass,aabbTotal:bMeshes.length,aabbFailIdx:aFail,centrelineViolations:ccBad,centrelineBad:ccBadList,anchorViolations:aBad,raceCheckpointOffroad:raceBad,meshes:meshCount};
   if(window.console)console.log('[DALE MAP AUDIT] '+JSON.stringify(window.__MAP_AUDIT));
  }catch(err){if(window.console)console.log('[DALE MAP AUDIT] failed: '+(err&&err.message));}
+})();
+/* ================= CONCEPT SAMPLE (v23) — ILLUSTRATED LOOK, SAMPLE AREA ONLY =================
+   Scope: Deeplish Road x Ann Street junction, centre (375,650), radius 220
+   (frame x 155..595, z 430..870; the safe house at (100,649) sits at the
+   frame's west edge and keeps its own v22 landmark build). ONLY buildings
+   whose P5_BUILD entry falls inside the radius get the new cloned materials;
+   every shared v22 texture/material elsewhere is untouched (proof recorded
+   in window.__SAMPLE23). Presentation only: no geometry, collision, anchor,
+   gameplay or save changes — dressing meshes are extra parts on existing
+   groups and join the existing occlusion-fade via bMeshes parts lists.
+   Texture scale (one scale across the sample): facade canvas 256x256 maps
+   ONE terrace unit 34 wide x 40 tall -> 6.4 px/unit; brick rows drawn 4px
+   (~0.63 units ~ 94mm, two half-courses) with 12px brick lengths; slate
+   courses ~2 units exposure via repeat/UV scaling below; the ground-canvas
+   pavement tile is 10x10 units = 2x2 slabs of 5 units; asphalt patching
+   repeats every ~36 units along the carriageway. */
+(function(){
+ try{
+  var CX=375,CZ=650,RAD=220; /* frame x 155..595, z 430..870: junction + Ann/Lower Tweedale rows + fence + flats + ginnel + the Ann St parked car */
+  function inSamp(x,z){var dx=x-CX,dz=z-CZ;return dx*dx+dz*dz<RAD*RAD;}
+  function sTex(w,h,draw,rep){var c=document.createElement('canvas');c.width=w;c.height=h;var g=c.getContext('2d');draw(g);var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;if(rep){t.wrapS=t.wrapT=THREE.RepeatWrapping;}return t;}
+  var _ls=424243; function lrnd(){_ls=(_ls*48271)%2147483647;return (_ls-1)/2147483646;}
+  function brickIll(g,shades){
+    g.fillStyle='#77685a';g.fillRect(0,0,256,256); /* mortar */
+    for(var y=0;y<256;y+=4){var off=((y/4)%2)*6;
+      for(var x=-12;x<256;x+=12){g.fillStyle=shades[Math.floor(lrnd()*shades.length)];g.fillRect(x+off+.6,y+.6,10.8,2.8);
+        if(lrnd()>.6){g.fillStyle='rgba(0,0,0,'+(0.04+lrnd()*0.07)+')';g.fillRect(x+off+.6,y+.6,10.8,2.8);}}}
+    for(var k=0;k<16;k++){var gx=lrnd()*250,gl=40+lrnd()*150;var gr=g.createLinearGradient(0,0,0,gl);gr.addColorStop(0,'rgba(20,14,10,.13)');gr.addColorStop(1,'rgba(20,14,10,0)');g.fillStyle=gr;g.fillRect(gx,0,2+lrnd()*4,gl);} /* grime streaks */
+    var ao=g.createLinearGradient(0,196,0,256);ao.addColorStop(0,'rgba(10,8,6,0)');ao.addColorStop(1,'rgba(10,8,6,.42)');g.fillStyle=ao;g.fillRect(0,196,256,60); /* baked AO at base */
+    g.fillStyle='#211d19';g.fillRect(0,242,256,14);g.fillStyle='rgba(255,255,255,.13)';g.fillRect(0,242,256,2); /* dark plinth band */
+  }
+  function winIll(g,x,y,w,h,lit){
+    g.fillStyle='#cfc4ae';g.fillRect(x-4,y-8,w+8,5); /* stone lintel */
+    g.fillStyle='#1f2329';g.fillRect(x-3,y-3,w+6,h+6); /* dark ink frame */
+    if(lit){var wg=g.createLinearGradient(0,y,0,y+h);wg.addColorStop(0,'#f2b45e');wg.addColorStop(1,'#d98a34');g.fillStyle=wg;}
+    else{g.fillStyle='#2c3e50';}
+    g.fillRect(x,y,w,h);
+    if(!lit){g.fillStyle='rgba(255,255,255,.16)';g.beginPath();g.moveTo(x+3,y+h-3);g.lineTo(x+w*.5,y);g.lineTo(x+w*.72,y);g.lineTo(x+w*.2,y+h-3);g.fill();}
+    g.fillStyle='#1f2329';g.fillRect(x+w/2-1,y,2,h);g.fillRect(x,y+h/2-1,w,2);
+    g.fillStyle='#cfc4ae';g.fillRect(x-3,y+h+4,w+6,4); /* sill */
+  }
+  function doorIll(g,x,y,w,h,col){
+    g.fillStyle='#1f2329';g.fillRect(x-3,y-4,w+6,h+4);
+    g.fillStyle=col;g.fillRect(x,y,w,h);
+    g.fillStyle='rgba(255,255,255,.22)';g.fillRect(x+w*.16,y+7,w*.28,h*.32);
+    g.fillStyle='#d9c26a';g.fillRect(x+w-8,y+h*.52,4,4);
+  }
+  function terraceIll(shades,doorCol,seed){
+    return sTex(256,256,function(g){brickIll(g,shades);
+      winIll(g,16,14,60,58,(seed%3)===0);winIll(g,98,14,60,58,(seed%4)===1);winIll(g,180,14,60,58,(seed%5)===2);
+      winIll(g,16,92,60,58,(seed%2)===0);winIll(g,98,92,60,58,(seed%7)===3);winIll(g,180,92,60,58,(seed%3)===1);
+      doorIll(g,24,152,53,90,doorCol);winIll(g,104,168,60,64,(seed%2)===1);winIll(g,182,168,60,64,(seed%5)===3);});
+  }
+  var texTerraceA=terraceIll(['#96503a','#8a4632','#9d563e','#7e4230'],'#7a2e2e',1);
+  var texTerraceB=terraceIll(['#8f4a34','#7e4230','#93523a','#84482f'],'#274435',2);
+  var texShop=sTex(256,256,function(g){brickIll(g,['#8a5a40','#7e4a34','#93523a']);
+    winIll(g,22,22,46,54,false);winIll(g,105,22,46,54,true);winIll(g,188,22,46,54,false);
+    winIll(g,22,92,46,44,false);winIll(g,105,92,46,44,false);winIll(g,188,92,46,44,true);
+    g.fillStyle='#23272e';g.fillRect(0,148,256,36);g.fillStyle='rgba(255,255,255,.12)';g.fillRect(0,148,256,3);g.fillRect(0,181,256,3);
+    g.fillStyle='#1d2836';g.fillRect(8,188,240,52);g.fillStyle='rgba(160,200,235,.3)';for(var px=14;px<240;px+=44)g.fillRect(px,192,36,44);g.fillStyle='#121a24';g.fillRect(204,188,38,52);});
+  var texInd=sTex(256,256,function(g){brickIll(g,['#6d5a4a','#5f4c3e','#77624e']);
+    winIll(g,20,22,36,26,false);winIll(g,76,22,36,26,false);winIll(g,196,22,36,26,false);
+    g.fillStyle='#848b92';g.fillRect(72,104,112,138);g.fillStyle='rgba(0,0,0,.3)';for(var y=112;y<242;y+=11)g.fillRect(72,y,112,2);g.fillStyle='#4c5157';g.fillRect(66,98,124,8);
+    doorIll(g,206,192,30,50,'#374048');});
+  var texTake=sTex(256,256,function(g){brickIll(g,['#96503a','#8a4632','#9d563e']);
+    winIll(g,22,20,52,56,false);winIll(g,102,20,52,56,true);winIll(g,182,20,52,56,false);
+    winIll(g,22,90,52,44,false);winIll(g,182,90,52,44,true);
+    g.fillStyle='#7c2222';g.fillRect(0,146,256,38);g.fillStyle='#e8c96a';g.fillRect(0,146,256,3);g.fillRect(0,181,256,3);
+    g.fillStyle='#f5eeda';g.font='700 25px "Barlow Condensed", sans-serif';g.textAlign='center';g.fillText('TWEEDALE TAKEAWAY',128,173);
+    var wg=g.createLinearGradient(0,188,0,242);wg.addColorStop(0,'#f2b45e');wg.addColorStop(1,'#d98a34');g.fillStyle=wg;g.fillRect(8,188,240,54);
+    g.fillStyle='rgba(90,40,10,.55)';for(var px2=16;px2<238;px2+=34)g.fillRect(px2,214,24,24);
+    g.fillStyle='rgba(255,255,255,.25)';for(var px3=16;px3<238;px3+=34)g.fillRect(px3,192,24,14);
+    g.fillStyle='#3a2415';g.fillRect(118,188,22,54);});
+  var slateDraw=function(g){
+    g.fillStyle='#454e57';g.fillRect(0,0,128,128);
+    for(var y=0;y<128;y+=16){var off=((y/16)%2)*8;
+      for(var x=-16;x<128;x+=16){var v=(lrnd()-.5)*14;g.fillStyle='rgb('+(69+v)+','+(78+v)+','+(87+v)+')';g.fillRect(x+off+1,y+1,14,13);}}
+    g.fillStyle='rgba(0,0,0,.38)';for(var y2=14;y2<128;y2+=16)g.fillRect(0,y2,128,2.4);
+    g.fillStyle='rgba(255,255,255,.09)';for(var y3=0;y3<128;y3+=16)g.fillRect(0,y3,128,1.4);
+  };
+  var texSlateP=sTex(128,128,slateDraw,true);
+  var texSlateF=sTex(128,128,slateDraw,true);texSlateF.repeat.set(5,3);
+  function lam(t,col){var m=new THREE.MeshLambertMaterial({map:t});if(col)m.color.setHex(col);return m;}
+  var ILL={
+    terraceA:lam(texTerraceA),terraceB:lam(texTerraceB),shop:lam(texShop),ind:lam(texInd),
+    takeaway:lam(texTake),flats:lam(texTerraceB,0xb9b3ad),
+    slateP:new THREE.MeshLambertMaterial({map:texSlateP}),slateF:new THREE.MeshLambertMaterial({map:texSlateF}),
+    trim:new THREE.MeshLambertMaterial({color:0x23272b})
+  };
+  var ROOF_HEX={0x41474e:1,0x48525b:1,0x4a4640:1,0x464c50:1};
+  function uvPrism(geo){
+    var c=geo.clone(),p=c.attributes.position,uv=new Float32Array(p.count*2);
+    for(var i=0;i<p.count;i++){uv[i*2]=(p.getX(i)+.5)*6;uv[i*2+1]=p.getY(i)*2.5+(p.getZ(i)+.5)*1.5;}
+    c.setAttribute('uv',new THREE.BufferAttribute(uv,2));return c;
+  }
+  /* ---- restyle sample buildings (cloned materials on sample meshes only) ---- */
+  var nB=0,nR=0,fenceIdx=-1,takeIdx=-1,takeD=1e9;
+  var JX=390,JZ=706; /* Ann St x Deeplish Rd junction corner */
+  for(var i0=0;i0<P5_BUILD.length;i0++){
+    var b0=P5_BUILD[i0];
+    if(b0.x===372&&b0.z===600)fenceIdx=i0;
+    var dj=dist2(b0.x,b0.z,JX,JZ);
+    if((b0.type==='terrace'||b0.type==='shop')&&dj<takeD){takeD=dj;takeIdx=i0;}
+  }
+  for(var i=0;i<P5_BUILD.length;i++){
+    var b=P5_BUILD[i];if(!inSamp(b.x,b.z))continue;
+    var e=bMeshes[i];if(!e||!e.parts||!e.parts.length)continue;
+    var wall=e.parts[0];
+    if(i===takeIdx)wall.material=ILL.takeaway;
+    else if(b.type==='terrace'||b.type==='semi')wall.material=(i%2?ILL.terraceA:ILL.terraceB);
+    else if(b.type==='shop')wall.material=ILL.shop;
+    else if(b.type==='ind')wall.material=ILL.ind;
+    else if(b.type==='flats')wall.material=ILL.flats;
+    nB++;
+    var grp=wall.parent,prismFound=false;
+    for(var j=1;j<e.parts.length;j++){
+      var m=e.parts[j];if(!m||!m.geometry)continue;
+      if(!m.geometry.attributes.uv){ /* the shared PRISM: give the sample copy UVs + slate texture */
+        m.geometry=uvPrism(m.geometry);m.material=ILL.slateP;prismFound=true;nR++;
+      }else if(m.material&&m.material.color&&ROOF_HEX[m.material.color.getHex()]&&m.position.y>=b.h-1){
+        m.material=ILL.slateF;nR++;
+      }
+    }
+    if(prismFound&&grp){ /* dark ridge trim — the concept's ink line along the ridge */
+      var roofH=e.top-1-b.h;
+      var trim=new THREE.Mesh(new THREE.BoxGeometry(b.w+4,1.5,2.6),ILL.trim);
+      trim.position.set(0,b.h+roofH,0);grp.add(trim);e.parts.push(trim);
+    }
+  }
+  /* ---- plinth darkening inside the sample (instanced plinths: per-instance colour) ---- */
+  try{
+    scene.traverse(function(o){
+      if(o.isInstancedMesh&&o.count===P5_BUILD.length+3&&o.material&&o.material.color&&o.material.color.getHex()===0x33302b){
+        var dark=new THREE.Color(0x17140f);
+        for(var ii=0;ii<P5_BUILD.length;ii++)if(inSamp(P5_BUILD[ii].x,P5_BUILD[ii].z))o.setColorAt(ii,dark);
+        if(o.instanceColor)o.instanceColor.needsUpdate=true;
+      }
+    });
+  }catch(ep){}
+  /* ---- corner shops dressed ---- */
+  function shopWindowTex(){return sTex(256,160,function(g){
+    var wg=g.createLinearGradient(0,0,0,160);wg.addColorStop(0,'#ffca7a');wg.addColorStop(1,'#dd8a34');g.fillStyle=wg;g.fillRect(0,0,256,160);
+    g.fillStyle='rgba(90,40,10,.5)';for(var sx=12;sx<244;sx+=30)g.fillRect(sx,96,24,52); /* shelf blocks */
+    g.fillStyle='rgba(60,26,6,.65)';for(var bx=16;bx<244;bx+=15)g.fillRect(bx,58,7,34); /* abstract bottle shapes */
+    g.fillStyle='#f5eeda';g.fillRect(150,14,88,40);g.fillStyle='#b03a2e';g.fillRect(158,22,72,10);g.fillStyle='#31456b';g.fillRect(158,38,52,8); /* abstract poster, no readable text */
+    g.fillStyle='rgba(255,255,255,.35)';g.fillRect(10,8,60,10);
+  });}
+  var texShopWin=shopWindowTex();
+  var matShopWin=new THREE.MeshBasicMaterial({map:texShopWin}); /* warm emissive look, no light added */
+  function stripeTex(c1,c2){return sTex(128,32,function(g){for(var x=0;x<128;x+=16){g.fillStyle=(x/16)%2?c1:c2;g.fillRect(x,0,16,32);}},true);}
+  if(fenceIdx>=0){
+    var fb=P5_BUILD[fenceIdx],fe=bMeshes[fenceIdx],fgrp=fe.parts[0].parent;
+    var texFascia=sTex(512,96,function(g){
+      g.fillStyle='#20386b';g.fillRect(0,0,512,96);
+      g.fillStyle='#e8c96a';g.fillRect(0,6,512,4);g.fillRect(0,86,512,4);
+      g.fillStyle='#f5eeda';g.font='700 52px "Barlow Condensed", sans-serif';g.textAlign='center';g.fillText('THE DALE OFF-LICENCE',256,66);
+    });
+    var fascia=new THREE.Mesh(new THREE.PlaneGeometry(42,7.5),new THREE.MeshBasicMaterial({map:texFascia}));
+    fascia.position.set(0,19,fb.d/2+1.1);fgrp.add(fascia);fe.parts.push(fascia);
+    var awn=new THREE.Mesh(new THREE.BoxGeometry(42,.7,8),new THREE.MeshLambertMaterial({map:stripeTex('#20386b','#f5eeda')}));
+    awn.position.set(0,14.8,fb.d/2+4.2);awn.rotation.x=.32;fgrp.add(awn);fe.parts.push(awn);
+    [-11.5,11.5].forEach(function(wx){
+      var win=new THREE.Mesh(new THREE.PlaneGeometry(15,10.5),matShopWin);
+      win.position.set(wx,6.8,fb.d/2+.75);fgrp.add(win);fe.parts.push(win);
+    });
+    var fdoor=new THREE.Mesh(new THREE.PlaneGeometry(7,11),new THREE.MeshLambertMaterial({color:0x1c2733}));
+    fdoor.position.set(0,6.2,fb.d/2+.7);fgrp.add(fdoor);fe.parts.push(fdoor);
+  }
+  var takeInfo=null;
+  if(takeIdx>=0&&takeD<130){
+    var tb=P5_BUILD[takeIdx],te=bMeshes[takeIdx],tgrp=te.parts[0].parent;
+    var twin=new THREE.Mesh(new THREE.PlaneGeometry(tb.w*.72,9.5),matShopWin);
+    twin.position.set(0,6.5,tb.d/2+.7);tgrp.add(twin);te.parts.push(twin);
+    var texAmber=sTex(128,96,function(g){
+      var rg=g.createRadialGradient(64,48,4,64,48,58);rg.addColorStop(0,'rgba(255,176,64,.95)');rg.addColorStop(.6,'rgba(255,140,30,.45)');rg.addColorStop(1,'rgba(255,140,30,0)');g.fillStyle=rg;g.fillRect(0,0,128,96);
+      g.strokeStyle='#ffd98a';g.lineWidth=6;g.beginPath();if(g.roundRect)g.roundRect(28,22,72,52,14);else g.rect(28,22,72,52);g.stroke();
+      g.fillStyle='#fff3d0';g.fillRect(42,40,44,7);g.fillRect(42,54,30,7); /* abstract glow mark — bars, not lettering */
+    });
+    var sign=new THREE.Mesh(new THREE.PlaneGeometry(8,6),new THREE.MeshBasicMaterial({map:texAmber,transparent:true}));
+    sign.position.set(tb.w/2-6,13.5,tb.d/2+.9);tgrp.add(sign);te.parts.push(sign);
+    var tawn=new THREE.Mesh(new THREE.BoxGeometry(tb.w*.8,.7,6),new THREE.MeshLambertMaterial({map:stripeTex('#7c2222','#f5eeda')}));
+    tawn.position.set(0,11.9,tb.d/2+3.2);tawn.rotation.x=.3;tgrp.add(tawn);te.parts.push(tawn);
+    takeInfo={x:tb.x,z:tb.z,type:tb.type};
+  }
+  /* ---- street detail: wheelie bins at fronts/backs, bollards at the crossing ---- */
+  var binCols=[0x3f7a3a,0x555b60,0x6b4a2f];
+  [[140,684],[205,685],[185,729],[255,728],[120,521],[240,571],[345,600],[150,634],[260,640]].forEach(function(bp,bi){
+    var bn=new THREE.Mesh(new THREE.BoxGeometry(3.5,5,3.5),new THREE.MeshLambertMaterial({color:binCols[bi%3]}));
+    bn.position.set(bp[0],2.5,bp[1]);bn.rotation.y=bi*.7;scene.add(bn);
+  });
+  try{
+    var dr=null;for(var ri=0;ri<ROADS.length;ri++)if(ROADS[ri].name==='Deeplish Road')dr=ROADS[ri];
+    if(dr){[.5,.62].forEach(function(t){var p=pathPoint(dr.pts,t);if(!p)return;
+      [-1,1].forEach(function(sd){
+        var bx=p.x+p.dz*sd*(rh(dr)+5.5),bz=p.z-p.dx*sd*(rh(dr)+5.5);
+        var bo=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,5,8),new THREE.MeshLambertMaterial({color:0x2b2f33}));
+        bo.position.set(bx,2.5,bz);scene.add(bo);
+        var band=new THREE.Mesh(new THREE.CylinderGeometry(1.14,1.14,1.2,8),new THREE.MeshBasicMaterial({color:0xd8d8de}));
+        band.position.set(bx,3.9,bz);scene.add(band);
+      });
+    });}
+  }catch(eb){}
+  /* ---- wet-look highlight pools on the sample carriageways (decals, weather system untouched) ---- */
+  var poolMat=new THREE.MeshBasicMaterial({color:0xaac4e0,transparent:true,opacity:.11,depthWrite:false});
+  [[364,656,13],[330,600,11],[410,712,11],[170,706,12]].forEach(function(pp){
+    var pool=new THREE.Mesh(new THREE.CircleGeometry(pp[2],18),poolMat);
+    pool.rotation.x=-Math.PI/2;pool.position.set(pp[0],.55,pp[1]);scene.add(pool);
+  });
+  /* ---- parked cars in the sample: dark window-trim variant — applied by the
+     follow-up IIFE after the Phase 3 parked-car build (which runs later in
+     this file); it writes its count into window.__SAMPLE23 below ---- */
+  var nCars=0;
+  /* ---- scope proof: a named Newbold building must still be on v22 materials ---- */
+  var nbProof=null,nbD=1e9;
+  for(var ni=0;ni<P5_BUILD.length;ni++){
+    var nb=P5_BUILD[ni],nd=dist2(nb.x,nb.z,580,306);
+    if(nd<nbD){nbD=nd;nbProof={x:nb.x,z:nb.z,street:'Chichester Street, Newbold',keptV22:false};nbProof._i=ni;}
+  }
+  if(nbProof&&nbD<140){var nm2=bMeshes[nbProof._i].parts[0].material;
+    nbProof.keptV22=(nm2!==ILL.terraceA&&nm2!==ILL.terraceB&&nm2!==ILL.shop&&nm2!==ILL.ind&&nm2!==ILL.takeaway&&nm2!==ILL.flats);
+    delete nbProof._i;}else nbProof=null;
+  window.__SAMPLE23={centre:[CX,CZ],radius:RAD,buildingsRestyled:nB,roofsRestyled:nR,texturesAdded:12,
+    fenceDressed:fenceIdx>=0,takeaway:takeInfo,parkedCarGlassSwaps:nCars,outsideSample:nbProof,
+    cameraTiltDeg:58};
+  if(window.console)console.log('[DALE SAMPLE v23] '+JSON.stringify(window.__SAMPLE23));
+ }catch(err){if(window.console)console.log('[DALE SAMPLE v23] failed: '+(err&&err.message));}
 })();
 /* drop pin */
 var pinGroup=new THREE.Group();
@@ -2361,6 +2673,19 @@ var P3COUNT={};
    }
  });
  P3COUNT.parked=parkedN;
+})();
+/* CONCEPT SAMPLE (v23) follow-up: parked cars inside the sample frame get the
+   dark window-trim glass variant (material swap only, scoped by position —
+   traffic and out-of-sample parked cars keep the shared v22 glass). */
+(function(){
+ try{
+  var glassTrim=new THREE.MeshLambertMaterial({color:0x11161c}),n=0;
+  scene.children.slice().forEach(function(gd){
+    if(gd.userData&&gd.userData.wheels){var dx=gd.position.x-375,dz=gd.position.z-650;
+      if(dx*dx+dz*dz<220*220)gd.traverse(function(mm){if(mm.isMesh&&mm.material===gd.userData.glassMat){mm.material=glassTrim;n++;}});}
+  });
+  if(window.__SAMPLE23)window.__SAMPLE23.parkedCarGlassSwaps=n;
+ }catch(e){}
 })();
 
 /* ================= CLOTHES DATA ================= */
