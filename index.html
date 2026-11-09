@@ -792,92 +792,98 @@ var AREAS=[
 ];
 function areaById(id){for(var i=0;i<AREAS.length;i++)if(AREAS[i].id===id)return AREAS[i];return AREAS[3];}
 
-/* Roads: pts in world coords. cls: 'A' main, 'B' secondary, 'S' street, 'R' railway */
+/* Roads: pts in world coords. cls: 'A' main, 'B' secondary, 'S' street, 'R' railway.
+   MAP FIX (v17): every road carries w = its own half-width in world units — terrace
+   streets genuinely narrow (w 9.5-10.5, ~63% of the old uniform 15), standard streets
+   mid, centre corridors and A-roads wider. Geometry de-gridded: staggered junctions,
+   gentle curves and diagonals on the cross-town routes, varied block lengths.
+   rh(r) is the single width source for detection, kerbs, markings and furniture. */
 var ROADS=[
- /* A58 — Bolton Rd W / St Mary's Gate, Heywood → centre → east */
- {name:'A58 · St Mary\u2019s Gate', cls:'A', pts:[[-1300,-30],[-1010,40],[-620,10],[-260,-40],[0,-70],[420,-60],[900,-40],[1300,-20]]},
- /* A680 Edenfield Road — centre → Spotland → Norden */
- {name:'A680 · Edenfield Road', cls:'A', pts:[[-40,-90],[-300,-260],[-500,-400],[-580,-600],[-640,-820],[-680,-1000]]},
- /* Spotland Road */
- {name:'Spotland Road', cls:'B', pts:[[-60,-80],[-280,-220],[-520,-390],[-700,-470]]},
+ /* A58 — Bolton Rd W / St Mary's Gate, Heywood → centre → east (gentle S-curve) */
+ {name:'A58 · St Mary’s Gate', cls:'A', w:34, pts:[[-1300,-24],[-1090,26],[-880,44],[-620,14],[-380,-18],[-120,-52],[0,-70],[210,-72],[470,-58],[760,-44],[1040,-30],[1300,-16]]},
+ /* A680 Edenfield Road — centre → Spotland → Norden (sweeping bends) */
+ {name:'A680 · Edenfield Road', cls:'A', w:33, pts:[[-120,-60],[-235,-165],[-330,-268],[-470,-372],[-545,-505],[-585,-650],[-625,-830],[-665,-1000]]},
+ /* Spotland Road — offset diagonal, staggered against Edenfield Road */
+ {name:'Spotland Road', cls:'B', w:25, pts:[[-58,-84],[-180,-160],[-300,-228],[-430,-318],[-545,-400],[-700,-468]]},
  /* A671 Oldham Road — centre → SE */
- {name:'A671 · Oldham Road', cls:'A', pts:[[90,-10],[340,180],[620,380],[950,600],[1300,830]]},
+ {name:'A671 · Oldham Road', cls:'A', w:34, pts:[[92,-8],[215,85],[340,180],[480,272],[625,382],[800,492],[990,622],[1300,830]]},
  /* A640 Milnrow Road — centre → Newbold → Belfield → Milnrow */
- {name:'A640 · Milnrow Road', cls:'A', pts:[[130,30],[360,120],[580,215],[820,280],[1080,330],[1300,370]]},
- /* A664 Kingsway — centre → south */
- {name:'A664 · Kingsway', cls:'A', pts:[[70,110],[160,420],[330,760],[430,1000]]},
- /* B6223 Milkstone Road — centre → Deeplish → south */
- {name:'B6223 · Milkstone Road', cls:'B', pts:[[40,80],[120,240],[180,400],[240,620],[280,850]]},
+ {name:'A640 · Milnrow Road', cls:'A', w:33, pts:[[128,32],[250,78],[365,122],[480,168],[580,215],[705,248],[825,282],[970,312],[1130,342],[1300,372]]},
+ /* A664 Kingsway — centre → south, easing east */
+ {name:'A664 · Kingsway', cls:'A', w:34, pts:[[72,112],[118,300],[168,470],[245,640],[332,762],[392,890],[432,1000]]},
+ /* B6223 Milkstone Road — centre → Deeplish → south (gentle curve, meets Yorkshire St) */
+ {name:'B6223 · Milkstone Road', cls:'B', w:24, pts:[[60,58],[84,168],[118,262],[152,352],[182,452],[215,560],[248,682],[272,800],[284,880]]},
  /* Manchester Road — centre → Castleton → SW */
- {name:'Manchester Road', cls:'B', pts:[[-70,90],[-340,320],[-650,570],[-950,800],[-1250,980]]},
- /* Centre streets */
- {name:'Yorkshire Street', cls:'S', pts:[[70,-190],[95,40]]},
- {name:'Drake Street', cls:'S', pts:[[-45,-170],[-15,70]]},
- {name:'The Esplanade', cls:'S', pts:[[-190,-140],[150,-165]]},
- {name:'Baillie Street', cls:'S', pts:[[-150,10],[170,-5]]},
- /* Deeplish grid */
- {name:'Tweedale Street', cls:'S', pts:[[55,300],[245,332]]},
- {name:'Lower Tweedale Street', cls:'S', pts:[[62,352],[238,378]]},
- {name:'Ann Street', cls:'S', pts:[[50,408],[240,432]]},
- {name:'Deeplish Street', cls:'S', pts:[[110,252],[310,272]]},
- {name:'Derby Street', cls:'S', pts:[[252,262],[272,440]]},
- {name:'Boundary Street', cls:'S', pts:[[38,258],[26,438]]},
- {name:'Deeplish Road', cls:'S', pts:[[205,438],[390,570]]},
- /* Newbold grid */
- {name:'Moss Street', cls:'S', pts:[[478,140],[466,310]]},
- {name:'Moss Avenue', cls:'S', pts:[[478,150],[660,158]]},
- {name:'Moss Mill Street', cls:'S', pts:[[606,158],[616,312]]},
- {name:'Chichester Street', cls:'S', pts:[[452,268],[690,282]]},
- {name:'Stamford Street', cls:'S', pts:[[500,338],[712,326]]},
- {name:'Belfield Lane', cls:'S', pts:[[700,190],[920,268]]},
- /* Spotland / Norden streets */
- {name:'Ings Lane', cls:'S', pts:[[-640,-300],[-420,-288]]},
- {name:'Rooley Moor Road', cls:'S', pts:[[-548,-470],[-528,-720]]},
- {name:'Bamford Road', cls:'S', pts:[[-760,-640],[-500,-800]]},
- {name:'Norden Road', cls:'S', pts:[[-700,-820],[-460,-700]]},
- /* Castleton streets */
- {name:'Queensway', cls:'S', pts:[[-770,478],[-520,462]]},
- {name:'Station Road', cls:'S', pts:[[-730,632],[-545,648]]},
- {name:'Smalley Street', cls:'S', pts:[[-700,470],[-690,650]]},
+ {name:'Manchester Road', cls:'B', w:26, pts:[[-46,70],[-200,205],[-345,325],[-500,452],[-652,572],[-810,692],[-985,812],[-1250,978]]},
+ /* Centre streets — widest local roads, densest frontage */
+ {name:'Yorkshire Street', cls:'S', w:19, pts:[[64,-196],[78,-80],[88,10],[96,86]]},
+ {name:'Drake Street', cls:'S', w:19, pts:[[26,-152],[28,-110],[10,-40],[-22,74]]},
+ {name:'The Esplanade', cls:'S', w:20, pts:[[-196,-138],[-60,-150],[40,-156],[152,-168]]},
+ {name:'Baillie Street', cls:'S', w:18, pts:[[-156,14],[-40,4],[60,-2],[172,-8]]},
+ /* Deeplish grid — tight terrace streets, staggered: horizontals drift, verticals lean */
+ {name:'Tweedale Street', cls:'S', w:9.5, pts:[[46,294],[148,305],[250,320]]},
+ {name:'Lower Tweedale Street', cls:'S', w:9.5, pts:[[56,354],[150,366],[244,380]]},
+ {name:'Ann Street', cls:'S', w:9.5, pts:[[44,414],[148,428],[250,441]]},
+ {name:'Deeplish Street', cls:'S', w:10, pts:[[102,232],[208,241],[318,258]]},
+ {name:'Derby Street', cls:'S', w:10, pts:[[240,250],[252,356],[266,452]]},
+ {name:'Boundary Street', cls:'S', w:10, pts:[[46,240],[32,344],[40,450]]},
+ {name:'Deeplish Road', cls:'S', w:13, pts:[[216,444],[300,512],[394,578]]},
+ /* Newbold grid — same tight terrace grain, offset from Deeplish's rhythm */
+ {name:'Moss Street', cls:'S', w:10, pts:[[486,136],[474,224],[478,332]]},
+ {name:'Moss Avenue', cls:'S', w:10, pts:[[480,150],[575,152],[668,162]]},
+ {name:'Moss Mill Street', cls:'S', w:10, pts:[[600,156],[610,238],[618,316]]},
+ {name:'Chichester Street', cls:'S', w:10, pts:[[462,262],[570,272],[694,286]]},
+ {name:'Stamford Street', cls:'S', w:10.5, pts:[[494,342],[605,334],[716,330]]},
+ {name:'Belfield Lane', cls:'S', w:12, pts:[[694,186],[810,226],[924,272]]},
+ /* Spotland / Norden — looser, curvier, greener */
+ {name:'Ings Lane', cls:'S', w:12, pts:[[-648,-296],[-535,-290],[-418,-284]]},
+ {name:'Rooley Moor Road', cls:'S', w:12, pts:[[-552,-462],[-540,-590],[-532,-722]]},
+ {name:'Bamford Road', cls:'S', w:13, pts:[[-768,-628],[-640,-706],[-498,-796]]},
+ {name:'Norden Road', cls:'S', w:13, pts:[[-706,-826],[-580,-766],[-452,-696]]},
+ /* Castleton — wider industrial spacing */
+ {name:'Queensway', cls:'S', w:16, pts:[[-778,482],[-645,470],[-516,464]]},
+ {name:'Station Road', cls:'S', w:15, pts:[[-738,626],[-640,638],[-540,652]]},
+ {name:'Smalley Street', cls:'S', w:14, pts:[[-706,466],[-698,556],[-692,654]]},
  /* Heywood streets */
- {name:'Bridge Street', cls:'S', pts:[[-1090,-30],[-950,150]]},
- {name:'Dawson Street', cls:'S', pts:[[-1120,120],[-910,105]]},
- {name:'York Street', cls:'S', pts:[[-1060,-90],[-900,-70]]},
- /* Railway — Manchester ↔ Leeds via Rochdale station & Castleton */
+ {name:'Bridge Street', cls:'S', w:13, pts:[[-1096,-34],[-1044,-16],[-1020,52],[-946,152]]},
+ {name:'Dawson Street', cls:'S', w:12, pts:[[-1126,124],[-1015,114],[-906,108]]},
+ {name:'York Street', cls:'S', w:12, pts:[[-1044,-16],[-960,-40],[-884,-52]]},
+ /* Railway — Manchester ↔ Leeds via Rochdale station & Castleton (unchanged) */
  {name:'Railway', cls:'R', pts:[[-1250,900],[-900,720],[-650,600],[-320,380],[-40,190],[300,120],[700,60],[1050,10],[1300,-30]]}
 ];
+
 var RIVER=[[-820,-1000],[-620,-640],[-500,-400],[-300,-220],[-140,-80],[-40,120],[60,320],[170,560],[300,800],[400,1000]];
 
-/* Drop spots on real named streets */
+/* Drop spots on real named streets — re-validated onto the v17 geometry */
 var SPOTS=[
- {area:'deeplish', street:'Tweedale Street', x:150,z:316},
- {area:'deeplish', street:'Lower Tweedale Street', x:150,z:365},
- {area:'deeplish', street:'Ann Street, Deeplish', x:140,z:420},
- {area:'deeplish', street:'Deeplish Street', x:210,z:262},
- {area:'deeplish', street:'Milkstone Road', x:150,z:330},
- {area:'newbold', street:'Moss Street, Newbold', x:472,z:225},
- {area:'newbold', street:'Moss Avenue, Newbold', x:570,z:154},
- {area:'newbold', street:'Chichester Street, Newbold', x:570,z:275},
- {area:'newbold', street:'Stamford Street, Newbold', x:600,z:332},
- {area:'newbold', street:'Belfield Lane', x:810,z:230},
- {area:'centre', street:'Yorkshire Street', x:82,z:-80},
- {area:'centre', street:'Drake Street', x:-30,z:-60},
- {area:'centre', street:'The Esplanade, by the Town Hall', x:0,z:-152},
- {area:'centre', street:'Oldham Road', x:200,z:80},
- {area:'spotland', street:'Spotland Road', x:-390,z:-300},
- {area:'spotland', street:'Ings Lane, Spotland', x:-530,z:-294},
- {area:'spotland', street:'Edenfield Road, Spotland', x:-540,z:-500},
- {area:'norden', street:'Bamford Road, Norden', x:-630,z:-720},
- {area:'norden', street:'Norden Road, Bamford', x:-580,z:-760},
- {area:'castleton', street:'Manchester Road, Castleton', x:-650,z:570},
- {area:'castleton', street:'Queensway, Castleton', x:-645,z:470},
- {area:'castleton', street:'Station Road, Castleton', x:-640,z:640},
- {area:'heywood', street:'Bridge Street, Heywood', x:-1020,z:60},
- {area:'heywood', street:'Dawson Street, Heywood', x:-1015,z:112},
- {area:'kingsway', street:'Kingsway', x:250,z:580},
- {area:'kingsway', street:'Milnrow Road, Belfield', x:950,z:305}
+ {area:'deeplish', street:'Tweedale Street', x:150,z:306},
+ {area:'deeplish', street:'Lower Tweedale Street', x:150,z:366},
+ {area:'deeplish', street:'Ann Street, Deeplish', x:148,z:428},
+ {area:'deeplish', street:'Deeplish Street', x:210,z:242},
+ {area:'deeplish', street:'Milkstone Road', x:150,z:345},
+ {area:'newbold', street:'Moss Street, Newbold', x:476,z:224},
+ {area:'newbold', street:'Moss Avenue, Newbold', x:575,z:153},
+ {area:'newbold', street:'Chichester Street, Newbold', x:570,z:273},
+ {area:'newbold', street:'Stamford Street, Newbold', x:605,z:335},
+ {area:'newbold', street:'Belfield Lane', x:810,z:227},
+ {area:'centre', street:'Yorkshire Street', x:80,z:-80},
+ {area:'centre', street:'Drake Street', x:16,z:-62},
+ {area:'centre', street:'The Esplanade, by the Town Hall', x:0,z:-153},
+ {area:'centre', street:'Oldham Road', x:200,z:72},
+ {area:'spotland', street:'Spotland Road', x:-390,z:-297},
+ {area:'spotland', street:'Ings Lane, Spotland', x:-530,z:-291},
+ {area:'spotland', street:'Edenfield Road, Spotland', x:-505,z:-440},
+ {area:'norden', street:'Bamford Road, Norden', x:-640,z:-707},
+ {area:'norden', street:'Norden Road, Bamford', x:-580,z:-767},
+ {area:'castleton', street:'Manchester Road, Castleton', x:-652,z:572},
+ {area:'castleton', street:'Queensway, Castleton', x:-645,z:471},
+ {area:'castleton', street:'Station Road, Castleton', x:-640,z:639},
+ {area:'heywood', street:'Bridge Street, Heywood', x:-1014,z:60},
+ {area:'heywood', street:'Dawson Street, Heywood', x:-1015,z:114},
+ {area:'kingsway', street:'Kingsway', x:245,z:640},
+ {area:'kingsway', street:'Milnrow Road, Belfield', x:970,z:313}
 ];
-var SAFE={x:100,z:385,area:'deeplish'}; /* safe house off Ann Street, Deeplish */
+var SAFE={x:100,z:392,area:'deeplish'}; /* safe house off Ann Street, Deeplish */
 
 /* ================= AUDIO ================= */
 var AC=null;
@@ -899,12 +905,14 @@ function clamp(v,a,b){return v<a?a:(v>b?b:v);}
 function dist2(ax,az,bx,bz){var dx=ax-bx,dz=az-bz;return Math.sqrt(dx*dx+dz*dz);}
 function segDist(px,pz,ax,az,bx,bz){var dx=bx-ax,dz=bz-az,L=dx*dx+dz*dz;var t=L?((px-ax)*dx+(pz-az)*dz)/L:0;t=clamp(t,0,1);var cx=ax+dx*t,cz=az+dz*t;return dist2(px,pz,cx,cz);}
 function roadHalf(cls){return cls==='A'?30:(cls==='B'?24:15);}
-function onRoad(x,z){for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;for(var j=0;j<r.pts.length-1;j++){if(segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])<roadHalf(r.cls)+6)return true;}}return false;}
+/* MAP FIX: per-road half-width (v17 w property) with the old class width as fallback */
+function rh(r){return (r&&r.w!==undefined)?r.w:roadHalf(r?r.cls:'S');}
+function onRoad(x,z){for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;for(var j=0;j<r.pts.length-1;j++){if(segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])<rh(r)+6)return true;}}return false;}
 /* surface under the car for the handling model: tarmac = full grip,
    pavement (just off the carriageway) = slightly less, grass = much less + drag */
 function surfaceInfo(x,z){
  var best=1e9;
- for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;for(var j=0;j<r.pts.length-1;j++){var d=segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])-roadHalf(r.cls);if(d<best)best=d;}}
+ for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;for(var j=0;j<r.pts.length-1;j++){var d=segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])-rh(r);if(d<best)best=d;}}
  if(best<=6)return{grip:1.0,drag:.22,kind:'tarmac'};
  if(best<=24)return{grip:.88,drag:.34,kind:'pavement'};
  return{grip:.55,drag:.95,kind:'grass'};
@@ -975,7 +983,7 @@ function buildGroundTexture(){
     grass verges on suburban streets, then a UK markings pass. Painted road-NAME
     labels are GONE (Phase 3 spec): street names now live in the status drawer /
     minimap (streetAt + updateHUD + drawMinimap) and on small physical signs. */
- function roadWpx(r){return r.cls==='A'?46:(r.cls==='B'?36:(r.cls==='R'?10:22));}
+ function roadWpx(r){return r.cls==='R'?10:Math.round(rh(r)*1.53);}
  function nearestAreaId(x,z){var bi=null,bd=1e12;for(var ai=0;ai<AREAS.length;ai++){var dx=x-AREAS[ai].x,dz=z-AREAS[ai].z,dd=dx*dx+dz*dz;if(dd<bd){bd=dd;bi=AREAS[ai].id;}}return bi;}
  function drawRoad(r){
    var wpx=roadWpx(r);
@@ -1044,16 +1052,25 @@ function buildGroundTexture(){
    g.restore();
  }
  zebra('Yorkshire Street',.3);zebra('Drake Street',.32);zebra('Baillie Street',.52);zebra('Tweedale Street',.5);zebra('Moss Street',.5);
- /* box junction hatching at the main A58 / town-centre junction */
+ /* MAP FIX: painted mini-roundabout at the A58 / town-centre junction — flat
+    paint like a real UK mini-roundabout, so traffic pathing over it is unchanged */
  (function(){
-   var f=roadFrame('A58 · St Mary\u2019s Gate',.52);if(!f)return;
-   g.save();g.translate(f.x,f.y);g.rotate(f.ang);
-   g.strokeStyle='rgba(232,197,28,.95)';g.lineWidth=2.4;g.strokeRect(-36,-25,72,50);
-   g.save();g.beginPath();g.rect(-36,-25,72,50);g.clip();g.lineWidth=1.6;g.strokeStyle='rgba(232,197,28,.75)';g.beginPath();
-   for(var d=-70;d<70;d+=11){g.moveTo(d,-27);g.lineTo(d+52,25);g.moveTo(d,25);g.lineTo(d+52,-27);}
-   g.stroke();g.restore();g.restore();
+   var f=roadFrame('A58 · St Mary’s Gate',.497);if(!f)return;
+   g.save();g.translate(f.x,f.y);
+   g.fillStyle='#454c54';g.beginPath();g.arc(0,0,21,0,7);g.fill();
+   g.strokeStyle='rgba(246,246,240,.92)';g.lineWidth=2.6;g.beginPath();g.arc(0,0,24.5,0,7);g.stroke();
+   for(var ai=0;ai<3;ai++){var a0=ai*2.094+.5;
+     g.strokeStyle='rgba(246,246,240,.85)';g.lineWidth=3.4;g.beginPath();g.arc(0,0,15.5,a0,a0+.95);g.stroke();
+     var ax2=Math.cos(a0+.95)*15.5,ay2=Math.sin(a0+.95)*15.5,ta=a0+.95+Math.PI/2;
+     g.fillStyle='rgba(246,246,240,.9)';g.beginPath();
+     g.moveTo(ax2+Math.cos(ta)*5.2,ay2+Math.sin(ta)*5.2);
+     g.lineTo(ax2-Math.cos(ta)*4.6+Math.cos(a0+.95)*1.5,ay2-Math.sin(ta)*4.6+Math.sin(a0+.95)*1.5);
+     g.lineTo(ax2+Math.cos(ta)*4.6+Math.cos(a0+.95)*1.5,ay2+Math.sin(ta)*4.6+Math.sin(a0+.95)*1.5);
+     g.closePath();g.fill();}
+   g.fillStyle='#596068';g.beginPath();g.arc(0,0,5.5,0,7);g.fill();
+   g.restore();
  })();
- function busStopMark(name,t,side){ /* yellow BUS STOP cage painted at the kerb */
+  function busStopMark(name,t,side){ /* yellow BUS STOP cage painted at the kerb */
    var f=roadFrame(name,t);if(!f)return;
    g.save();g.translate(f.x,f.y);g.rotate(f.ang);
    var yo=side*(f.half-6.5);
@@ -1165,10 +1182,134 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
  SAFE_KIT={mat:MAT.safe,prism:PRISM,roof:roofMats[0],brick:brickPlain};
  function nearestArea(x,z){var best=null,bd=1e12;for(var i=0;i<AREAS.length;i++){var dx=x-AREAS[i].x,dz=z-AREAS[i].z,dd=dx*dx+dz*dz;if(dd<bd){bd=dd;best=AREAS[i].id;}}return{id:best,d:Math.sqrt(bd)};}
  function addMesh(grp,parts,geom,mat,px,py,pz){var mm=new THREE.Mesh(geom,mat);mm.position.set(px,py,pz);grp.add(mm);parts.push(mm);return mm;}
- for(var i=0;i<340;i++){
+ /* ---- MAP FIX (v17): street-fronting layout ----
+   Same Phase 2 building sets, rearranged onto the new geometry: terraces joined
+   into continuous rows on the street line (no uniform gaps), semis paired behind
+   front gardens, unbroken shop frontages in the centre, spaced industrial units
+   in Castleton, corner shops/pubs anchoring key junctions. Remaining scatter is
+   pushed BEHIND the frontages, so blocks read as gardens/yards, not void.
+   Collision entries carry cm (kerb margin): row buildings sit close to the
+   carriageway, so their margin shrinks to match — no phantom collisions. */
+ var MF_I=0,MF_CAP=402;
+ function mfOverlap(x,z,hw,hd,pad){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(Math.abs(x-b.x)<b.hw+hw+pad-7&&Math.abs(z-b.z)<b.hd+hd+pad-7)return true;}return false;}
+ function mfClear(x,z,hw,hd){
+   if(onRoad(x,z))return false;
+   for(var q=0;q<ROADS.length;q++){var qr=ROADS[q];if(qr.cls==='R')continue;for(var qj=0;qj<qr.pts.length-1;qj++){if(segDist(x,z,qr.pts[qj][0],qr.pts[qj][1],qr.pts[qj+1][0],qr.pts[qj+1][1])-rh(qr)<7)return false;}} /* mesh must clear every kerb line */
+   var rd=1e9;for(var j=0;j<RIVER.length-1;j++)rd=Math.min(rd,segDist(x,z,RIVER[j][0],RIVER[j][1],RIVER[j+1][0],RIVER[j+1][1]));if(rd<30)return false;
+   if(Math.abs(x-100)<56&&Math.abs(z-379)<34)return false; /* safe-house plot, Deeplish */
+   if(Math.abs(x+30)<58&&Math.abs(z+120)<44)return false; /* Town Hall plot */
+   if(Math.abs(x-118)<44&&Math.abs(z+108)<36)return false; /* clothes shop marker */
+   if(Math.abs(x+520)<50&&Math.abs(z-420)<42)return false; /* car lot marker */
+   if(Math.abs(x-262)<38&&Math.abs(z-486)<32)return false; /* fence marker */
+   if(Math.abs(x-505)<26&&Math.abs(z-128)<24)return false; /* Moss Ave/Milnrow junction wedge */
+   if(Math.abs(x+624)<28&&Math.abs(z-596)<26)return false; /* Manchester Rd/Station Rd junction mouth, Castleton */
+   for(var si=0;si<SPOTS.length;si++)if(dist2(x,z,SPOTS[si].x,SPOTS[si].z)<19)return false;
+   if(mfOverlap(x,z,hw,hd,1))return false;
+   return true;
+ }
+ function mfEmit(x,z,w,d,h,ry,type,cm){
+   if(buildings.length>=MF_CAP)return;
+   var grp=new THREE.Group();grp.position.set(x,0,z);grp.rotation.y=ry;scene.add(grp);
+   var parts=[];MF_I++;
+   var flat=(type==='flats'||type==='ind');
+   var roofH=flat?0:Math.round(Math.min(13,Math.max(6,Math.min(w,d)*0.34)));
+   addMesh(grp,parts,geo(w,h,d),type==='pub'?MAT.pub:bpick(MAT[type]));
+   if(flat){addMesh(grp,parts,geo(w+2,3,d+2),roofMat,0,h+1.5,0);if(MF_I%3===0)addMesh(grp,parts,geo(5,3,6),roofDetailMat,w*.18,h+4.5,-d*.12);}
+   else{var pr=addMesh(grp,parts,PRISM,bpick(roofMats),0,h,0);pr.scale.set(w+3,roofH,d+3);if(MF_I%2===0)addMesh(grp,parts,geo(4,7,4),brickPlain,w*.3,h+roofH-2,0);}
+   if(type==='terrace'){
+     addMesh(grp,parts,geo(10,1.6,3),trimMat,-w*.28,0.8,d/2+1); /* door step */
+     if(MF_I%3===0)addMesh(grp,parts,geo(w*.86,3.5,1.2),brickPlain,0,1.75,-d/2+.6); /* rear garden wall */
+     if(MF_I%4===0){addMesh(grp,parts,geo(3.5,5,3.5),binMats[MF_I%3],w*.34,2.5,d/2-2);addMesh(grp,parts,geo(3.5,5,3.5),binMats[(MF_I+1)%3],w*.34-4.4,2.5,d/2-2);} /* wheelie bins */
+   }else if(type==='semi'){
+     addMesh(grp,parts,geo(w*.34,h*.46,5),brickPlain,w*.18,h*.23,d/2+.5); /* bay window */
+     addMesh(grp,parts,geo(w*.36,1.2,6),roofMats[0],w*.18,h*.47,d/2+.5); /* bay cap */
+     if(MF_I%2===0)addMesh(grp,parts,geo(w*.62,3,2),hedgeMat,-w*.08,1.5,d/2-.8); /* front hedge */
+   }else if(type==='flats'){
+     addMesh(grp,parts,geo(w*.86,1.1,2.6),darkMat,0,h*.4,d/2+.9);
+     addMesh(grp,parts,geo(w*.3,1.2,4.5),trimMat,0,h*.09,d/2+1);
+   }else if(type==='shop'){
+     if(MF_I%2===0){var awn=addMesh(grp,parts,geo(w*.8,.9,5),signMat,0,h*.36,d/2+1.2);awn.rotation.x=.28;} /* shop canopy */
+   }else if(type==='pub'){
+     addMesh(grp,parts,geo(6.5,7.5,.9),signMat,w/2-2,h*.52-4.6,d/2+2.8); /* hanging sign (blank) */
+   }else if(type==='ind'){
+     addMesh(grp,parts,geo(w*.42,h*.52,1.2),shutterMat,0,h*.26,d/2+.4); /* roller shutter */
+   }
+   var cc=Math.abs(Math.cos(ry)),ss2=Math.abs(Math.sin(ry));
+   var hw=(w*cc+d*ss2)/2+1.5,hd=(w*ss2+d*cc)/2+1.5;
+   buildings.push({x:x,z:z,hw:hw,hd:hd,cm:cm});
+   P5_BUILD.push({x:x,z:z,w:w,d:d,h:h,rot:ry,type:type});
+   bMeshes.push({x:x,z:z,hw:Math.max(w,d)/2+5,hd:Math.max(w,d)/2+5,top:flat?h+4:h+roofH+1,parts:parts,fade:0,occ:false});
+ }
+ function mfRow(name,t0,t1,side,type,bw,bd,h0,h1,yard,skipP,cm){
+   var r=null;for(var i=0;i<ROADS.length;i++)if(ROADS[i].name===name)r=ROADS[i];
+   if(!r)return;
+   var tot=0;for(var j=0;j<r.pts.length-1;j++)tot+=dist2(r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1]);
+   if(!tot)return;
+   var step=(bw+(type==='semi'?7:(type==='ind'?10:1.2)))/tot,dist=rh(r)+bd/2+yard;
+   for(var t=t0+step*.5;t<t1;t+=step){
+     if(buildings.length>=MF_CAP)return;
+     if(skipP&&brnd()<skipP)continue;
+     var p=pathPoint(r.pts,t);if(!p)continue;
+     var px=p.dz,pz=-p.dx;
+     var x=p.x+px*side*dist,z=p.z+pz*side*dist;
+     var ry=Math.atan2(-side*px,-side*pz);
+     var cc=Math.abs(Math.cos(ry)),ss2=Math.abs(Math.sin(ry));
+     if(!mfClear(x,z,(bw*cc+bd*ss2)/2+2,(bw*ss2+bd*cc)/2+2))continue;
+     mfEmit(x,z,bw,bd,h0+brnd()*(h1-h0),ry,type,cm);
+   }
+ }
+ /* corner anchors — a shop or pub holding each key junction */
+ [[118,-118,30,26,17,0.12,'shop',9],[170,276,26,24,15,0.05,'pub',8],[-330,-330,28,24,16,0.5,'shop',9],[530,120,28,24,16,-0.1,'shop',9]].forEach(function(a){
+   var cc=Math.abs(Math.cos(a[5])),ss2=Math.abs(Math.sin(a[5]));
+   if(mfClear(a[0],a[1],(a[2]*cc+a[3]*ss2)/2+2,(a[2]*ss2+a[3]*cc)/2+2))mfEmit(a[0],a[1],a[2],a[3],a[4],a[5],a[6],a[7]);
+ });
+ /* Deeplish — continuous terrace rows on the narrowed streets */
+ mfRow('Tweedale Street',.06,.98,1,'terrace',16,16,12.5,15.5,5,0,6);mfRow('Tweedale Street',.06,.98,-1,'terrace',16,16,12.5,15.5,5,0,6);
+ mfRow('Lower Tweedale Street',.03,.98,1,'terrace',16,16,12.5,15.5,5,0,6);mfRow('Lower Tweedale Street',.03,.98,-1,'terrace',16,16,12.5,15.5,5,0,6);
+ mfRow('Ann Street',.06,.98,1,'terrace',16,16,12.5,15.5,5,0,6);mfRow('Ann Street',.06,.98,-1,'terrace',16,16,12.5,15.5,5,0,6);
+ mfRow('Deeplish Street',.03,.98,1,'terrace',16,16,12.5,15.5,5,0,6);mfRow('Deeplish Street',.03,.98,-1,'terrace',16,16,12.5,15.5,5,0,6);
+ mfRow('Derby Street',.05,.95,1,'terrace',15.5,16,12.5,15.5,5,.06,6);mfRow('Boundary Street',.05,.95,-1,'terrace',15.5,16,12.5,15.5,5,.06,6);
+ mfRow('B6223 · Milkstone Road',.30,.54,1,'terrace',16,16,12.5,15.5,5,.1,6);
+ /* Newbold — same tight grain */
+ mfRow('Moss Street',.10,.96,1,'terrace',15.5,16,12.5,15.5,5,.04,6);mfRow('Moss Street',.10,.96,-1,'terrace',15.5,16,12.5,15.5,5,.04,6);
+ mfRow('Moss Avenue',.14,.90,1,'terrace',15.5,16,12.5,15.5,5,.05,6);mfRow('Moss Avenue',.14,.90,-1,'terrace',15.5,16,12.5,15.5,5,.05,6);
+ mfRow('Chichester Street',.04,.96,1,'terrace',15.5,16,12.5,15.5,5,.04,6);mfRow('Chichester Street',.04,.96,-1,'terrace',15.5,16,12.5,15.5,5,.04,6);
+ mfRow('Stamford Street',.05,.95,1,'terrace',15.5,16,12.5,15.5,5,.08,6);
+ mfRow('Moss Mill Street',.05,.95,-1,'terrace',15.5,16,12.5,15.5,5,.1,6);
+ /* Town Centre — unbroken shop frontages on the wide corridors */
+ mfRow('Yorkshire Street',.10,.92,1,'shop',20,24,15,20,7,.06,9);mfRow('Yorkshire Street',.12,.88,-1,'shop',20,24,15,20,7,.06,9);
+ mfRow('Drake Street',.16,.84,1,'shop',20,24,15,20,7,.08,9);mfRow('Drake Street',.16,.84,-1,'shop',20,24,15,20,7,.08,9);
+ mfRow('The Esplanade',.06,.94,-1,'shop',20,24,15,20,7,.08,9);
+ mfRow('Baillie Street',.12,.88,1,'shop',19,24,14,19,7,.1,9);
+ /* Norden / Bamford — paired semis, bigger gardens, gaps for green */
+ mfRow('Bamford Road',.16,.94,1,'semi',20,25,12,15,10,.3,7);mfRow('Bamford Road',.16,.94,-1,'semi',20,25,12,15,10,.34,7);
+ mfRow('Norden Road',.24,.92,1,'semi',20,25,12,15,10,.3,7);
+ mfRow('Rooley Moor Road',.1,.9,1,'semi',19,25,12,15,10,.45,7);
+ mfRow('Ings Lane',.08,.92,1,'semi',19,25,12,15,10,.25,7);
+ /* Spotland — terraces climbing one side, semis opposite the A-road */
+ mfRow('Spotland Road',.28,.74,1,'terrace',16,16,12.5,15.5,5,.15,6);
+ mfRow('A680 · Edenfield Road',.22,.52,-1,'semi',20,25,12,15,10,.45,7);
+ /* Castleton — spaced industrial units with yards */
+ mfRow('Queensway',.08,.92,1,'ind',38,30,15,20,14,.22,10);
+ mfRow('Station Road',.20,.88,1,'ind',36,30,15,20,14,.25,10);
+ mfRow('Manchester Road',.36,.58,1,'ind',38,30,15,20,14,.3,10);
+ /* Heywood + the eastern corridors */
+ mfRow('Bridge Street',.16,.9,1,'terrace',16,16,12.5,15.5,5,.15,6);
+ mfRow('Dawson Street',.14,.92,-1,'terrace',16,16,12.5,15.5,5,.15,6);
+ mfRow('York Street',.1,.9,1,'semi',19,25,12,15,10,.4,7);
+ mfRow('A640 · Milnrow Road',.30,.52,1,'shop',18,19,13,17,6,.2,8);
+ mfRow('Belfield Lane',.1,.9,1,'terrace',15.5,16,12.5,15.5,5,.3,6);
+ mfRow('A671 · Oldham Road',.28,.55,-1,'semi',20,25,12,15,10,.45,7);
+ mfRow('A664 · Kingsway',.45,.8,1,'semi',20,25,12,15,10,.4,7);
+ mfRow('A58 · St Mary’s Gate',.55,.76,1,'terrace',16,16,12.5,15.5,5,.3,6);
+ /* Backfill scatter — gardens, yards and infill BEHIND the frontages only */
+ for(var i=0;i<170;i++){
+   if(buildings.length>=MF_CAP)break;
    var x=(rnd()*2-1)*1240, z=(rnd()*2-1)*940;
    if(onRoad(x,z))continue;
    var riverD=1e9; for(var j=0;j<RIVER.length-1;j++)riverD=Math.min(riverD,segDist(x,z,RIVER[j][0],RIVER[j][1],RIVER[j+1][0],RIVER[j+1][1])); if(riverD<42)continue;
+   var rd2=1e9; for(var k=0;k<ROADS.length;k++){var rr=ROADS[k];if(rr.cls==='R')continue;for(var m=0;m<rr.pts.length-1;m++)rd2=Math.min(rd2,segDist(x,z,rr.pts[m][0],rr.pts[m][1],rr.pts[m+1][0],rr.pts[m+1][1])-rh(rr));} if(rd2<13)continue;
+   if((w>38||d>38)&&rd2<22)continue;
    var w=26+rnd()*36,d=26+rnd()*36,h=14+rnd()*46;
    var rot=(rnd()<.5?0:Math.PI/2)+(rnd()-.5)*.06;
    var na=nearestArea(x,z);
@@ -1179,43 +1320,83 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
    else if((na.id==='castleton'||na.id==='kingsway')&&w>40&&d>34)type='ind';
    else if(i%13===0&&(na.id==='castleton'||na.id==='heywood'))type='ind';
    else if(i%9===0&&(na.id==='spotland'||na.id==='heywood'))type='semi';
-   var grp=new THREE.Group();grp.position.set(x,0,z);grp.rotation.y=rot;scene.add(grp);
-   var bParts=[];
-   var flat=(type==='flats'||type==='ind');
-   var roofH=flat?0:Math.round(Math.min(13,Math.max(6,Math.min(w,d)*0.34)));
-   addMesh(grp,bParts,geo(w,h,d),type==='pub'?MAT.pub:bpick(MAT[type]));
-   if(flat){addMesh(grp,bParts,geo(w+2,3,d+2),roofMat,0,h+1.5,0);}
-   else{var pr=addMesh(grp,bParts,PRISM,bpick(roofMats),0,h,0);pr.scale.set(w+3,roofH,d+3);}
-   /* rooftop details retained from the graphics merge — decoration only, index-based (no rnd() calls), so placement/collisions are unchanged */
-   if(i%3===0){addMesh(grp,bParts,geo(5,3,6),roofDetailMat,w*.18,flat?h+4.5:h+roofH*.55,-d*.12);}
-   if(i%5===0){var sky=addMesh(grp,bParts,geo(9,.6,6),roofLightMat,-w*.12,flat?h+3.4:h+roofH*.62,d*.15);if(!flat)sky.rotation.x=-.42;}
-   if(!flat&&type!=='shop'&&i%2===0){addMesh(grp,bParts,geo(4,7,4),brickPlain,w*.3,h+roofH-2,0);} /* chimney on the ridge */
-   /* type details — fronts face local +z; protrusions stay inside the existing collision pad (hw/hd +4) */
-   if(type==='terrace'){
-     addMesh(grp,bParts,geo(10,1.6,3),trimMat,-w*.28,0.8,d/2+1); /* door step */
-     if(i%2===0){addMesh(grp,bParts,geo(.8,9,.8),darkMat,-w*.36,h+roofH+2,-d*.2);addMesh(grp,bParts,geo(5,.7,.7),darkMat,-w*.36,h+roofH+4.5,-d*.2);} /* TV aerial */
-     if(i%3===0)addMesh(grp,bParts,geo(w*.8,3.5,1.2),brickPlain,0,1.75,d/2-.6); /* low brick garden wall */
-     if(i%4===0){addMesh(grp,bParts,geo(3.5,5,3.5),binMats[i%3],w*.34,2.5,d/2-2);addMesh(grp,bParts,geo(3.5,5,3.5),binMats[(i+1)%3],w*.34-4.4,2.5,d/2-2);} /* wheelie bins */
-   }else if(type==='semi'){
-     addMesh(grp,bParts,geo(w*.34,h*.46,5),brickPlain,w*.18,h*.23,d/2+.5); /* bay window */
-     addMesh(grp,bParts,geo(w*.36,1.2,6),roofMats[0],w*.18,h*.47,d/2+.5); /* bay cap */
-     if(i%2===0)addMesh(grp,bParts,geo(w*.62,3,2),hedgeMat,-w*.08,1.5,d/2-.8); /* front hedge */
-     if(i%3===0)addMesh(grp,bParts,geo(3.5,5,3.5),binMats[i%3],-w*.36,2.5,d/2-2);
-   }else if(type==='flats'){
-     addMesh(grp,bParts,geo(w*.86,1.1,2.6),darkMat,0,h*.4,d/2+.9); /* balcony strips */
-     addMesh(grp,bParts,geo(w*.86,1.1,2.6),darkMat,0,h*.65,d/2+.9);
-     addMesh(grp,bParts,geo(w*.3,1.2,4.5),trimMat,0,h*.09,d/2+1); /* entrance canopy */
-   }else if(type==='shop'){
-     if(i%2===0){var awn=addMesh(grp,bParts,geo(w*.8,.9,5),signMat,0,h*.36,d/2+1.2);awn.rotation.x=.28;} /* shop canopy */
-   }else if(type==='pub'){
-     addMesh(grp,bParts,geo(5,.8,.8),darkMat,w/2-2,h*.52,d/2+2); /* hanging-sign bracket */
-     addMesh(grp,bParts,geo(6.5,7.5,.9),signMat,w/2-2,h*.52-4.6,d/2+2.8); /* hanging sign (blank) */
-   }else if(type==='ind'){
-     addMesh(grp,bParts,geo(w*.42,h*.52,1.2),shutterMat,0,h*.26,d/2+.4); /* roller shutter, proud of the cladding */
+   if(!mfClear(x,z,w/2+4,d/2+4))continue;
+   mfEmit(x,z,w,d,h,rot,type,13);
+ }
+ /* ---- CENTRELINE CLEARANCE (correction pass) ----
+    v17's own validation found buildings whose collision box (hw/hd + kerb margin
+    cm) still crossed the centreline of named streets on the Deeplish grid, the
+    Norden lanes and one Heywood corner — phantom obstructions sitting on the
+    carriageway. This pass re-tests every placed building against those streets
+    with the game's own collision model (axis-aligned box + cm vs the centreline
+    polyline) and clears each offender the Town Hall way first: shrink the
+    collision entry to the building's exact mesh footprint with a small margin
+    (cm 2). If a shrunk box still crosses ANY centreline it is shifted back off
+    the carriageway; if no clear spot exists it is removed and its plot is
+    re-dressed as a front garden (visual only, no collision entry). Meshes, road
+    geometry and every other street are untouched, and the pass uses no rnd/brnd,
+    so all other placement is exactly as generated. */
+ var FLAG_STREETS=['Tweedale Street','Lower Tweedale Street','Ann Street','Deeplish Street','Derby Street','Boundary Street','Deeplish Road','Ings Lane','Rooley Moor Road','Bamford Road','Norden Road','Bridge Street','Dawson Street','York Street'];
+ function ccSegBox(ax,az,bx,bz,b){
+   var cm=(b.cm!==undefined?b.cm:13);
+   var x0=b.x-(b.hw+cm),x1=b.x+(b.hw+cm),z0=b.z-(b.hd+cm),z1=b.z+(b.hd+cm);
+   var dx=bx-ax,dz=bz-az,t0=0,t1=1;
+   var pp=[-dx,dx,-dz,dz],qq=[ax-x0,x1-ax,az-z0,z1-az];
+   for(var i=0;i<4;i++){
+     if(pp[i]===0){if(qq[i]<0)return false;}
+     else{var tt=qq[i]/pp[i];if(pp[i]<0){if(tt>t1)return false;if(tt>t0)t0=tt;}else{if(tt<t0)return false;if(tt<t1)t1=tt;}}
    }
-   buildings.push({x:x,z:z,hw:w/2+4,hd:d/2+4});
-   P5_BUILD.push({x:x,z:z,w:w,d:d,h:h,rot:rot,type:type});
-   bMeshes.push({x:x,z:z,hw:Math.max(w,d)/2+5,hd:Math.max(w,d)/2+5,top:flat?h+4:h+roofH+1,parts:bParts,fade:0,occ:false});
+   return true;
+ }
+ function ccHits(b,flagOnly){
+   for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;if(flagOnly&&FLAG_STREETS.indexOf(r.name)<0)continue;
+     for(var j=0;j<r.pts.length-1;j++)if(ccSegBox(r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1],b))return true;}
+   return false;
+ }
+ function ccMeshHalf(p){var cc=Math.abs(Math.cos(p.rot)),ss=Math.abs(Math.sin(p.rot));return{hw:(p.w*cc+p.d*ss)/2,hd:(p.w*ss+p.d*cc)/2};}
+ function ccNearestPt(x,z){var best=null,bd=1e12;for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;for(var j=0;j<r.pts.length-1;j++){var ax=r.pts[j][0],az=r.pts[j][1],dx=r.pts[j+1][0]-ax,dz=r.pts[j+1][1]-az,L=dx*dx+dz*dz;var t=L?((x-ax)*dx+(z-az)*dz)/L:0;t=t<0?0:(t>1?1:t);var cx=ax+dx*t,cz=az+dz*t,dd=(x-cx)*(x-cx)+(z-cz)*(z-cz);if(dd<bd){bd=dd;best={x:cx,z:cz};}}}return best;}
+ for(var ci=buildings.length-1;ci>=0;ci--){
+   var cb=buildings[ci];
+   if(!ccHits(cb,true))continue;
+   var cp=P5_BUILD[ci];if(!cp)continue;
+   var cmh=ccMeshHalf(cp);
+   cb.hw=cmh.hw;cb.hd=cmh.hd;cb.cm=2; /* Town Hall model: exact mesh footprint + small margin */
+   if(!ccHits(cb,false))continue;
+   /* still crossing a centreline: shift the building back off the carriageway */
+   var np=ccNearestPt(cb.x,cb.z),ax2=cb.x-np.x,az2=cb.z-np.z,al=Math.sqrt(ax2*ax2+az2*az2)||1;ax2/=al;az2/=al;
+   var dirs=[[ax2,az2],[-az2,ax2],[az2,-ax2],[-ax2,-az2],[1,0],[-1,0],[0,1],[0,-1]],mags=[4,8,12,16,20,24,28,32],moved=false;
+   for(var mi=0;mi<mags.length&&!moved;mi++)for(var di=0;di<dirs.length&&!moved;di++){
+     var nx=cb.x+dirs[di][0]*mags[mi],nz=cb.z+dirs[di][1]*mags[mi];
+     var cand={x:nx,z:nz,hw:cb.hw,hd:cb.hd,cm:cb.cm};
+     if(ccHits(cand,false)||onRoad(nx,nz))continue;
+     var ovl=false;
+     for(var oi=0;oi<buildings.length;oi++){if(oi===ci)continue;var ob=buildings[oi],op=P5_BUILD[oi];var oh=op?ccMeshHalf(op):{hw:ob.hw,hd:ob.hd};if(Math.abs(nx-ob.x)<cmh.hw+oh.hw+1&&Math.abs(nz-ob.z)<cmh.hd+oh.hd+1){ovl=true;break;}}
+     if(ovl)continue;
+     if(Math.abs(nx-100)<56&&Math.abs(nz-379)<34)continue; /* safe-house plot stays clear */
+     var spBad=false;for(var si2=0;si2<SPOTS.length;si2++)if(dist2(nx,nz,SPOTS[si2].x,SPOTS[si2].z)<19)spBad=true;
+     if(spBad)continue;
+     var grp=bMeshes[ci]&&bMeshes[ci].parts&&bMeshes[ci].parts[0]?bMeshes[ci].parts[0].parent:null;
+     cb.x=nx;cb.z=nz;
+     if(bMeshes[ci]){bMeshes[ci].x=nx;bMeshes[ci].z=nz;}
+     cp.x=nx;cp.z=nz;
+     if(grp)grp.position.set(nx,0,nz);
+     moved=true;
+   }
+   if(moved)continue;
+   /* no clear spot: remove the building and re-dress its plot as a front garden
+      (lawn, hedges, low wall — visual only, clear of the carriageway, no
+      collision entry, so the filled frontage survives without the obstruction) */
+   var oldX=cb.x,oldZ=cb.z,oldRot=cp.rot;
+   var grp2=bMeshes[ci]&&bMeshes[ci].parts&&bMeshes[ci].parts[0]?bMeshes[ci].parts[0].parent:null;
+   if(grp2&&grp2.parent)grp2.parent.remove(grp2);
+   buildings.splice(ci,1);P5_BUILD.splice(ci,1);bMeshes.splice(ci,1);
+   var dg=new THREE.Group();dg.position.set(oldX,0,oldZ);dg.rotation.y=oldRot;scene.add(dg);
+   var dparts=[];
+   addMesh(dg,dparts,geo(26,1,20),new THREE.MeshLambertMaterial({color:0x49683c}),0,.5,0); /* garden lawn */
+   addMesh(dg,dparts,geo(24,3,2.4),hedgeMat,0,1.5,8.6); /* front hedge */
+   addMesh(dg,dparts,geo(24,2.2,1.2),brickPlain,0,1.1,-9.2); /* low back wall */
+   addMesh(dg,dparts,geo(2.4,3,16),hedgeMat,-11.6,1.5,0); /* side hedges */
+   addMesh(dg,dparts,geo(2.4,3,16),hedgeMat,11.6,1.5,0);
  }
  /* Town Hall — gritstone civic treatment (ashlar stone facade, arched windows, portico,
     clock tower retained as the landmark). Footprint + collision entry unchanged; the
@@ -1227,7 +1408,7 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
  addMesh(thG,thParts,geo(34,2,8),MAT.stone,0,1,22); /* entrance steps */
  addMesh(thG,thParts,geo(32,3,4),MAT.stone,0,25,23.8); /* portico entablature */
  [-13.5,-4.5,4.5,13.5].forEach(function(cx){addMesh(thG,thParts,new THREE.CylinderGeometry(1.7,1.9,22,10),MAT.stone,cx,13.5,24);}); /* portico columns */
- buildings.push({x:-30,z:-120,hw:41,hd:30});
+ buildings.push({x:-30,z:-120,hw:37,hd:26,cm:2});
  var thTower=addMesh(thG,thTParts,new THREE.BoxGeometry(16,64,16),MAT.clock,0,32,0);
  var thCap=addMesh(thG,thTParts,new THREE.ConeGeometry(12.5,11,4),roofMats[1],0,69.5,0);thCap.rotation.y=Math.PI/4;
  bMeshes.push({x:-30,z:-120,hw:42,hd:31,top:45,parts:thParts,fade:0,occ:false});
@@ -1242,7 +1423,7 @@ function makeLabel(text,color){
  s.scale.set(104,20,1);return s;
 }
 var placeLabels=[];
-var SHOP={x:118,z:-108}, LOT={x:-395,z:385};
+var SHOP={x:118,z:-108}, LOT={x:-520,z:420};
 function placeMarker(x,z,color,label){
  var ring=new THREE.Mesh(new THREE.RingGeometry(26,33,28),new THREE.MeshBasicMaterial({color:color,side:THREE.DoubleSide,transparent:true,opacity:.9}));
  ring.rotation.x=-Math.PI/2;ring.position.set(x,1.2,z);scene.add(ring);
@@ -1253,13 +1434,16 @@ var lotRing=placeMarker(LOT.x,LOT.z,'#4ea8de','USED CARS');
 var safeRing=placeMarker(SAFE.x,SAFE.z,'#3fb97f','SAFE HOUSE');
 /* Safe house — Phase 2 house build (pitched slate roof + chimney) in the SAME green tint
    as before, same position/footprint, so it stays identifiable; ring + label unchanged. */
-var safeGroup=new THREE.Group();safeGroup.position.set(SAFE.x,0,SAFE.z-34);scene.add(safeGroup);
-var safeHouseMesh=new THREE.Mesh(new THREE.BoxGeometry(38,20,30),SAFE_KIT.mat);
+var safeGroup=new THREE.Group();safeGroup.position.set(SAFE.x,0,SAFE.z-13);scene.add(safeGroup);
+var safeHouseMesh=new THREE.Mesh(new THREE.BoxGeometry(38,20,26),SAFE_KIT.mat);
 safeHouseMesh.position.y=10;safeGroup.add(safeHouseMesh);
-var safeRoof=new THREE.Mesh(SAFE_KIT.prism,SAFE_KIT.roof);safeRoof.scale.set(41,8,33);safeRoof.position.y=20;safeGroup.add(safeRoof);
+var safeRoof=new THREE.Mesh(SAFE_KIT.prism,SAFE_KIT.roof);safeRoof.scale.set(41,8,30);safeRoof.position.y=20;safeGroup.add(safeRoof);
 var safeChim=new THREE.Mesh(new THREE.BoxGeometry(4,7,4),SAFE_KIT.brick);safeChim.position.set(11,26,0);safeGroup.add(safeChim);
-buildings.push({x:SAFE.x,z:SAFE.z-34,hw:23,hd:19});
-bMeshes.push({x:SAFE.x,z:SAFE.z-34,hw:24,hd:20,top:29,parts:[safeHouseMesh,safeRoof,safeChim],fade:0,occ:false});
+/* Collision entry = the house's exact mesh footprint (38x26) + small margin, the
+   Town Hall model: the old padded entry (hw 23 / hd 17 + cm 9) crossed the Lower
+   Tweedale Street centreline. Mesh, position and plot are unchanged. */
+buildings.push({x:SAFE.x,z:SAFE.z-13,hw:19,hd:13,cm:2});
+bMeshes.push({x:SAFE.x,z:SAFE.z-13,hw:24,hd:18,top:29,parts:[safeHouseMesh,safeRoof,safeChim],fade:0,occ:false});
 /* drop pin */
 var pinGroup=new THREE.Group();
 var pinCone=new THREE.Mesh(new THREE.ConeGeometry(13,34,12),new THREE.MeshBasicMaterial({color:0xe8b33a}));
@@ -1605,15 +1789,15 @@ var P3COUNT={};
  }
  function inBuilding(x,z,pad){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(Math.abs(x-b.x)<b.hw+pad&&Math.abs(z-b.z)<b.hd+pad)return true;}return false;}
  function riverDist(x,z){var d=1e9;for(var j=0;j<RIVER.length-1;j++)d=Math.min(d,segDist(x,z,RIVER[j][0],RIVER[j][1],RIVER[j+1][0],RIVER[j+1][1]));return d;}
- function roadDist(x,z){var d=1e9;for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;for(var j=0;j<r.pts.length-1;j++)d=Math.min(d,segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])-roadHalf(r.cls));}return d;}
+ function roadDist(x,z){var d=1e9;for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;for(var j=0;j<r.pts.length-1;j++)d=Math.min(d,segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])-rh(r));}return d;}
  function eachSeg(fn){ROADS.forEach(function(r){if(r.cls==='R')return;for(var j=0;j<r.pts.length-1;j++){var ax=r.pts[j][0],az=r.pts[j][1],bx=r.pts[j+1][0],bz=r.pts[j+1][1];var L=dist2(ax,az,bx,bz);if(!L)continue;fn(r,ax,az,bx,bz,L,(bx-ax)/L,(bz-az)/L);}});}
  function roadByName(name){for(var i=0;i<ROADS.length;i++)if(ROADS[i].name===name)return ROADS[i];return null;}
- function roadPt(name,t,side,off){var r=roadByName(name);if(!r)return null;var p=pathPoint(r.pts,t);if(!p)return null;var px=p.dz,pz=-p.dx;return{x:p.x+px*side*off,z:p.z+pz*side*off,dx:p.dx,dz:p.dz,half:roadHalf(r.cls)};}
+ function roadPt(name,t,side,off){var r=roadByName(name);if(!r)return null;var p=pathPoint(r.pts,t);if(!p)return null;var px=p.dz,pz=-p.dx;return{x:p.x+px*side*off,z:p.z+pz*side*off,dx:p.dx,dz:p.dz,half:rh(r)};}
  var BOX=new THREE.BoxGeometry(1,1,1),CYL=new THREE.CylinderGeometry(.5,.5,1,8);
  /* ---- raised pavement slabs with kerbs (instanced unit boxes, one per road side) ---- */
  var kerbMats=[];
  eachSeg(function(r,ax,az,bx,bz,L,dx,dz){
-   var half=roadHalf(r.cls),px=dz,pz=-dx,ry=Math.atan2(dx,dz);
+   var half=rh(r),px=dz,pz=-dx,ry=Math.atan2(dx,dz);
    [1,-1].forEach(function(side){
      for(var s=0;s<L;s+=40){ /* sub-lengths so strips can break at junction mouths */
        var len=Math.min(40,L-s),f=(s+len/2)/L;
@@ -1622,7 +1806,7 @@ var P3COUNT={};
        if(inBuilding(cx,cz,1))continue;
        var junction=false;
        for(var oi=0;oi<ROADS.length&&!junction;oi++){var or2=ROADS[oi];if(or2===r||or2.cls==='R')continue;
-         for(var oj=0;oj<or2.pts.length-1;oj++){if(segDist(cx,cz,or2.pts[oj][0],or2.pts[oj][1],or2.pts[oj+1][0],or2.pts[oj+1][1])<roadHalf(or2.cls)+5){junction=true;break;}}}
+         for(var oj=0;oj<or2.pts.length-1;oj++){if(segDist(cx,cz,or2.pts[oj][0],or2.pts[oj][1],or2.pts[oj+1][0],or2.pts[oj+1][1])<rh(or2)+5){junction=true;break;}}}
        if(junction)continue;
        kerbMats.push(mat4s(cx,.55+((kerbMats.length%5)*.02),cz,ry,6.2,1.15,len));
      }
@@ -1641,7 +1825,7 @@ var P3COUNT={};
    var step=r.cls==='S'?140:100,acc=step*.5;
    for(var j=0;j<r.pts.length-1;j++){
      var ax=r.pts[j][0],az=r.pts[j][1],bx=r.pts[j+1][0],bz=r.pts[j+1][1],L=dist2(ax,az,bx,bz);if(!L)continue;
-     var dx=(bx-ax)/L,dz=(bz-az)/L,px=dz,pz=-dx,half=roadHalf(r.cls);
+     var dx=(bx-ax)/L,dz=(bz-az)/L,px=dz,pz=-dx,half=rh(r);
      for(var s=acc;s<L;s+=step){
        lampSide=-lampSide;
        var x=ax+dx*s+px*lampSide*(half+5.2),z=az+dz*s+pz*lampSide*(half+5.2);
@@ -1659,7 +1843,7 @@ var P3COUNT={};
  ]);
  var bolMats=[];
  [['The Esplanade',0],['Baillie Street',1]].forEach(function(cfg){
-   var r=roadByName(cfg[0]);if(!r)return;var half=roadHalf(r.cls);
+   var r=roadByName(cfg[0]);if(!r)return;var half=rh(r);
    for(var j=0;j<r.pts.length-1;j++){
      var ax=r.pts[j][0],az=r.pts[j][1],bx=r.pts[j+1][0],bz=r.pts[j+1][1],L=dist2(ax,az,bx,bz);if(!L)continue;
      var dx=(bx-ax)/L,dz=(bz-az)/L,px=dz,pz=-dx;
@@ -1686,7 +1870,7 @@ var P3COUNT={};
    var sc=.85+frnd()*.6;treeMats.push(mat4s(x,0,z,frnd()*6.28,sc,sc*(0.9+frnd()*.25),sc));
  }
  ['Spotland Road','A680 · Edenfield Road','Bamford Road','Norden Road','Rooley Moor Road'].forEach(function(name){
-   var r=roadByName(name);if(!r)return;var half=roadHalf(r.cls),side=1;
+   var r=roadByName(name);if(!r)return;var half=rh(r),side=1;
    for(var j=0;j<r.pts.length-1;j++){
      var ax=r.pts[j][0],az=r.pts[j][1],bx=r.pts[j+1][0],bz=r.pts[j+1][1],L=dist2(ax,az,bx,bz);if(!L)continue;
      var dx=(bx-ax)/L,dz=(bz-az)/L,px=dz,pz=-dx;
@@ -1799,7 +1983,7 @@ var P3COUNT={};
  /* ---- River Roch railings where roads bridge the river ---- */
  var railParts=[];
  eachSeg(function(r,ax,az,bx,bz,L,dx,dz){
-   var half=roadHalf(r.cls),px=dz,pz=-dx;
+   var half=rh(r),px=dz,pz=-dx;
    [1,-1].forEach(function(side){
      var prev=null;
      for(var s=0;s<=L;s+=9){
@@ -1835,8 +2019,8 @@ var P3COUNT={};
    var t=cfg[1];
    for(var attempt=0;attempt<2;attempt++){
      var p=pathPoint(r.pts,t);if(!p)break;
-     var px=p.dz,pz=-p.dx,half=roadHalf(r.cls);
-     var x=p.x+px*cfg[2]*(half-7.4),z=p.z+pz*cfg[2]*(half-7.4);
+     var px=p.dz,pz=-p.dx,half=rh(r);
+     var poff=half<12?half-5.0:half-7.4;var x=p.x+px*cfg[2]*poff,z=p.z+pz*cfg[2]*poff;
      var nearSpot=false;
      for(var si=0;si<SPOTS.length;si++)if(dist2(x,z,SPOTS[si].x,SPOTS[si].z)<27)nearSpot=true;
      if(nearSpot){t+=.13;continue;}
@@ -2323,7 +2507,7 @@ function acceptJob(){
  var t=sideOffer.type;sideOffer=null;
  if(t==='courier'){var a=pick(SPOTS),b=pick(SPOTS);sideJob={type:t,phase:'pickup',a:a,b:b,timeLeft:120};setPin(a.x,a.z,0x2ec4b6);}
  if(t==='fraud'){sideJob={type:t,idx:0,stops:FRAUD_STOPS,timeLeft:170,susT:11,prog:-1,burned:0};setPin(FRAUD_STOPS[0].x,FRAUD_STOPS[0].z,0x2ec4b6);}
- if(t==='swipe'){var st=Math.random()<.5?{name:'Off-licence, Deeplish St',x:212,z:266}:{name:'Shop, Moss St Newbold',x:478,z:225};sideJob={type:t,store:st,entered:false,items:[],grabbed:0,secT:26};setPin(st.x,st.z,0x2ec4b6);}
+ if(t==='swipe'){var st=Math.random()<.5?{name:'Off-licence, Deeplish St',x:212,z:246}:{name:'Shop, Moss St Newbold',x:478,z:225};sideJob={type:t,store:st,entered:false,items:[],grabbed:0,secT:26};setPin(st.x,st.z,0x2ec4b6);}
  if(t==='debt'){var s=pick(SPOTS.filter(function(x){return x.area==='deeplish'||x.area==='newbold';}));sideJob={type:t,spot:s,arrived:false};setPin(s.x,s.z,0x2ec4b6);}
  if(t==='chop'){sideJob={type:t,phase:'pickup',a:{x:-390,z:-300},b:{x:-560,z:640},timeLeft:150,dmgStart:0};setPin(-390,-300,0x2ec4b6);}
  closePhone();updateObjective();toast('Job on: '+JOB_NAMES[t]);
@@ -2599,7 +2783,7 @@ function updateObjective(){
 function streetAt(x,z){
  var best=null,bd=1e9;
  for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;for(var j=0;j<r.pts.length-1;j++){var d=segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1]);if(d<bd){bd=d;best=r;}}}
- return (best&&bd<roadHalf(best.cls)+22)?best.name:null;
+ return (best&&bd<rh(best)+22)?best.name:null;
 }
 function updateHUD(){
  ensureGoods();
@@ -2778,7 +2962,7 @@ function updatePatrols(dt){
    /* cruise the Deeplish street grid */
    var target=null;
    if(p.state==='cruise'){
-     var wp=[{x:150,z:316},{x:150,z:365},{x:140,z:420},{x:210,z:262},{x:SAFE.x,z:SAFE.z},{x:250,z:480}][Math.floor(p.t/1)%6];
+     var wp=[{x:150,z:306},{x:150,z:366},{x:148,z:428},{x:210,z:242},{x:SAFE.x,z:SAFE.z},{x:262,z:486}][Math.floor(p.t/1)%6];
      p.t+=dt*.14;target=wp;
      var dP=dist2(p.x,p.z,player.x,player.z);
      if(dP<300&&!footMode){
@@ -2974,7 +3158,7 @@ function ensureRecord2(){if(!S.record)S.record={arrests:0,offences:[],pending:[]
 var WATCH_STREETS=['Tweedale Street','Moss Street','Chichester Street','Ann Street, Deeplish'];
 var aunties=[];
 (function(){
- var spots=[{x:110,z:296,s:'Tweedale Street'},{x:200,z:340,s:'Tweedale Street'},{x:478,z:190,s:'Moss Street'},{x:470,z:280,s:'Chichester Street'},{x:120,z:404,s:'Ann Street, Deeplish'},{x:-500,z:-280,s:'Ings Lane, Spotland'},{x:-620,z:-700,s:'Bamford Road, Norden'}];
+ var spots=[{x:112,z:290,s:'Tweedale Street'},{x:205,z:327,s:'Tweedale Street'},{x:492,z:190,s:'Moss Street'},{x:472,z:253,s:'Chichester Street'},{x:122,z:400,s:'Ann Street, Deeplish'},{x:-498,z:-275,s:'Ings Lane, Spotland'},{x:-618,z:-700,s:'Bamford Road, Norden'}];
  spots.forEach(function(sp){
    var fig=makeFigure(0x7a4a6b,0x3a3f4a,[0xd8b090,0xa06a42,0x8a5a3b][spots.indexOf(sp)%3],{coat:0x7a4a6b,scarf:[0x8c2b3a,0x2e4a6b,0x5b2d4d][spots.indexOf(sp)%3],shoe:0x2c2f36});fig.position.set(sp.x,0,sp.z);fig.visible=false;scene.add(fig);
    var lb=makeLabel('!','rgba(255,90,90,1)');lb.scale.set(26,5,1);lb.position.set(sp.x,34,sp.z);lb.visible=false;scene.add(lb);
@@ -3025,11 +3209,11 @@ function complain(street,q){
 
 /* ================= STREET RACES ================= */
 var ROUTES=[
- {name:'Town Centre Ring',pts:[[70,-80],[-30,-60],[-150,-140],[80,-160],[70,-80]],stake:50},
- {name:'Deeplish Grid Sprint',pts:[[150,316],[210,262],[272,440],[140,420],[150,316]],stake:50},
- {name:'Kingsway Run',pts:[[160,420],[330,760],[430,980]],stake:80},
- {name:'Spotland Climb',pts:[[-280,-220],[-500,-400],[-580,-600]],stake:60},
- {name:'Newbold Run',pts:[[360,120],[580,215],[810,230],[606,300],[478,160]],stake:60}
+ {name:'Town Centre Ring',pts:[[80,-80],[16,-62],[-120,-148],[40,-158],[80,-80]],stake:50},
+ {name:'Deeplish Grid Sprint',pts:[[150,306],[210,242],[258,368],[148,428],[150,306]],stake:50},
+ {name:'Kingsway Run',pts:[[168,470],[245,640],[332,762],[392,890]],stake:80},
+ {name:'Spotland Climb',pts:[[-300,-228],[-505,-440],[-585,-650]],stake:60},
+ {name:'Newbold Run',pts:[[365,122],[580,215],[810,227],[613,290],[480,152]],stake:60}
 ];
 var race=null;
 var RACE_SKILL={daz:{speed:.86,err:.5},kyle:{speed:.97,err:.08},mo:{speed:.9,err:.2}};
@@ -3589,7 +3773,7 @@ function updateGame(dt,realDt){
    /* SUV too wide for the tightest streets: scrape slowdown on S roads handled by collisions below */
    /* collisions: buildings */
    for(var bi=0;bi<buildings.length;bi++){var b=buildings[bi];
-     if(Math.abs(player.x-b.x)<b.hw+13&&Math.abs(player.z-b.z)<b.hd+13){
+     var bcm=(b.cm!==undefined?b.cm:13);if(Math.abs(player.x-b.x)<b.hw+bcm&&Math.abs(player.z-b.z)<b.hd+bcm){
        var impact=Math.abs(vf)+Math.abs(vr);
        if(impact>40){onCrash(impact*.8,'building');if(impact>190)player.spin=2.6;}
        player.x+=(player.x>b.x?1:-1)*4;player.vx*=-.25;player.vz*=-.25;vf*=.3;
@@ -3996,7 +4180,7 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
      var step=r.cls==='S'?140:100,acc=step*.5;
      for(var j=0;j<r.pts.length-1;j++){
        var ax=r.pts[j][0],az=r.pts[j][1],bx=r.pts[j+1][0],bz=r.pts[j+1][1],L=dist2(ax,az,bx,bz);if(!L)continue;
-       var dx=(bx-ax)/L,dz=(bz-az)/L,px=dz,pz=-dx,half=roadHalf(r.cls);
+       var dx=(bx-ax)/L,dz=(bz-az)/L,px=dz,pz=-dx,half=rh(r);
        for(var s=acc;s<L;s+=step){
          lampSide=-lampSide;
          var x=ax+dx*s+px*lampSide*(half+5.2),z=az+dz*s+pz*lampSide*(half+5.2);
