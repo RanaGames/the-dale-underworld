@@ -605,6 +605,135 @@
     html.dale-rot #debtCard{top:calc(100px + var(--sat)) !important;width:186px !important;}
   }
   @media (prefers-reduced-motion:reduce){ .feedItem{animation:none;} .feedItem.out{transition:none;} #sideFeed{transition:none;} }
+  /* ---------- v30.6 CAMERA VIEWS ----------
+     ONE button, in the top bar's existing icon cluster (drawer / pause) at
+     the top-right corner. Placement: the bar's own row is the only corner
+     band with a free slot — TASKS starts below it (top 48–58px), the phone
+     tab owns the right EDGE (vertically centred), the side feed owns the
+     left column, pedals/fight buttons own the bottom-right and the
+     joystick/steer buttons the bottom-left. The button is the shipped
+     .iconBtn (40px, 36px in the compact landscape rules), inside #hud
+     inside #root, so it rotates with the presented landscape exactly like
+     the drawer and pause buttons beside it. */
+  #camBtn svg{width:20px;height:20px;display:block;}
+  #camBtn:active{transform:scale(.93);}
+  /* ---------- v30.7 UI CUSTOMIZATION (presentation only) ----------
+     ONE mechanism per family: three CSS variables on <body> — --hudF
+     (HUD scale), --ctlF (touch-control scale), --mmF (minimap scale) —
+     set by body classes (ui-hud-N / ui-ctl-N / ui-mm-N / ui-feed-N /
+     ui-mm-hide) that the UI module in the game script toggles from
+     S.ui. Every rule below multiplies the SHIPPED base size by the
+     variable, so at Standard (factor 1) each computed size is
+     bit-for-bit today's: the base tier uses the shipped default bases,
+     the landscape-compact tier and the rotated twins use the shipped
+     compact bases (36px icons, 104px stick, 146px minimap…). No
+     per-element JS sizing anywhere; input handlers are untouched
+     (the joystick's 44px travel clamp is a JS constant, unchanged —
+     only the drawn geometry scales). Feed width is class-driven in
+     px/%: Slim 160 (150 compact) · Standard = the shipped rules above
+     (200 / 188 compact) — deliberately NO override at Standard ·
+     Wide = min(253px, 30% of the presented width): at 390x844
+     presented-landscape the presented width is 844, so Wide is
+     exactly 253px and the centre of the screen is never covered;
+     with the status drawer open, Wide is further capped so the feed's
+     right edge stays left of centre. The feed has NO hide option —
+     it carries ANPR / custody-critical information. */
+  body{--hudF:1;--ctlF:1;--mmF:1;}
+  body.ui-hud-0{--hudF:.85;} body.ui-hud-2{--hudF:1.15;}
+  body.ui-ctl-0{--ctlF:.85;} body.ui-ctl-2{--ctlF:1.18;}
+  body.ui-mm-0{--mmF:.8;} body.ui-mm-2{--mmF:1.2;}
+  /* HUD scale — status chips, top bar, objective line, feed text, TASKS */
+  .pill{padding:calc(4px * var(--hudF)) calc(10px * var(--hudF));}
+  .pill .k{font-size:calc(10px * var(--hudF));}
+  .pill .v{font-size:calc(18px * var(--hudF));}
+  .iconBtn{width:calc(40px * var(--hudF));height:calc(40px * var(--hudF));font-size:calc(19px * var(--hudF));}
+  #camBtn svg{width:calc(20px * var(--hudF));height:calc(20px * var(--hudF));}
+  #objLine{font-size:calc(13px * var(--hudF));}
+  #objToggle{font-size:calc(13px * var(--hudF));}
+  .feedItem{font-size:calc(12.5px * var(--hudF));}
+  .feedItem.area .fa-name{font-size:calc(17px * var(--hudF));}
+  .feedItem.area .fa-gang{font-size:calc(12.5px * var(--hudF));}
+  .feedItem.anpr{font-size:calc(11px * var(--hudF));}
+  #sideFeed #incidentBox{font-size:calc(13.5px * var(--hudF));}
+  #tasksPanel{width:calc(212px * var(--hudF));}
+  #tasksHead{font-size:calc(17px * var(--hudF));}
+  #taskList li{font-size:calc(13px * var(--hudF));}
+  #statusDrawer .dItem{font-size:calc(13.5px * var(--hudF));}
+  /* control size — joystick, fight/action buttons, steering, pedals */
+  #stick{width:calc(clamp(104px,17vmin,128px) * var(--ctlF));height:calc(clamp(104px,17vmin,128px) * var(--ctlF));}
+  #stickKnob{width:calc(52px * var(--ctlF));height:calc(52px * var(--ctlF));}
+  .steerBtn{width:calc(clamp(68px,13vmin,84px) * var(--ctlF));height:calc(clamp(68px,13vmin,84px) * var(--ctlF));font-size:calc(27px * var(--ctlF));}
+  .pedal.mini{width:calc(54px * var(--ctlF));height:calc(54px * var(--ctlF));font-size:calc(11px * var(--ctlF));}
+  .pedal.brake{width:calc(clamp(62px,12vmin,72px) * var(--ctlF));height:calc(clamp(84px,17vmin,98px) * var(--ctlF));}
+  .pedal.gas{width:calc(clamp(70px,13.5vmin,82px) * var(--ctlF));height:calc(clamp(104px,21vmin,124px) * var(--ctlF));}
+  #attackBtn{padding:calc(14px * var(--ctlF)) calc(22px * var(--ctlF));font-size:calc(20px * var(--ctlF));}
+  #blockBtn,#dodgeBtn,#grabBtn{padding:calc(11px * var(--ctlF)) calc(16px * var(--ctlF));font-size:calc(15px * var(--ctlF));}
+  /* minimap size + hide (element only — the full Map screen is untouched) */
+  #mmWrap{width:calc(164px * var(--mmF));height:calc(126px * var(--mmF));}
+  #minimap{width:calc(164px * var(--mmF));height:calc(126px * var(--mmF));}
+  body.ui-mm-hide #mmWrap{display:none;}
+  /* side feed width */
+  body.ui-feed-0 #sideFeed{width:160px;}
+  body.ui-feed-2 #sideFeed{width:min(253px,30%);}
+  body.drawer-open.ui-feed-2 #sideFeed{width:min(253px,calc(50% - 224px));}
+  /* a Large stick is taller: the feed stops higher so they never touch */
+  body.ui-ctl-2 #sideFeed{max-height:calc(100% - 251px);}
+  /* narrow non-rotated tier (menus): shipped compact bases, scaled */
+  @media (max-width:560px){
+    html:not(.dale-rot) .pill{padding:calc(3px * var(--hudF)) calc(8px * var(--hudF));}
+    html:not(.dale-rot) .pill .v{font-size:calc(17px * var(--hudF));}
+    html:not(.dale-rot) .iconBtn{width:calc(36px * var(--hudF));height:calc(36px * var(--hudF));font-size:calc(17px * var(--hudF));}
+    html:not(.dale-rot) #tasksPanel{width:calc(186px * var(--hudF));}
+  }
+  /* landscape-compact tier: shipped compact bases, scaled */
+  @media (orientation:landscape) and (max-height:540px){
+    .pill .v{font-size:calc(17px * var(--hudF));}
+    .iconBtn{width:calc(36px * var(--hudF));height:calc(36px * var(--hudF));font-size:calc(17px * var(--hudF));}
+    #objLine{font-size:calc(12px * var(--hudF));}
+    #tasksPanel{width:calc(196px * var(--hudF));}
+    #tasksHead{font-size:calc(15px * var(--hudF));}
+    #taskList li{font-size:calc(12px * var(--hudF));}
+    #statusDrawer .dItem{font-size:calc(12.5px * var(--hudF));}
+    #stick{width:calc(104px * var(--ctlF));height:calc(104px * var(--ctlF));}
+    #stickKnob{width:calc(46px * var(--ctlF));height:calc(46px * var(--ctlF));}
+    .steerBtn{width:calc(66px * var(--ctlF));height:calc(66px * var(--ctlF));font-size:calc(23px * var(--ctlF));}
+    .pedal.mini{width:calc(48px * var(--ctlF));height:calc(48px * var(--ctlF));}
+    .pedal.brake{width:calc(56px * var(--ctlF));height:calc(78px * var(--ctlF));}
+    .pedal.gas{width:calc(64px * var(--ctlF));height:calc(94px * var(--ctlF));}
+    #fightBtns .btn{padding:calc(9px * var(--ctlF)) calc(13px * var(--ctlF));font-size:calc(14px * var(--ctlF));}
+    #attackBtn{padding:calc(11px * var(--ctlF)) calc(18px * var(--ctlF));font-size:calc(17px * var(--ctlF));}
+    #mmWrap{width:calc(146px * var(--mmF));height:calc(112px * var(--mmF));}
+    #minimap{width:calc(146px * var(--mmF));height:calc(112px * var(--mmF));}
+    body.ui-feed-0 #sideFeed{width:150px;}
+    body.ui-feed-2 #sideFeed{width:min(253px,30%);}
+    body.drawer-open.ui-feed-2 #sideFeed{width:min(253px,calc(50% - 206px));}
+    body.ui-ctl-2 #sideFeed{max-height:calc(100% - 237px);}
+  }
+  /* rotated twins: raw viewport is portrait; presented height <= 540px
+     means viewport width <= 540px — same compact bases as above */
+  @media (max-width:540px){
+    html.dale-rot .pill .v{font-size:calc(17px * var(--hudF));}
+    html.dale-rot .iconBtn{width:calc(36px * var(--hudF));height:calc(36px * var(--hudF));font-size:calc(17px * var(--hudF));}
+    html.dale-rot #objLine{font-size:calc(12px * var(--hudF));}
+    html.dale-rot #tasksPanel{width:calc(196px * var(--hudF));}
+    html.dale-rot #tasksHead{font-size:calc(15px * var(--hudF));}
+    html.dale-rot #taskList li{font-size:calc(12px * var(--hudF));}
+    html.dale-rot #statusDrawer .dItem{font-size:calc(12.5px * var(--hudF));}
+    html.dale-rot #stick{width:calc(104px * var(--ctlF));height:calc(104px * var(--ctlF));}
+    html.dale-rot #stickKnob{width:calc(46px * var(--ctlF));height:calc(46px * var(--ctlF));}
+    html.dale-rot .steerBtn{width:calc(66px * var(--ctlF));height:calc(66px * var(--ctlF));font-size:calc(23px * var(--ctlF));}
+    html.dale-rot .pedal.mini{width:calc(48px * var(--ctlF));height:calc(48px * var(--ctlF));}
+    html.dale-rot .pedal.brake{width:calc(56px * var(--ctlF));height:calc(78px * var(--ctlF));}
+    html.dale-rot .pedal.gas{width:calc(64px * var(--ctlF));height:calc(94px * var(--ctlF));}
+    html.dale-rot #fightBtns .btn{padding:calc(9px * var(--ctlF)) calc(13px * var(--ctlF));font-size:calc(14px * var(--ctlF));}
+    html.dale-rot #attackBtn{padding:calc(11px * var(--ctlF)) calc(18px * var(--ctlF));font-size:calc(17px * var(--ctlF));}
+    html.dale-rot #mmWrap{width:calc(146px * var(--mmF));height:calc(112px * var(--mmF));}
+    html.dale-rot #minimap{width:calc(146px * var(--mmF));height:calc(112px * var(--mmF));}
+    html.dale-rot body.ui-feed-0 #sideFeed{width:150px;}
+    html.dale-rot body.ui-feed-2 #sideFeed{width:min(253px,30%);}
+    html.dale-rot body.drawer-open.ui-feed-2 #sideFeed{width:min(253px,calc(50% - 206px));}
+    html.dale-rot body.ui-ctl-2 #sideFeed{max-height:calc(100% - 237px);}
+  }
 </style>
 <script>
 /* DISPLAY UPDATE — rotated presentation, part 1 (state + presented size).
@@ -697,6 +826,18 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
   <div class="rowline" style="margin-top:14px;"><span>Fullscreen</span><b id="setFsState">Off</b></div>
   <button class="btn ghost" id="setFsBtn">Turn Fullscreen On</button>
   <p class="small" id="fsIosNote" style="display:none;">On iPhone, Safari can't fullscreen a web page in the browser — add The Dale to your Home Screen for true fullscreen.</p>
+  <div class="rowline" style="margin-top:14px;"><span>HUD size</span><b id="setHudState">Standard</b></div>
+  <button class="btn ghost" id="setHudBtn">Change HUD Size</button>
+  <div class="rowline" style="margin-top:14px;"><span>Touch control size</span><b id="setCtlState">Standard</b></div>
+  <button class="btn ghost" id="setCtlBtn">Change Control Size</button>
+  <div class="rowline" style="margin-top:14px;"><span>Minimap size</span><b id="setMmState">Standard</b></div>
+  <button class="btn ghost" id="setMmBtn">Change Minimap Size</button>
+  <div class="rowline" style="margin-top:14px;"><span>Minimap</span><b id="setMmShowState">Shown</b></div>
+  <button class="btn ghost" id="setMmShowBtn">Hide Minimap</button>
+  <p class="small">Hiding removes only the small map in the status drawer — the full Map stays in the pause menu.</p>
+  <div class="rowline" style="margin-top:14px;"><span>Side feed width</span><b id="setFeedState">Standard</b></div>
+  <button class="btn ghost" id="setFeedBtn">Change Feed Width</button>
+  <p class="small">The side feed can't be hidden — it carries ANPR and custody alerts. UI choices apply straight away and are kept with your run.</p>
   <p class="small">Music and game sound are separate controls — the slider and mute here only affect Dale After Dark, the startup theme, never the Nokia, calls or effects. Like the game's other options, settings last for this session.</p>
   <button class="btn gold" data-close>Back</button>
 </div></div>
@@ -732,6 +873,7 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
     <div class="pill" id="dayClock"><span class="k" id="hDay">Day 1</span><div class="v" id="hClock">5:00</div></div>
     <button class="iconBtn" id="drawerBtn" aria-label="Stash, weapon, car and area status" title="Stash · Weapon · Car · Area">≡</button>
     <button class="iconBtn" id="pauseBtn" aria-label="Menu" title="Menu">⚙</button>
+    <button class="iconBtn" id="camBtn" aria-label="Camera view: Classic — tap to change view" title="Camera view: Classic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/></svg></button>
   </div>
   <div id="objWrap"><span id="objLine">Wait for the Line to ring…</span><button id="objToggle" aria-label="Collapse objective" title="Objective">▾</button></div>
   <!-- SIDE STRIP (popups-to-the-side): every transient gameplay message —
@@ -879,6 +1021,11 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
     <button class="btn ghost" id="mapBtn" style="width:100%;margin:6px 0;">Map</button>
     <button class="btn ghost" id="muteBtn" style="width:100%;margin:6px 0;">Sound: On</button>
     <button class="btn ghost" id="fsBtn" style="width:100%;margin:6px 0;">Fullscreen: Off</button>
+    <button class="btn ghost" id="pauseHudBtn" style="width:100%;margin:6px 0;">HUD Size: Standard</button>
+    <button class="btn ghost" id="pauseCtlBtn" style="width:100%;margin:6px 0;">Control Size: Standard</button>
+    <button class="btn ghost" id="pauseMmBtn" style="width:100%;margin:6px 0;">Minimap Size: Standard</button>
+    <button class="btn ghost" id="pauseMmShowBtn" style="width:100%;margin:6px 0;">Minimap: Shown</button>
+    <button class="btn ghost" id="pauseFeedBtn" style="width:100%;margin:6px 0;">Feed Width: Standard</button>
     <button class="btn ghost" id="phonePowerBtn" style="width:100%;margin:6px 0;">Phone: On</button>
     <button class="btn ghost" id="restartBtn" style="width:100%;margin:6px 0;">Restart Day</button>
     <button class="btn ghost" id="mainMenuBtn" style="width:100%;margin:6px 0;">Main Menu</button>
@@ -1355,7 +1502,52 @@ var CAM_TAN=Math.tan(CAM_TILT);
 var CAM_H_FOOT=228, CAM_H_SPEED=90;
 var CAM_TILT_DRIVE=58*Math.PI/180, camTiltCur=CAM_TILT; /* CONCEPT SAMPLE (v23): driving tilt also 58° (was 44°); heights/clamps/follow unchanged */
 var CAM_H_MIN=205, CAM_H_MAX=325;
-function camPlace(cx,cz,h,tilt){h=clamp(h,CAM_H_MIN,CAM_H_MAX);var tt=(tilt!==undefined)?tilt:CAM_TILT;camera.position.set(cx,h,cz+h/Math.tan(tt));camera.lookAt(cx,0,cz);} /* MAP REBUILD §9: tilt argument — foot calls keep 50°, driving passes an eased 44° */
+function camPlace(cx,cz,h,tilt,hMin,hMax){h=clamp(h,(hMin!==undefined)?hMin:CAM_H_MIN,(hMax!==undefined)?hMax:CAM_H_MAX);var tt=(tilt!==undefined)?tilt:CAM_TILT;camera.position.set(cx,h,cz+h/Math.tan(tt));camera.lookAt(cx,0,cz);} /* MAP REBUILD §9: tilt argument — foot calls keep 50°, driving passes an eased 44° · v30.6: optional per-view clamp band (hMin/hMax) — callers that pass neither get the shipped CAM_H_MIN/CAM_H_MAX exactly as before */
+/* ---- v30.6 CAMERA VIEWS (user order: "different camera and zoom angles
+   with a button in the corner") ----
+   Four presets cycled by #camBtn. The standing ruling holds in EVERY view:
+   azimuth is never touched — camPlace still sits the camera due SOUTH of
+   the focus and looks due NORTH (north-up); a preset changes only the tilt
+   (polar angle) and the height band. CLASSIC is the shipped rig verbatim
+   (58°, foot 228, driving 208 + speed-frac × 50, clamps 205/325) and runs
+   the identical code path with the identical numbers. CLOSE scales the
+   heights ×0.7 at 45°; HIGH ×1.25 at 72°; FAR ×1.6 at 60° with its own
+   extended clamp band (328/520) that applies to FAR only. Driving keeps
+   its speed-based rise in every view: height = driveBase + clamp(spd/340)
+   × driveRise. Switching eases the RIG PARAMETERS (tilt / heights /
+   clamps) over 0.6 s — the player, the world and the controls are never
+   moved by a switch; prefers-reduced-motion snaps instead of easing. */
+var CAM_VIEWS=[
+ {name:'CLASSIC',tilt:58,foot:228,driveBase:208,driveRise:50,hMin:205,hMax:325},
+ {name:'CLOSE',tilt:45,foot:160,driveBase:146,driveRise:35,hMin:144,hMax:228},
+ {name:'HIGH',tilt:72,foot:285,driveBase:260,driveRise:62.5,hMin:256,hMax:406},
+ {name:'FAR',tilt:60,foot:365,driveBase:333,driveRise:80,hMin:328,hMax:520}
+];
+var camViewCur={tilt:CAM_TILT,foot:CAM_H_FOOT,driveBase:208,driveRise:50,hMin:CAM_H_MIN,hMax:CAM_H_MAX};
+var camFrom=null,camTransT=1; /* transition state: camFrom snapshot -> camView() target, camTransT 0..1 over 0.6 s */
+function camModeIdx(){var m=(typeof S!=='undefined'&&S)?S.camMode:0;if(typeof m!=='number'||!isFinite(m))m=0;return clamp(Math.floor(m),0,CAM_VIEWS.length-1);}
+function camView(){return CAM_VIEWS[camModeIdx()];}
+function camParamsOf(v){return {tilt:v.tilt*Math.PI/180,foot:v.foot,driveBase:v.driveBase,driveRise:v.driveRise,hMin:v.hMin,hMax:v.hMax};}
+function camSnapTo(v){camViewCur=camParamsOf(v);camFrom=null;camTransT=1;camTiltCur=camViewCur.tilt;}
+function camEase(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;}
+function camViewTick(dt){
+ if(camTransT>=1||!camFrom)return;
+ camTransT=Math.min(1,camTransT+dt/0.6);
+ var e=camEase(camTransT),to=camParamsOf(camView());
+ for(var k in to)camViewCur[k]=camFrom[k]+(to[k]-camFrom[k])*e;
+ if(camTransT>=1){camViewCur=to;camFrom=null;}
+}
+function camSyncBtn(){var b=$('camBtn');if(!b)return;var n=camView().name.charAt(0)+camView().name.slice(1).toLowerCase();b.title='Camera view: '+n;b.setAttribute('aria-label','Camera view: '+n+' — tap to change view');}
+function cycleCamView(){
+ if(typeof S==='undefined'||!S)return;
+ if(S.camMode===undefined||typeof S.camMode!=='number')S.camMode=0; /* append-only state guard, mirrors ensureGoods */
+ S.camMode=(camModeIdx()+1)%CAM_VIEWS.length;
+ var v=camView();
+ if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){camSnapTo(v);}
+ else{camFrom={tilt:camViewCur.tilt,foot:camViewCur.foot,driveBase:camViewCur.driveBase,driveRise:camViewCur.driveRise,hMin:camViewCur.hMin,hMax:camViewCur.hMax};camTransT=0;}
+ camSyncBtn();
+ feedPush('📷 Camera — '+v.name,'',2600); /* side feed only (popups rule): never centre-screen */
+}
 /* Stable framing across screen sizes: at narrow aspects the vertical FOV widens so the
    horizontal coverage (what you can see left-right) stays constant instead of pinching in. */
 function fitCamera(){
@@ -3782,7 +3974,7 @@ function newState(){
   outfit:{Head:'none_head',Jacket:'tracksuit',Bottoms:'joggers',Trainers:'worn',Accessories:'none_acc'},
   ownedClothes:{none_head:true,tracksuit:true,joggers:true,worn:true,none_acc:true},
   car:'saloon',ownedCars:{saloon:true},carMods:{saloon:{color:null,tint:0,alloy:false,loud:false}},
-  carDamage:0,balaCd:0,muted:false,phoneOn:true,tracksuitCW:'charcoal'}; /* v30.5: append-only — tracksuit colourway (safe default charcoal; older states read via tsCW()) */
+  carDamage:0,balaCd:0,muted:false,phoneOn:true,tracksuitCW:'charcoal',camMode:0,ui:{hud:1,ctl:1,mm:1,mmShow:true,feed:1}}; /* v30.5: append-only — tracksuit colourway (safe default charcoal; older states read via tsCW()) · v30.6: append-only — camMode = camera view index (0 = CLASSIC; older states default via ensureGoods) · v30.7: append-only — ui = UI customization (presentation only; 1 = Standard / Shown = today's look; older states default via ensureGoods) */
 }
 AREAS.forEach(function(a){});
 function outfitStats(){
@@ -4092,6 +4284,7 @@ var stickVec={x:0,y:0};
  $('weaponBtn').onclick=function(){cycleWeapon();};
  $('shopBtn').onclick=function(){ if(S.cash>=WEAPONS.bat.price&&!S.ownedWeapons.bat){S.cash-=WEAPONS.bat.price;S.ownedWeapons.bat=true;toast('Bought Baseball Bat');updateHUD();} else if(S.ownedWeapons.bat){toast('Bat already owned');} else toast('Bat costs £150'); };
  $('pauseBtn').onclick=function(){if(!S.playing)return;if(typeof combatClearInputs==='function')combatClearInputs();S.paused=true;syncPhonePower();$('pauseScreen').classList.add('on');};
+ $('camBtn').onclick=function(){if(!S||!S.playing||S.paused)return;cycleCamView();}; /* v30.6: element-based tap like the other HUD buttons — cycles CLASSIC → CLOSE → HIGH → FAR */
  $('phonePowerBtn').onclick=function(){setPhonePower(!phoneIsOn());};
  $('resumeBtn').onclick=function(){S.paused=false;$('pauseScreen').classList.remove('on');};
  $('restartBtn').onclick=function(){$('pauseScreen').classList.remove('on');startDay(true);};
@@ -5814,6 +6007,10 @@ function ensureGoods(){
  if(S.snakeHi===undefined)S.snakeHi=0;
  if(S.ringtone===undefined)S.ringtone='classic';
  if(S.phoneOn===undefined)S.phoneOn=true; /* S1: optional append — old saves default to phone ON */
+ if(S.camMode===undefined||typeof S.camMode!=='number')S.camMode=0; /* v30.6: optional append — old saves default to the CLASSIC camera view */
+ if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1}; /* v30.7: append-only — UI customization; old states default to today's look (Standard / Shown) */
+ ['hud','ctl','mm','feed'].forEach(function(k){if(typeof S.ui[k]!=='number'||!isFinite(S.ui[k]))S.ui[k]=1;S.ui[k]=Math.max(0,Math.min(2,Math.floor(S.ui[k])));});
+ if(typeof S.ui.mmShow!=='boolean')S.ui.mmShow=S.ui.mmShow!==false;
  if(!S.seenCams)S.seenCams=[]; /* X-3 (v31): append-only — ANPR cameras the player has discovered (design §7.1 fairness ruling); safe default empty, old saves load clean */
  if(S.missedTotal===undefined)S.missedTotal=0;
  if(!S.carRecords)S.carRecords={};
@@ -7159,14 +7356,15 @@ function loop(ms){
   /* camera follows foot or car */
   var fx=footMode?footMode.x:player.x,fz=footMode?footMode.z:player.z;
   var spd=footMode?0:speedNow();
-  var zoom=footMode?CAM_H_FOOT:(208+clamp(spd/340,0,1)*50); /* §9: driving band 208-258 (inside the 205-325 clamps, no clamp change); foot rig untouched at 228 */
-  var tiltTgt=footMode?CAM_TILT:CAM_TILT_DRIVE;camTiltCur+=(tiltTgt-camTiltCur)*Math.min(1,dt*3.4);
+  camViewTick(dt); /* v30.6: ease the rig parameters toward the active view (no-op once settled) */
+  var zoom=footMode?camViewCur.foot:(camViewCur.driveBase+clamp(spd/340,0,1)*camViewCur.driveRise); /* §9: driving band 208-258 (inside the 205-325 clamps, no clamp change); foot rig untouched at 228 · v30.6: the same formula reads the active view's parameters — in CLASSIC camViewCur IS {foot:228, driveBase:208, driveRise:50}, so the shipped numbers run bit-for-bit */
+  var tiltTgt=camViewCur.tilt;camTiltCur+=(tiltTgt-camTiltCur)*Math.min(1,dt*3.4); /* v30.6: foot and driving tilts are the same per view (58° in CLASSIC = the shipped CAM_TILT/CAM_TILT_DRIVE), so the single eased tilt target replaces the pair without changing CLASSIC */
   var camK=footMode?9:5; /* v21: on-foot follow tightened (same exponential form, no overshoot) so it keeps up with sprint starts/stops; driving follow unchanged */
   camPos.x+=(fx-camPos.x)*Math.min(1,dt*camK);camPos.z+=(fz-camPos.z)*Math.min(1,dt*camK);
   shake=Math.max(0,shake-dt*30);
   var shx=(Math.random()-.5)*shake,shz=(Math.random()-.5)*shake;
   if(spd>290)shx+=(Math.random()-.5)*3;
-  camPlace(camPos.x+shx,camPos.z+shz,zoom,camTiltCur);
+  camPlace(camPos.x+shx,camPos.z+shz,zoom,camTiltCur,camViewCur.hMin,camViewCur.hMax); /* v30.6: the active view's clamp band (CLASSIC passes the shipped 205/325) */
   updateOcclusion(dt);
   /* player marker tracks the focus point; FIX A markers: distance-scaled, fading,
      decluttered pin labels + objective guide chevrons (see updateMarkers) */
@@ -8085,6 +8283,48 @@ window.__daleFsSync=daleFsSync;
  var b2=$('fsBtn');if(b2)b2.onclick=function(){daleFsSet(!(fsActive()||fsPref));};})();
 daleFsSync();
 
+/* ---------- v30.7 UI CUSTOMIZATION (Settings + pause menu) ----------
+   Presentation ONLY — the same home as the Fullscreen option above.
+   State: ONE append-only object, S.ui = {hud, ctl, mm, mmShow, feed},
+   indices into the step lists below (1 = Standard / Shown = today's
+   rendering exactly); newState ships it, ensureGoods backfills and
+   sanitises it for old-shape states, and uiApply() runs at boot
+   (INIT, before gameplay) and again on every change, so a choice
+   takes effect immediately — the game renders behind the pause menu,
+   giving a live preview, and is in force on return with no reload.
+   Mechanism: uiApply() only swaps body classes; all geometry lives
+   in the v30.7 CSS block (three scale variables + feed-width rules).
+   Nothing here reads or writes any gameplay value; the camera
+   button is scaled by the HUD variable like the other top-bar icons
+   and its behaviour is untouched. */
+var UI_HUD=['Compact','Standard','Large'],UI_CTL=['Compact','Standard','Large'],UI_MM=['Small','Standard','Large'],UI_FEED=['Slim','Standard','Wide'];
+function uiCfg(){var d={hud:1,ctl:1,mm:1,mmShow:true,feed:1};if(typeof S==='undefined'||!S||!S.ui||typeof S.ui!=='object')return d;var u=S.ui;function ix(v){return (typeof v==='number'&&isFinite(v))?Math.max(0,Math.min(2,Math.floor(v))):1;}return {hud:ix(u.hud),ctl:ix(u.ctl),mm:ix(u.mm),mmShow:u.mmShow!==false,feed:ix(u.feed)};}
+function uiSyncBtns(c){c=c||uiCfg();
+ function st(id,txt){var e=$(id);if(e)e.textContent=txt;}
+ st('setHudState',UI_HUD[c.hud]);st('setCtlState',UI_CTL[c.ctl]);st('setMmState',UI_MM[c.mm]);st('setFeedState',UI_FEED[c.feed]);st('setMmShowState',c.mmShow?'Shown':'Hidden');
+ var sb=$('setMmShowBtn');if(sb)sb.textContent=c.mmShow?'Hide Minimap':'Show Minimap';
+ st('pauseHudBtn','HUD Size: '+UI_HUD[c.hud]);st('pauseCtlBtn','Control Size: '+UI_CTL[c.ctl]);st('pauseMmBtn','Minimap Size: '+UI_MM[c.mm]);st('pauseFeedBtn','Feed Width: '+UI_FEED[c.feed]);st('pauseMmShowBtn','Minimap: '+(c.mmShow?'Shown':'Hidden'));}
+function uiApply(){var c=uiCfg(),b=document.body;if(!b)return;
+ function swap(pfx,n){for(var i=0;i<3;i++)b.classList.toggle(pfx+i,i===n);}
+ swap('ui-hud-',c.hud);swap('ui-ctl-',c.ctl);swap('ui-mm-',c.mm);swap('ui-feed-',c.feed);
+ b.classList.toggle('ui-mm-hide',!c.mmShow);
+ uiSyncBtns(c);}
+function uiEnsure(){if(typeof S==='undefined'||!S)return null;if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1};return S.ui;}
+function uiCycle(key){var u=uiEnsure();if(!u)return;u[key]=(uiCfg()[key]+1)%3;uiApply();}
+function uiToggleMm(){var u=uiEnsure();if(!u)return;u.mmShow=!uiCfg().mmShow;uiApply();}
+(function(){
+ function wire(id,fn){var e=$(id);if(e)e.addEventListener('click',fn);}
+ wire('setHudBtn',function(){uiCycle('hud');});wire('pauseHudBtn',function(){uiCycle('hud');});
+ wire('setCtlBtn',function(){uiCycle('ctl');});wire('pauseCtlBtn',function(){uiCycle('ctl');});
+ wire('setMmBtn',function(){uiCycle('mm');});wire('pauseMmBtn',function(){uiCycle('mm');});
+ wire('setFeedBtn',function(){uiCycle('feed');});wire('pauseFeedBtn',function(){uiCycle('feed');});
+ wire('setMmShowBtn',uiToggleMm);wire('pauseMmShowBtn',uiToggleMm);
+ /* keep both menus' labels truthful whenever either menu is opened */
+ document.addEventListener('click',function(e){var t=e.target;if(t&&t.closest&&t.closest('#menuSettingsBtn,#mbSettings,#pauseBtn'))uiSyncBtns();},true);
+ uiApply(); /* S is still the boot null here: applies the Standard defaults; INIT re-applies from the real state before gameplay */
+ window.__daleUi={cfg:uiCfg,apply:uiApply,cycle:uiCycle,toggleMm:uiToggleMm,sync:uiSyncBtns};
+})();
+
 function tryLandscapeLock(){
  try{
   if(!screen.orientation||!screen.orientation.lock)return;
@@ -8428,7 +8668,9 @@ buildEntities();buildLeaders();applyOutfitToFigure();ensureRecord(S.car); /* S5:
 window.__S5_AUDIT={starter:S.car,specName:CARS[S.car].name,speed:CARS[S.car].speed,accel:CARS[S.car].accel,tau:CAR_TUNE[S.car].tau,t90:Math.round(CAR_TUNE[S.car].tau*Math.LN10*100)/100,brake:CAR_TUNE[S.car].brake,batteredInWorld:!!CARS.battered,footprint:{w:CARS.saloon.w,l:CARS.saloon.l}};
 player.mesh.position.set(player.x,0,player.z);
 camPos.x=player.x;camPos.z=player.z;
-camPlace(player.x,player.z,CAM_H_FOOT);
+camSnapTo(camView());camSyncBtn(); /* v30.6: boot in the saved view (CLASSIC on any fresh/old state) with no transition */
+try{if(window.__daleUi)window.__daleUi.apply();}catch(e){} /* v30.7: UI customization applies at boot, before gameplay */
+camPlace(player.x,player.z,camViewCur.foot,camViewCur.tilt,camViewCur.hMin,camViewCur.hMax);
 (function(){
  var lg=$('gangLegend');lg.innerHTML=AREAS.filter(function(a,i,arr){return arr.findIndex(function(b){return b.gang===a.gang;})===i;}).map(function(a){return '<div class="li"><span class="chip" style="background:'+a.color+'"></span>'+a.gang+' — '+a.name+'</div>';}).join('')
   +'<div class="li"><span class="chip" style="background:#3fb97f"></span>Your ends — Milkstone &amp; Deeplish (safe house)</div>';
