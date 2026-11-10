@@ -881,6 +881,9 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
   <button class="btn ghost" id="musicMuteBtn">Mute Music</button>
   <div class="rowline" style="margin-top:14px;"><span>Fullscreen</span><b id="setFsState">Off</b></div>
   <button class="btn ghost" id="setFsBtn">Turn Fullscreen On</button>
+  <div class="rowline" style="margin-top:14px;"><span>Police AI debug (dev only)</span><b id="setPolDbgState">Off</b></div>
+  <button class="btn ghost" id="setPolDbgBtn">Toggle Police Debug</button>
+  <p class="small">Developer overlay: live police AI states, last-known position, arrest lock. Off by default; session only.</p>
   <p class="small" id="fsIosNote" style="display:none;">On iPhone, Safari can't fullscreen a web page in the browser — add The Dale to your Home Screen for true fullscreen.</p>
   <div class="rowline" style="margin-top:14px;"><span>HUD size</span><b id="setHudState">Standard</b></div>
   <button class="btn ghost" id="setHudBtn">Change HUD Size</button>
@@ -938,6 +941,7 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
        job progress — lives in this one slim left-column feed. Nothing
        transient renders over the centre of the screen any more. -->
   <div id="sideFeed" aria-live="polite"></div>
+  <div id="policeDebug" style="display:none;position:absolute;left:8px;bottom:8px;z-index:60;max-width:46%;background:rgba(6,10,14,.82);color:#bfe3c8;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;padding:8px 10px;border:1px solid rgba(120,220,150,.35);border-radius:6px;white-space:pre-wrap;pointer-events:none;"></div>
   <div id="callBanner">
     <div class="ph">📞 The Line is ringing</div>
     <div class="cb" id="cbTitle">—</div>
@@ -7375,6 +7379,11 @@ var custody=null;
 function busted(why){arrest([why]);}
 function arrest(reasons){
  if(!S.playing||custody)return;
+ /* POLICE STAGE 1 — arrest transaction lock: while a controlled arrest
+    sequence holds the lock, no second arrest path may fire; the outcome
+    and penalties below are processed at most once per arrest. */
+ if(arrestLock.held&&arrestLock.owner!=='policeSeq')return;
+ arrestLock.held=true;if(arrestLock.owner!=='policeSeq')arrestLock.owner='direct';
  ensureGoods();ensureRecord2();
  closePhone();closeScreens();
  var rec=ensureRecord(S.car);
@@ -7411,6 +7420,7 @@ function arrest(reasons){
  S.heat=0;police.mode='wander';police.x=-200;police.z=-300;police.catchT=0;losT=0;pullOver=null;incident=null;$('incidentBox').style.display='none';
  if(rival)clearRival();fighters.forEach(function(f){scene.remove(f.mesh);});fighters=[];
  sfx('bad');updateHUD();
+ arrestLock.held=false;arrestLock.owner=null; /* STAGE 1: outcome applied exactly once — lock released */
 }
 document.querySelectorAll('.stanceBtn').forEach(function(b){b.onclick=function(){custody.stance=b.getAttribute('data-stance');document.querySelectorAll('.stanceBtn').forEach(function(x){x.style.background='';});b.style.background='rgba(232,179,58,.35)';};});
 document.querySelectorAll('.solBtn').forEach(function(b){b.onclick=function(){custody.sol=b.getAttribute('data-sol');document.querySelectorAll('.solBtn').forEach(function(x){x.style.background='';});b.style.background='rgba(232,179,58,.35)';};});
@@ -7705,9 +7715,11 @@ function loop(ms){
      so the game plays identically in both modes. */
   if(phoneOpen&&police.mode!=='chase')timeScale=snakeOn?0:0; /* phone open: world holds, snake runs */
   if(phoneOpen&&police.mode==='chase')timeScale=.35;
+  if(arrestSeq)timeScale=0; /* POLICE STAGE 1 (v30.13): the world holds during the controlled arrest sequence — player movement/actions locked, camera keeps rendering */
   var gdt=dt*timeScale;
   /* snake runs on real dt */
   if(snakeOn&&snake&&!snake.paused&&!snake.over){snake.t+=dt;if(snake.t>=snake.step){snake.t=0;snakeStep();}S.heat=clamp(S.heat-dt*.9,0,100);}
+  policeSeqTick(dt); /* POLICE STAGE 1: the arrest sequence advances on real dt while the world holds */
   if(gdt>0){
    updateGame(gdt,dt);
   }
@@ -8169,17 +8181,34 @@ function policeMove(nx,nz){
  if(!footBlocked(police.x,nz)){police.z=nz;}
 }
 function updatePolice(dt){
+ policeAISync(dt); /* STAGE 1: FSM bookkeeping — custody/report sync, state timeouts, debug overlay */
  var d=dist2(police.x,police.z,player.x,player.z);
  var interest=190+attentionVal()*1.4-outfitStats().blend*2.2+(S.descInterest&&(!curArea||S.descInterest.area===(curArea||{}).id)?70:0);
  if(police.mode==='wander'){
-   var wp=pathPoint(A_ROADS[0].pts,(gameT*.008)%1);
-   var a=Math.atan2(wp.x-police.x,wp.z-police.z);police.x+=Math.sin(a)*120*dt;police.z+=Math.cos(a)*120*dt;
-   police.mesh.rotation.y=Math.atan2(Math.sin(a),Math.cos(a))+Math.PI;
-   /* A chase needs a reason: high Heat in their interest range, or being
-      clocked up close while already warm. Proximity alone at zero Heat —
-      e.g. walking out of the station past a patrol — never starts one,
-      and nothing starts during the post-release grace window. */
-   if(!(S.releaseGrace>0)&&((S.heat>=32&&d<interest+60)||(d<95&&S.heat>=20))){police.mode='chase';toast('🚨 Police are on you!');sfx('siren');}
+   /* STAGE 1 movement by FSM state: INVESTIGATE drives to the last known
+      position and looks; SUSPICIOUS stops and watches the player; every
+      other wander state runs the shipped patrol path, unchanged. */
+   var aiW=police.ai;
+   if(aiW&&aiW.state==='INVESTIGATE'){
+     var iArr=policeNavMove(police,dt,aiW.lkp.x,aiW.lkp.z,150);
+     if(iArr<42){aiW.invLookT+=dt;aiW.nav='investigating — looking round';}
+   } else if(aiW&&aiW.state==='SUSPICIOUS'){
+     var sa=Math.atan2(player.x-police.x,player.z-police.z);aiW.hdg=sa;police.mesh.rotation.y=sa+Math.PI;aiW.nav='watching the player';
+   } else {
+     var wp=pathPoint(A_ROADS[0].pts,(gameT*.008)%1);
+     var a=Math.atan2(wp.x-police.x,wp.z-police.z);police.x+=Math.sin(a)*120*dt;police.z+=Math.cos(a)*120*dt;
+     police.mesh.rotation.y=Math.atan2(Math.sin(a),Math.cos(a))+Math.PI;
+     if(aiW){aiW.hdg=a;aiW.nav='patrolling';}
+   }
+   /* STAGE 1 detection (replaces the proximity trigger): a chase needs a
+      reason AND eyes on — sight range + field of view + line of sight
+      against buildings[] (the shipped combatLOS AABB test). Nothing is
+      detected through buildings. Proximity alone at zero Heat — e.g.
+      walking out of the station past a patrol — never starts anything,
+      and nothing starts during the post-release grace window. Radio
+      paths (ANPR / witness / incident) still enter pursuit through the
+      mode sync in policeAISync, exactly as shipped. */
+   policeDetect(dt,d,interest);
    /* ANPR behind-scan */
    var behind=(player.x-police.x)*Math.sin(player.h)+(player.z-police.z)*(-Math.cos(player.h));
    if(d<130&&behind>0)policeScanT+=dt;else policeScanT=0;
@@ -8202,28 +8231,56 @@ function updatePolice(dt){
    }
  }
  if(police.mode==='chase'){
-   /* Pursuit pace is rubber-banded BELOW a cleanly driven player car at
-      mid-range, so a good run on open road opens the gap towards the
-      break-contact distance; the catch-up boost only applies from beyond
-      that distance. On foot the unit drops to pursuit pace — faster than
-      a walk, slower than a sprint, so legging it is a real escape. */
-   var spd=clamp(240+(d>430?58:0)-(d<130?25:0),205,292);
-   if(footMode)spd=Math.min(spd,168);
-   var a3=Math.atan2(player.x-police.x,player.z-police.z);
-   var step=Math.min(spd*dt,Math.max(0,d-24)); /* hold a car-length off — never park inside the player's car */
-   if(step>0)policeMove(police.x+Math.sin(a3)*step,police.z+Math.cos(a3)*step);
-   police.mesh.rotation.y=Math.atan2(Math.sin(a3),Math.cos(a3))+Math.PI;
-   police.mesh.userData.lights.visible=(gameT*3)%1<.6;
-   if(Math.random()<dt*.4)sfx('siren');
-   /* catch speed reads the mover the player is actually in: on foot the
-      car velocity is stale (near zero), which used to make every foot
-      chase an automatic catch — use the walker's own velocity instead */
-   var pSpd=footMode?Math.sqrt((footMode.vx||0)*(footMode.vx||0)+(footMode.vz||0)*(footMode.vz||0)):speedNow();
-   if(d<31&&pSpd<70)police.catchT+=dt;else police.catchT=Math.max(0,police.catchT-dt*2);
-   if(police.catchT>1.2){police.catchT=0;arrest([footMode?'Caught on foot after a pursuit':'Caught and taken from the car after a pursuit']);}
-   var loseNeed=clamp(4-outfitStats().blend*.03,2,4.5);
-   if(d>390){losT+=dt;if(losT>loseNeed){losT=0;police.mode='wander';S.heat=clamp(S.heat-22,0,100);addMarker(S.car,'Failed to stop');toast('You lost them! Heat down — but the plate took a marker');}}
-   else losT=0;
+   /* STAGE 1 PURSUIT: the unit hunts the LAST KNOWN POSITION, refreshed
+      only by budgeted sight checks (range + FOV + LOS). Sight lost for
+      sightLossT -> SEARCH around the LKP for a bounded time -> disengage
+      back to patrol with the shipped lose outcomes applied exactly once.
+      Pursuit pace keeps the shipped rubber-band verbatim: below a cleanly
+      driven player car at mid-range, catch-up boost only from beyond the
+      break-contact distance, foot pace capped below sprint. Movement runs
+      through policeNavMove: heading-smoothed, building-slide, holds the
+      shipped car-length standoff, stuck recovery never teleports into
+      the player's view. */
+   var aiC=police.ai;
+   if(aiC.state!=='PURSUE'&&aiC.state!=='SEARCH'&&aiC.state!=='ARREST')policeSetState(police,'PURSUE','chase active');
+   policeSense(police,dt);
+   var searching=aiC.state==='SEARCH';
+   if(!searching&&aiC.state==='PURSUE'&&(gameT-aiC.lastSeenT)>POLICE_AI_CFG.sightLossT)policeEnterSearch('sight lost');
+   if(aiC.state==='SEARCH'){
+     searching=true;
+     if(aiC.seen){policeSetState(police,'PURSUE','sight regained in search');searching=false;}
+     else{
+       aiC.searchT-=dt;
+       if(aiC.searchT<=0){policeDisengage('searched the last known position — no sign');}
+     }
+   }
+   if(police.mode==='chase'){ /* disengage may have ended the chase above */
+     var spd=clamp(240+(d>430?58:0)-(d<130?25:0),205,292);
+     if(footMode)spd=Math.min(spd,168);
+     var tx,tz;
+     if(searching){
+       spd=Math.min(spd,150);
+       var sp2=aiC.searchPts[aiC.searchIdx%aiC.searchPts.length];
+       tx=sp2.x;tz=sp2.z;
+       if(dist2(police.x,police.z,tx,tz)<34){aiC.searchIdx++;aiC.nav='searching — next point';}
+     } else {tx=aiC.lkp.x;tz=aiC.lkp.z;}
+     if(aiC.state!=='ARREST')policeNavMove(police,dt,tx,tz,spd);
+     police.mesh.userData.lights.visible=(gameT*3)%1<.6;
+     if(Math.random()<dt*.4)sfx('siren');
+     /* catch speed reads the mover the player is actually in: on foot the
+        car velocity is stale (near zero), which used to make every foot
+        chase an automatic catch — use the walker's own velocity instead.
+        STAGE 1: the catch clock only runs with fresh eyes on the player
+        (never while searching, never through a wall — eligibility
+        re-checks LOS at the arrest instant). */
+     var pSpd=footMode?Math.sqrt((footMode.vx||0)*(footMode.vx||0)+(footMode.vz||0)*(footMode.vz||0)):speedNow();
+     var fresh=(gameT-aiC.lastSeenT)<1.2;
+     if(!searching&&fresh&&aiC.seen&&d<31&&pSpd<70)police.catchT+=dt;else police.catchT=Math.max(0,police.catchT-dt*2);
+     if(police.catchT>1.2){police.catchT=0;if(!policeTryArrest([footMode?'Caught on foot after a pursuit':'Caught and taken from the car after a pursuit']))police.catchT=.6;}
+     var loseNeed=clamp(4-outfitStats().blend*.03,2,4.5);
+     if(d>390&&!aiC.seen){losT+=dt;if(losT>loseNeed){losT=0;policeDisengage('broke contact at distance');}}
+     else losT=0;
+   }
  }
  police.mesh.position.set(police.x,0,police.z);
  var pdx=police.x-(police.px||police.x),pdz=police.z-(police.pz||police.z);police.px=police.x;police.pz=police.z;
@@ -8267,6 +8324,408 @@ function updatePolice2(dt){
  if(south&&d<130&&behind>0)police2.scanT+=dt;else police2.scanT=0;
  if(police2.scanT>2&&anprCd<0){police2.scanT=0;anprCd=10;runScan('POLICE ANPR');}
 }
+/* ================= POLICE AI — STAGE 1 (v30.13) =================
+   Additive overhaul on top of the v30.1 police repair — NOT a rebuild.
+   One authoritative FSM per officer, centralised here; updatePolice and
+   updatePolice2 remain the only police ticks (no new loops, listeners or
+   timers). police.mode stays as the legacy mirror other systems read
+   ('wander' / 'pullover' / 'chase'); the FSM state is authoritative for
+   behaviour. All AI state is RUNTIME ONLY (u.ai) — never written to the
+   save; old saves load with every officer at PATROL.
+
+   FSM (as built):
+     PATROL      -- seen + Heat>=32 (pursuit-grade) ----------> SUSPICIOUS
+     PATROL      -- seen + suspicious signal -----------------> SUSPICIOUS
+     SUSPICIOUS  -- suspicion timer, target PURSUE -----------> PURSUE
+     SUSPICIOUS  -- suspicion timer, target INVESTIGATE ------> INVESTIGATE
+     SUSPICIOUS  -- signal gone ------------------------------> RETURN
+     INVESTIGATE -- seen + Heat>=32 --------------------------> PURSUE
+     INVESTIGATE -- arrived + looked / timeout ---------------> RETURN
+     PATROL/etc  -- radio report (ANPR/witness/incident set
+                    mode='chase', shipped paths) -------------> PURSUE
+     PURSUE      -- sight lost > sightLossT ------------------> SEARCH
+     SEARCH      -- sight regained ---------------------------> PURSUE
+     SEARCH      -- search timer out / contact broken --------> RETURN (disengage: shipped lose outcomes once)
+     PURSUE      -- catch clock + eligibility + lock free ----> ARREST
+     ARREST      -- sequence completes -> arrest() -----------> CUSTODY
+     ARREST      -- aborted (despawn / custody elsewhere) ----> PURSUE / RETURN (lock released)
+     CUSTODY     -- shipped custody release (custody==null) --> RETURN
+     RETURN      -- timer out --------------------------------> PATROL
+   Every transition is validated against POLICE_TRANSITIONS; an invalid
+   one is refused and counted as a transition failure (debug overlay). */
+var POLICE_AI_CFG={sightRange:270,fovHalf:1.35,pointBlank:44,senseInterval:.12,suspicionT:.7,investigateT:7,investigateLookT:2.2,sightLossT:2.5,searchTime:9,standoff:24,arrestRange:33,seqT:.95,returnT:2.2,turnRate:3.4};
+var POLICE_TRANSITIONS={
+ PATROL:['SUSPICIOUS','INVESTIGATE','PURSUE','ARREST','CUSTODY','RETURN'],
+ SUSPICIOUS:['INVESTIGATE','PURSUE','PATROL','RETURN','CUSTODY','ARREST'],
+ INVESTIGATE:['PURSUE','SUSPICIOUS','RETURN','PATROL','CUSTODY','ARREST'],
+ PURSUE:['SEARCH','ARREST','RETURN','CUSTODY','PATROL','SUSPICIOUS','INVESTIGATE'],
+ SEARCH:['PURSUE','ARREST','RETURN','CUSTODY','PATROL'],
+ ARREST:['CUSTODY','PURSUE','RETURN'],
+ CUSTODY:['RETURN'],
+ RETURN:['PATROL','PURSUE','SUSPICIOUS','INVESTIGATE','CUSTODY','ARREST']};
+var policeAILog=[]; /* {from,to,why,t} — capped, runtime only */
+var policeAIFail={count:0,last:''};
+var arrestLock={held:false,owner:null}; /* STAGE 1 transaction lock (see arrest()) */
+var arrestSeq=null; /* {t,reasons} while the controlled arrest sequence runs */
+var policeDebug=false;
+var POLICE_ARREST_LINES=[
+ 'POLICE: Stop there, our kid — you\u2019re nicked. Stay put, no mither.',
+ 'POLICE: That\u2019s enough, our kid. You\u2019re under arrest — keep still, ta.',
+ 'POLICE: Right, our kid, game\u2019s up — you\u2019re nicked. Don\u2019t be daft, stay where you are.'];
+function policeAIInit(u){
+ u.ai={state:'PATROL',t:0,hdg:0,lkp:{x:u.x,z:u.z},lastSeenT:-99,seen:false,losOk:false,
+  senseT:Math.random()*.1,searchT:0,searchIdx:0,searchPts:[{x:0,z:0},{x:0,z:0},{x:0,z:0},{x:0,z:0},{x:0,z:0}],
+  stuckT:0,stuckN:0,chkX:u.x,chkZ:u.z,chkT:0,detour:null,detourT:0,nav:'idle',invLookT:0,invT:0,
+  susNext:'',elgFail:0,lastElgFail:''};
+ return u.ai;
+}
+function policeSetState(u,next,why){
+ var ai=u.ai||policeAIInit(u);
+ if(ai.state===next)return true;
+ var ok=(POLICE_TRANSITIONS[ai.state]||[]).indexOf(next)>=0;
+ if(!ok){policeAIFail.count++;policeAIFail.last=ai.state+' -> '+next+' refused ('+(why||'')+')';return false;}
+ var from=ai.state;ai.state=next;ai.t=0;
+ if(next==='SEARCH'){ai.searchT=POLICE_AI_CFG.searchTime;ai.searchIdx=0;
+   var offs=[[0,0],[95,0],[-95,0],[0,95],[0,-95]];
+   for(var i=0;i<5;i++){var px=ai.lkp.x+offs[i][0],pz=ai.lkp.z+offs[i][1],n=0;
+     while(footBlocked(px,pz)&&n<4){px=ai.lkp.x+offs[i][0]*(1+n*.5);pz=ai.lkp.z+offs[i][1]*(1+n*.5);n++;}
+     ai.searchPts[i].x=px;ai.searchPts[i].z=pz;}}
+ if(next==='PURSUE'){ai.searchT=0;}
+ if(next==='RETURN'){ai.detour=null;ai.detourT=0;ai.stuckN=0;}
+ if(next==='PATROL'){ai.seen=false;ai.nav='patrolling';}
+ policeAILog.push({from:from,to:next,why:why||'',t:Math.round(gameT*10)/10});
+ if(policeAILog.length>40)policeAILog.shift();
+ return true;
+}
+/* Budgeted sight check: runs at senseInterval per officer (staggered),
+   never every frame. Range + field of view + LOS via the shipped
+   combatLOS segment-vs-AABB test against buildings[] — no sight through
+   buildings, ever. Refreshes the last known position only when seen. */
+function policeSense(u,dt){
+ var ai=u.ai;ai.senseT-=dt;
+ if(ai.senseT>0)return ai.seen;
+ ai.senseT=POLICE_AI_CFG.senseInterval;
+ var dx=player.x-u.x,dz=player.z-u.z,d=Math.sqrt(dx*dx+dz*dz);
+ var seen=false;
+ if(d<POLICE_AI_CFG.sightRange){
+   var inFov=true;
+   if(d>=POLICE_AI_CFG.pointBlank){
+     var brg=Math.atan2(dx,dz),df=brg-ai.hdg;
+     while(df>Math.PI)df-=2*Math.PI;while(df<-Math.PI)df+=2*Math.PI;
+     inFov=Math.abs(df)<POLICE_AI_CFG.fovHalf;
+   }
+   if(inFov){ai.losOk=combatLOS(u.x,u.z,player.x,player.z);seen=ai.losOk;}
+   else ai.losOk=false;
+ } else ai.losOk=false;
+ ai.seen=seen;
+ if(seen){ai.lkp.x=player.x;ai.lkp.z=player.z;ai.lastSeenT=gameT;}
+ return seen;
+}
+/* Detection from the wander/patrol branch. Pursuit-grade = the shipped
+   Heat threshold inside the shipped interest range. Suspicious signals
+   (shipped values): clocked up close while warm, speeding past the unit,
+   weapon in hand nearby, or a live description interest on this turf.
+   Suspicion resolves to PURSUE or INVESTIGATE in policeAISync. */
+function policeDetect(dt,d,interest){
+ var ai=police.ai;if(!ai)return;
+ if(S.releaseGrace>0)return; /* post-release grace blocks all new detection */
+ if(custody||arrestSeq)return;
+ if(ai.state!=='PATROL'&&ai.state!=='RETURN'&&ai.state!=='SUSPICIOUS'&&ai.state!=='INVESTIGATE')return;
+ var seen=policeSense(police,dt);
+ if(ai.state==='INVESTIGATE'){
+   if(seen&&S.heat>=32)policeStartPursuit('clocked mid-investigation');
+   return;
+ }
+ if(ai.state!=='PATROL'&&ai.state!=='RETURN')return;
+ if(!seen)return;
+ var pursuitGrade=(S.heat>=32&&d<interest+60);
+ var suspicious=(d<95&&S.heat>=20)
+   ||(!footMode&&speedNow()>175&&d<210)
+   ||(S.weapon!=='fists'&&d<120)
+   ||(!!S.descInterest&&(!curArea||S.descInterest.area===(curArea||{}).id)&&d<interest);
+ if(pursuitGrade||suspicious){
+   ai.susNext=pursuitGrade?'PURSUE':'INVESTIGATE';
+   policeSetState(police,'SUSPICIOUS',pursuitGrade?'pursuit-grade Heat in sight':'suspicious activity in sight');
+ }
+}
+function policeStartPursuit(why){
+ police.mode='chase';
+ if(policeSetState(police,'PURSUE',why||'sight')){
+   toast('🚨 Police are on you!');sfx('siren');
+ }
+}
+/* Heading-smoothed navigation through the shipped building-slide move.
+   Holds the shipped standoff so the unit never parks inside the player.
+   Stuck recovery: a collision-checked side-step detour first; only after
+   repeated failures AND only when the player cannot see the unit does it
+   re-place onto a road point (the shipped patrol placement rule) — it
+   never teleports into the player's view. */
+function policeNavMove(u,dt,tx,tz,spd){
+ var ai=u.ai;
+ if(ai.detourT>0&&ai.detour){tx=ai.detour.x;tz=ai.detour.z;ai.detourT-=dt;ai.nav='detouring round a blockage';}
+ var dx=tx-u.x,dz=tz-u.z,d=Math.sqrt(dx*dx+dz*dz);
+ if(d>2){
+   var want=Math.atan2(dx,dz),df=want-ai.hdg;
+   while(df>Math.PI)df-=2*Math.PI;while(df<-Math.PI)df+=2*Math.PI;
+   var mx=Math.max(-POLICE_AI_CFG.turnRate*dt,Math.min(POLICE_AI_CFG.turnRate*dt,df));
+   ai.hdg+=mx;
+   var step=Math.min(spd*dt,Math.max(0,d-POLICE_AI_CFG.standoff));
+   if(step>0){
+     var nx=u.x+Math.sin(ai.hdg)*step,nz=u.z+Math.cos(ai.hdg)*step;
+     if(u===police)policeMove(nx,nz);
+     else{if(!footBlocked(nx,nz)){u.x=nx;u.z=nz;}else if(!footBlocked(nx,u.z)){u.x=nx;}else if(!footBlocked(u.x,nz)){u.z=nz;}}
+   }
+   if(ai.detourT<=0)ai.nav='enroute';
+ }
+ u.mesh.rotation.y=ai.hdg+Math.PI;
+ /* stuck audit on a fixed cadence — no per-frame allocation */
+ ai.chkT+=dt;
+ if(ai.chkT>=.9){
+   ai.chkT=0;
+   var moved=dist2(ai.chkX,ai.chkZ,u.x,u.z);ai.chkX=u.x;ai.chkZ=u.z;
+   if(moved<5&&d>46&&ai.state!=='PATROL'){
+     ai.stuckN++;
+     if(ai.stuckN>=3&&(!combatLOS(player.x,player.z,u.x,u.z)||dist2(player.x,player.z,u.x,u.z)>320)){
+       for(var k=0;k<20;k++){var pp=pathPoint(A_ROADS[0].pts,k/20);
+         if(dist2(pp.x,pp.z,player.x,player.z)>280&&!footBlocked(pp.x,pp.z)){u.x=pp.x;u.z=pp.z;break;}}
+       ai.stuckN=0;ai.detour=null;ai.detourT=0;ai.nav='re-placed on a road, out of sight';
+     } else {
+       var px2=dz/(d||1),pz2=-dx/(d||1),side=(ai.stuckN%2)?1:-1;
+       var ex=u.x+px2*side*72,ez=u.z+pz2*side*72;
+       if(footBlocked(ex,ez)){ex=u.x-px2*side*72;ez=u.z-pz2*side*72;}
+       if(!footBlocked(ex,ez)){ai.detour={x:ex,z:ez};ai.detourT=1.3;ai.nav='stuck — side-step detour';}
+       else ai.nav='stuck — no clear side-step';
+     }
+   } else if(moved>=5)ai.stuckN=0;
+ }
+ return d;
+}
+function policeEnterSearch(why){policeSetState(police,'SEARCH',why||'sight lost');}
+function policeDisengage(why){
+ var ai=police.ai;
+ if(!ai||(ai.state!=='PURSUE'&&ai.state!=='SEARCH'))return;
+ police.mode='wander';police.catchT=0;losT=0;
+ S.heat=clamp(S.heat-22,0,100);addMarker(S.car,'Failed to stop');
+ toast('You lost them! Heat down — but the plate took a marker');
+ policeSetState(police,'RETURN',why||'disengaged');
+}
+/* Arrest eligibility — every condition must hold at the decision instant. */
+function policeArrestCheck(){
+ var ai=police.ai;
+ if(!S.playing)return 'not playing';
+ if(custody)return 'already in custody';
+ if(arrestSeq)return 'arrest sequence already running';
+ if(arrestLock.held)return 'arrest lock held';
+ if(S.paused)return 'game paused';
+ if(!ai||(ai.state!=='PURSUE'&&ai.state!=='SEARCH'))return 'officer not pursuing';
+ var d=dist2(police.x,police.z,player.x,player.z);
+ if(d>POLICE_AI_CFG.arrestRange)return 'out of arrest range ('+Math.round(d)+')';
+ if(!combatLOS(police.x,police.z,player.x,player.z))return 'no unobstructed access (wall between)';
+ return '';
+}
+function policeTryArrest(reasons){
+ var why=policeArrestCheck();
+ if(why){police.ai.elgFail++;police.ai.lastElgFail=why;return false;}
+ return policeBeginArrest(reasons);
+}
+var POLICE_SEQ_ABORT_D=110;
+function policeBeginArrest(reasons){
+ if(arrestLock.held||custody||arrestSeq)return false;
+ arrestLock.held=true;arrestLock.owner='policeSeq';
+ if(!policeSetState(police,'ARREST','eligibility met')){
+   /* FSM refused (should not happen from PURSUE/SEARCH) — fail safe */
+   arrestLock.held=false;arrestLock.owner=null;policeAIFail.count++;policeAIFail.last='ARREST refused at sequence start';return false;
+ }
+ arrestSeq={t:POLICE_AI_CFG.seqT,reasons:reasons.slice()};
+ feedPush(POLICE_ARREST_LINES[Math.floor(Math.random()*POLICE_ARREST_LINES.length)],'bad',3400);
+ return true;
+}
+/* The sequence ticks on real dt from the main loop while the world holds
+   (timeScale 0): the officer stops at standoff, faces the player and gives
+   the command (issued at begin, through the side feed); then the shipped
+   arrest() runs the frozen custody suite. Every abort path releases the
+   lock. No animation system is invented — the fallback is the hold. */
+function policeSeqTick(dt){
+ if(!arrestSeq)return;
+ var seq=arrestSeq;
+ if(!S||!S.playing||custody){
+   arrestSeq=null;arrestLock.held=false;arrestLock.owner=null;
+   if(custody)policeSetState(police,'CUSTODY','custody opened by another path');
+   return;
+ }
+ var brg=Math.atan2(player.x-police.x,player.z-police.z);
+ police.ai.hdg=brg;police.mesh.rotation.y=brg+Math.PI;
+ police.ai.nav='arrest sequence — holding at standoff';
+ if(dist2(police.x,police.z,player.x,player.z)>POLICE_SEQ_ABORT_D){
+   arrestSeq=null;arrestLock.held=false;arrestLock.owner=null;
+   policeSetState(police,'PURSUE','arrest aborted — target broke away');return;
+ }
+ seq.t-=dt;
+ if(seq.t<=0){
+   var rs=seq.reasons;arrestSeq=null;
+   arrest(rs); /* frozen custody suite — applies the outcome exactly once and releases the lock */
+   arrestLock.held=false;arrestLock.owner=null;
+   if(custody)policeSetState(police,'CUSTODY','arrest sequence complete');
+   else policeSetState(police,'RETURN','arrest did not take — stood down');
+ }
+}
+/* Per-tick FSM bookkeeping, called once from updatePolice (the shipped
+   tick) — custody sync, radio-report sync, state timeouts, overlay. */
+function policeAISync(dt){
+ if(!police.ai)policeAIInit(police);
+ if(typeof police2!=='undefined'&&police2&&!police2.ai)policeAIInit(police2);
+ var ai=police.ai;ai.t+=dt;
+ if(custody){if(ai.state!=='CUSTODY'&&ai.state!=='ARREST')policeSetState(police,'CUSTODY','custody open');}
+ else if(ai.state==='CUSTODY'){policeSetState(police,'RETURN','released from custody');}
+ if(!custody&&!arrestSeq){
+   if(police.mode==='chase'&&(ai.state==='PATROL'||ai.state==='RETURN'||ai.state==='SUSPICIOUS'||ai.state==='INVESTIGATE')){
+     /* a shipped radio path (ANPR / witness / incident / crash) started
+        this pursuit — adopt it: the report IS the last known position */
+     ai.lkp.x=player.x;ai.lkp.z=player.z;ai.lastSeenT=gameT;ai.seen=true;
+     policeSetState(police,'PURSUE','radio report (ANPR/witness/incident)');
+   }
+   if(police.mode==='pullover'&&ai.state==='PATROL')policeSetState(police,'INVESTIGATE','traffic stop');
+   if(police.mode==='wander'&&ai.state==='PURSUE')policeSetState(police,'RETURN','pursuit ended by another system');
+   if(ai.state==='SUSPICIOUS'&&ai.t>POLICE_AI_CFG.suspicionT){
+     if(ai.susNext==='PURSUE')policeStartPursuit('suspicion confirmed');
+     else if(ai.susNext==='INVESTIGATE'){ai.invLookT=0;policeSetState(police,'INVESTIGATE','checking it out');}
+     else policeSetState(police,'RETURN','nothing in it');
+   }
+   if(ai.state==='INVESTIGATE'&&(ai.invLookT>POLICE_AI_CFG.investigateLookT||ai.t>POLICE_AI_CFG.investigateT)){
+     ai.invLookT=0;policeSetState(police,'RETURN','investigation done — nothing arrestable');
+   }
+   if(ai.state==='RETURN'&&ai.t>POLICE_AI_CFG.returnT)policeSetState(police,'PATROL','back on patrol');
+ }
+ if(policeDebug)policeDbgTick(dt);
+}
+/* ---- dev debug overlay (OFF by default; toggle lives in Settings) ---- */
+var policeDbgT=0;
+function policeDbgTick(dt){
+ policeDbgT-=dt;if(policeDbgT>0)return;policeDbgT=.25;
+ var el=$('policeDebug');if(!el)return;
+ var pursuing=(police.ai.state==='PURSUE'||police.ai.state==='SEARCH')?1:0;
+ function line(u,name){
+   var ai=u.ai;if(!ai)return name+': no AI';
+   return name+': '+ai.state+' · dist '+Math.round(dist2(u.x,u.z,player.x,player.z))
+    +' · LKP '+Math.round(ai.lkp.x)+','+Math.round(ai.lkp.z)
+    +' · seen '+(ai.seen?'YES':'no')+' · nav: '+ai.nav+' · state t '+ai.t.toFixed(1)+'s';
+ }
+ el.textContent='POLICE AI DEBUG (dev)\n'
+  +'Heat '+Math.round(S.heat)+' · grace '+(S.releaseGrace>0?Math.ceil(S.releaseGrace)+'s':'—')
+  +' · pursuing officers: '+pursuing+' · total officers: 2 (fixed pool)\n'
+  +line(police,'Rochdale unit')+'\n'
+  +line(police2,'City unit    ')+'\n'
+  +'Target: player · arrest: '+(arrestSeq?('SEQUENCE '+arrestSeq.t.toFixed(1)+'s'):custody?'IN CUSTODY':'—')
+  +' · lock '+(arrestLock.held?('HELD by '+arrestLock.owner):'free')
+  +' · eligibility fails '+police.ai.elgFail+(police.ai.lastElgFail?' (last: '+police.ai.lastElgFail+')':'')+'\n'
+  +'Transition failures: '+policeAIFail.count+(policeAIFail.last?' · last: '+policeAIFail.last:'')
+  +' · transitions logged: '+policeAILog.length;
+}
+(function(){
+ var b=$('setPolDbgBtn');if(!b)return;
+ b.onclick=function(){
+   policeDebug=!policeDebug;
+   var el=$('policeDebug');if(el)el.style.display=policeDebug?'block':'none';
+   var st=$('setPolDbgState');if(st)st.textContent=policeDebug?'On':'Off';
+   if(policeDebug)policeDbgT=0;
+ };
+})();
+/* Test surface for the sandbox harness — drives the REAL functions above.
+   Every scenario snapshots and restores the live state it touches. */
+window.__POLICE_AI={cfg:POLICE_AI_CFG,log:policeAILog,fail:policeAIFail,lock:arrestLock,
+ units:function(){return [police,police2];},
+ officerCount:function(){var n=0;[police,police2].forEach(function(u){if(u&&u.mesh&&u.mesh.parent)n++;});return n;}};
+window.__POLICE_HARNESS={
+ snap:function(){return {px:player.x,pz:player.z,ph:player.h,vx:player.vx,vz:player.vz,
+   ux:police.x,uz:police.z,mode:police.mode,state:police.ai?police.ai.state:'PATROL',catchT:police.catchT,
+   heat:S.heat,playing:S.playing,paused:S.paused,grace:S.releaseGrace,foot:footMode,custody:!!custody,
+   arrests:S.record?S.record.arrests:0,markers:ensureRecord(S.car).markers.length};},
+ restore:function(s){if(custody&&!s.custody){try{$('custGo').click();$('custRelease').click();}catch(e){custody=null;S.paused=false;}}
+   player.x=s.px;player.z=s.pz;player.h=s.ph;player.vx=s.vx;player.vz=s.vz;
+   police.x=s.ux;police.z=s.uz;police.mode=s.mode;police.catchT=0;losT=0;pullOver=null;arrestSeq=null;
+   arrestLock.held=false;arrestLock.owner=null;S.heat=s.heat;S.paused=s.paused;S.releaseGrace=s.grace;
+   footMode=s.foot;if(police.ai){police.ai.state=s.state;police.ai.seen=false;police.ai.lastSeenT=-99;police.ai.detour=null;police.ai.detourT=0;police.ai.stuckN=0;}
+   police.mesh.position.set(police.x,0,police.z);},
+ setup:function(ux,uz,px,pz,heat){S.playing=true;S.paused=false;S.releaseGrace=0;custody=null;footMode=null;
+   player.x=px;player.z=pz;player.vx=0;player.vz=0;police.x=ux;police.z=uz;police.mode='wander';police.catchT=0;losT=0;
+   if(!police.ai)policeAIInit(police);police.ai.state='PATROL';police.ai.seen=false;police.ai.lastSeenT=-99;
+   police.ai.hdg=Math.atan2(px-ux,pz-uz);police.ai.lkp.x=px;police.ai.lkp.z=pz;S.heat=heat;},
+ step:function(n,dt){dt=dt||.05;for(var i=0;i<n;i++){gameT+=dt;updatePolice(dt);}},
+ runSeq:function(){var n=0;while(arrestSeq&&n<60){policeSeqTick(.1);n++;}},
+ releaseCustody:function(){if(!custody)return false;$('custGo').click();$('custRelease').click();return !custody;},
+ runAll:function(){
+   var H=this,out={};
+   function T(name,fn){var s=H.snap();try{out[name]=fn()||{pass:true};}catch(e){out[name]={pass:false,detail:'THREW: '+(e&&e.message)};}H.restore(s);}
+   function nearBuilding(off){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(b.hw>14&&b.hd>14)return b;}return null;}
+   T('s1_crime_pursuit',function(){/* player placed squarely ahead of the patrol's line of travel (first unblocked offset) — detection must be by sight, so the geometry gives the unit a fair view */
+     var ux=player.x+300,uz=player.z+300;H.setup(ux,uz,player.x,player.z,64);
+     var wp=pathPoint(A_ROADS[0].pts,(gameT*.008)%1),a=Math.atan2(wp.x-ux,wp.z-uz),done=false;
+     [0,.5,-.5,1,-1].forEach(function(off){if(done)return;var px=ux+Math.sin(a+off)*130,pz=uz+Math.cos(a+off)*130;
+       if(!footBlocked(px,pz)){player.x=px;player.z=pz;police.ai.lkp.x=px;police.ai.lkp.z=pz;done=true;}});
+     H.step(40);
+     return {pass:police.ai.state==='PURSUE'&&police.mode==='chase',detail:'state='+police.ai.state+' mode='+police.mode};});
+   T('s2_around_buildings',function(){H.setup(player.x+150,player.z,player.x,player.z,64);H.step(20);
+     var ok=police.ai.state==='PURSUE'||police.ai.state==='SEARCH';
+     for(var k=0;k<4;k++){player.x+=90;player.z+=((k%2)?120:-120);H.step(30);
+       if(footBlocked(police.x,police.z))ok=false;if(isNaN(police.x)||isNaN(police.z))ok=false;}
+     return {pass:ok,detail:'state='+police.ai.state+' pos='+Math.round(police.x)+','+Math.round(police.z)};});
+   T('s3_hide_los_break',function(){var b=nearBuilding();if(!b)return {pass:false,detail:'no building found'};
+     H.setup(b.x-b.hw-70,b.z,b.x+b.hw+70,b.z,85);H.step(30);
+     return {pass:!police.ai.seen&&police.ai.state!=='PURSUE',detail:'seen='+police.ai.seen+' state='+police.ai.state};});
+   T('s4_lose_sight_search',function(){H.setup(player.x+120,player.z,player.x,player.z,64);H.step(30);
+     var wasPursue=police.ai.state==='PURSUE';var b=nearBuilding();
+     player.x=b.x+b.hw+80;player.z=b.z;police.ai.seen=true;police.ai.lastSeenT=gameT;
+     var sawSearch=false;for(var i=0;i<160;i++){gameT+=.05;updatePolice(.05);if(police.ai.state==='SEARCH')sawSearch=true;}
+     return {pass:wasPursue&&sawSearch,detail:'wasPursue='+wasPursue+' search='+sawSearch+' state='+police.ai.state};});
+   T('s5_search_disengage',function(){H.setup(player.x+120,player.z,player.x,player.z,64);H.step(30);
+     var b=nearBuilding();player.x=b.x+b.hw+400;player.z=b.z+400;var dis=false;
+     for(var i=0;i<500;i++){gameT+=.05;updatePolice(.05);
+       if(police.mode==='wander'&&(police.ai.state==='RETURN'||police.ai.state==='PATROL')){dis=true;break;}}
+     return {pass:dis,detail:'state='+police.ai.state+' mode='+police.mode};});
+   T('s6_double_arrest_once',function(){var a0=S.record.arrests;
+     H.setup(player.x+26,player.z,player.x,player.z,64);police.mode='chase';policeSetState(police,'PURSUE','harness');
+     police.ai.seen=true;police.ai.lastSeenT=gameT;
+     var r1=policeTryArrest(['Harness — first attempt']);var r2=policeTryArrest(['Harness — second attempt']);
+     arrest(['Harness — direct attempt while sequence holds the lock']);
+     H.runSeq();
+     var once=custody&&S.record.arrests===a0+1;
+     var rel=H.releaseCustody();
+     return {pass:!!(once&&r1&&!r2&&rel),detail:'r1='+r1+' r2='+r2+' arrestsDelta='+(S.record.arrests-a0)+' released='+rel};});
+   T('s7_arrest_beside_wall',function(){var b=nearBuilding();if(!b)return {pass:false,detail:'no building'};
+     var a0=S.record.arrests;var px=b.x+b.hw+16,pz=b.z;
+     H.setup(px,pz-24,px,pz,64);police.mode='chase';policeSetState(police,'PURSUE','harness'); /* unit beside the player on the same side of the wall — LOS parallel to the face */
+     police.ai.seen=true;police.ai.lastSeenT=gameT;
+     var r=policeTryArrest(['Harness — beside a wall']);H.runSeq();
+     var ok=r&&custody&&S.record.arrests===a0+1;var rel=H.releaseCustody();
+     return {pass:!!(ok&&rel),detail:'try='+r+' custody='+!!custody+' released='+rel};});
+   T('s8_enter_vehicle_midpursuit',function(){H.setup(player.x+120,player.z,player.x,player.z,64);
+     footMode={x:player.x,z:player.z,vx:0,vz:0,h:0};H.step(24);
+     var onFoot=police.ai.state==='PURSUE';
+     footMode=null;player.vx=0;player.vz=0;H.step(24);
+     return {pass:onFoot&&(police.ai.state==='PURSUE'||police.ai.state==='SEARCH'),detail:'foot='+onFoot+' state='+police.ai.state};});
+   T('s9_repeat_cycles_stable',function(){var a0=S.record.arrests,c0=window.__POLICE_AI.officerCount(),ok=true,det='';
+     for(var c=0;c<5;c++){
+       H.setup(player.x+26,player.z,player.x,player.z,64);police.mode='chase';policeSetState(police,'PURSUE','harness');
+       police.ai.seen=true;police.ai.lastSeenT=gameT;
+       if(!policeTryArrest(['Harness — cycle '+(c+1)])){ok=false;det+=' try'+c+' failed ('+police.ai.lastElgFail+')';break;}
+       H.runSeq();
+       if(!custody){ok=false;det+=' no custody cycle '+c;break;}
+       if(!H.releaseCustody()){ok=false;det+=' no release cycle '+c;break;}
+       H.step(50);
+       if(arrestLock.held||arrestSeq){ok=false;det+=' lock/seq leaked cycle '+c;break;}
+     }
+     var cN=window.__POLICE_AI.officerCount();
+     return {pass:ok&&cN===c0&&(S.record.arrests-a0)===5,detail:'officers '+c0+'->'+cN+' arrestsDelta='+(S.record.arrests-a0)+det};});
+   T('s10_resume_after_custody',function(){
+     H.setup(player.x+26,player.z,player.x,player.z,64);police.mode='chase';policeSetState(police,'PURSUE','harness');
+     police.ai.seen=true;police.ai.lastSeenT=gameT;policeTryArrest(['Harness — resume check']);H.runSeq();
+     if(!custody)return {pass:false,detail:'no custody to release from'};
+     var rel=H.releaseCustody();H.step(60);
+     var free=rel&&!custody&&!S.paused&&!arrestSeq&&!arrestLock.held&&(police.ai.state==='RETURN'||police.ai.state==='PATROL')&&S.releaseGrace>0;
+     return {pass:!!free,detail:'released='+rel+' paused='+S.paused+' state='+police.ai.state+' grace='+Math.round(S.releaseGrace)};});
+   return out;
+ }
+};
 function updateCombat(dt){
  updateCombatF1(dt); /* F1: soft targeting + punch state machine (player side) */
  combatAITokens(); /* F4: engagement-token grant/release across rival + fighters */
