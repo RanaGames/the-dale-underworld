@@ -1856,6 +1856,69 @@ function buildGroundTexture(){
      g.restore();
    });
  })();
+ /* ---- ROCHDALE LOOK STAGE 1 (v30.12) — ground pass, YORKSHIRE ST BLOCK ----
+    Scoped repaint of the town-centre block only (Yorkshire Street + its two
+    cross-streets at the town-centre end: Cheapside and The Esplanade), in
+    the v23 concept-sample technique: York-stone pale slab footways (the
+    dossier's old-town-core repaving), patched tarmac on the carriageway and
+    drain grates at the kerb. Paint only — no road data, markings logic or
+    gameplay touched. Double yellow lines on this street already exist via
+    the town-centre restricted-zone pass above, so they are NOT repainted.
+    Private LCG: the shared rnd() stream (building layout) is untouched. */
+ (function(){
+   var l1=20261110; function lr1(){l1=(l1*48271)%2147483647;return (l1-1)/2147483646;}
+   var L1_ROADS=['Yorkshire Street','Cheapside','The Esplanade'];
+   L1_ROADS.forEach(function(nm){
+     var r=null;for(var i=0;i<ROADS.length;i++)if(ROADS[i].name===nm){r=ROADS[i];break;}
+     if(!r)return;
+     var wpx=roadWpx(r),pv=pvPx(r);
+     /* York-stone wash over the footway band, both sides */
+     [-1,1].forEach(function(sd){
+       var off=sd*(wpx/2+pv*0.5);
+       g.strokeStyle='rgba(199,189,165,0.38)';g.lineWidth=pv;g.beginPath();
+       var pp=offPath(r,off);pp.forEach(function(p,i2){i2?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]);});g.stroke();
+       /* longitudinal slab joint + kerb-edge contrast line (as the v23 sample) */
+       g.strokeStyle='rgba(28,30,33,.34)';g.lineWidth=1;
+       g.beginPath();var pj=offPath(r,off);pj.forEach(function(p,i2){i2?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]);});g.stroke();
+       g.beginPath();var pk=offPath(r,sd*(wpx/2+2));pk.forEach(function(p,i2){i2?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]);});g.stroke();
+     });
+     /* slab cross-joints every ~5 units of run */
+     g.strokeStyle='rgba(28,30,33,.34)';g.lineWidth=1;g.beginPath();
+     for(var si=0;si<r.pts.length-1;si++){
+       var ax=X(r.pts[si][0]),ay=Y(r.pts[si][1]),bx=X(r.pts[si+1][0]),by=Y(r.pts[si+1][1]);
+       var dx=bx-ax,dy=by-ay,L=Math.sqrt(dx*dx+dy*dy);if(!L)continue;dx/=L;dy/=L;
+       var nx=-dy,ny=dx;
+       for(var s=4;s<L;s+=4){
+         var cxp=ax+dx*s,cyp=ay+dy*s;
+         g.moveTo(cxp+nx*(wpx/2+1),cyp+ny*(wpx/2+1));g.lineTo(cxp+nx*(wpx/2+pv-1),cyp+ny*(wpx/2+pv-1));
+         g.moveTo(cxp-nx*(wpx/2+1),cyp-ny*(wpx/2+1));g.lineTo(cxp-nx*(wpx/2+pv-1),cyp-ny*(wpx/2+pv-1));
+       }
+     }
+     g.stroke();
+   });
+   /* patched tarmac on the Yorkshire Street carriageway (~36-unit rhythm) */
+   var yr=null;for(var i3=0;i3<ROADS.length;i3++)if(ROADS[i3].name==='Yorkshire Street')yr=ROADS[i3];
+   if(yr){
+     [.16,.38,.6,.82].forEach(function(t){
+       var f=roadFrame('Yorkshire Street',t);if(!f)return;
+       g.save();g.translate(f.x,f.y);g.rotate(f.ang);
+       var lo=(lr1()-.5)*(f.half-6);
+       g.fillStyle=lr1()>.5?'rgba(255,255,255,.045)':'rgba(0,0,0,.08)';
+       g.fillRect(-11,lo-4,22,8);
+       if(lr1()>.4){g.fillStyle='rgba(12,14,16,.14)';g.fillRect(-6,lo+3,13,6);}
+       g.restore();
+     });
+     /* drain grates against the kerb near the block's corners */
+     [[.07,1],[.07,-1],[.93,1],[.93,-1]].forEach(function(cfg){
+       var f2=roadFrame('Yorkshire Street',cfg[0]);if(!f2)return;
+       g.save();g.translate(f2.x,f2.y);g.rotate(f2.ang);
+       var yo=cfg[1]*(f2.half-2.2);
+       g.fillStyle='#22262a';g.fillRect(-5,yo-3,10,6);
+       g.fillStyle='rgba(160,170,178,.5)';for(var gx=-4;gx<5;gx+=2)g.fillRect(gx,yo-2.6,1,5.2);
+       g.restore();
+     });
+   }
+ })();
  /* Town Hall marker */
  g.textAlign='center';
  g.fillStyle='#e8b33a';g.beginPath();g.arc(X(-30),Y(-120),13,0,7);g.fill();g.fillStyle='#14100a';g.font='700 15px Barlow';g.fillText('★',X(-30),Y(-114));
@@ -2540,10 +2603,24 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
  addMesh(thG,thParts,geo(38,3,5),MAT.stone,0,59,32.5); /* portico entablature */
  [-16,-5.3,5.3,16].forEach(function(cx){addMesh(thG,thParts,new THREE.CylinderGeometry(2,2.3,56,10),MAT.stone,cx,29,32.5);}); /* portico columns */
  buildings.push({x:-30,z:-120,hw:42,hd:29,cm:2});
- var thTower=addMesh(thG,thTParts,new THREE.BoxGeometry(18,150,18),MAT.clock,0,75,0); /* tower 150 (§4) */
- var thCap=addMesh(thG,thTParts,new THREE.ConeGeometry(14,16,4),roofMats[1],0,158,0);thCap.rotation.y=Math.PI/4;
+ /* ROCHDALE LOOK STAGE 1 (v30.12): the tower rebuilt IN PLACE on the same
+    plot/collision entry to the dossier silhouette of the real (Waterhouse,
+    1885-87) tower: sheer pale-stone shaft rising from the hall -> broader
+    GABLED clock stage with a pale clock face on each side -> pinnacles at
+    its corners -> short OCTAGONAL lantern -> pointed STONE spire. Same
+    thTParts fade registry, same footprint; total height ~197 (was ~166)
+    so the silhouette stands proud of every roofline around the centre and
+    reads at gameplay distance on a phone. No coordinate moved. */
+ var thTower=addMesh(thG,thTParts,new THREE.BoxGeometry(17,116,17),MAT.stone,0,58,0); /* sheer stone shaft, 0..116 */
+ addMesh(thG,thTParts,geo(19.5,3,19.5),trimMat,0,117.5,0); /* string course under the clock stage */
+ addMesh(thG,thTParts,new THREE.BoxGeometry(23,24,23),MAT.clock,0,131,0); /* broader clock stage, 119..143, pale face per side */
+ var thGableA=addMesh(thG,thTParts,PRISM,roofMats[1],0,143,0);thGableA.scale.set(26,8.5,26); /* gables over the clock stage */
+ var thGableB=addMesh(thG,thTParts,PRISM,roofMats[1],0,143,0);thGableB.scale.set(26,8.5,26);thGableB.rotation.y=Math.PI/2;
+ [[-10.5,-10.5],[10.5,-10.5],[-10.5,10.5],[10.5,10.5]].forEach(function(pp){var pin=addMesh(thG,thTParts,new THREE.ConeGeometry(2.6,11,4),MAT.stone,pp[0],149,pp[1]);pin.rotation.y=Math.PI/4;}); /* corner pinnacles */
+ addMesh(thG,thTParts,new THREE.CylinderGeometry(5.6,6.6,11,8),MAT.stone,0,156,0); /* octagonal lantern, 150.5..161.5 */
+ var thSpire=addMesh(thG,thTParts,new THREE.ConeGeometry(7.2,36,8),MAT.stone,0,179,0); /* pointed stone spire, tip ~197 */
  bMeshes.push({x:-30,z:-120,hw:48,hd:35,top:96,parts:thParts,fade:0,occ:false});
- bMeshes.push({x:-30,z:-120,hw:12,hd:12,top:168,parts:thTParts,fade:0,occ:false});
+ bMeshes.push({x:-30,z:-120,hw:12,hd:12,top:202,parts:thTParts,fade:0,occ:false});
  /* Police station — Cheapside frontage (§10). The design's plot point (-30,-190) falls
     on the carriageway strip between Cheapside and the Esplanade, so the building stands
     on the N side of Cheapside; the release point (-24,-186) and car park point (-52,-180)
@@ -2983,6 +3060,187 @@ window.__X2_CHECK=function(){
     cameraTiltDeg:58};
   if(window.console)console.log('[DALE SAMPLE v23] '+JSON.stringify(window.__SAMPLE23));
  }catch(err){if(window.console)console.log('[DALE SAMPLE v23] failed: '+(err&&err.message));}
+})();
+/* ================= ROCHDALE LOOK STAGE 1 (v30.12) — YORKSHIRE STREET BLOCK DRESSING =================
+   ONE town-centre block: Yorkshire Street from Cheapside (its top) to the
+   A58/A640 junction (its foot), cross-streets Cheapside + The Esplanade,
+   Town Hall at (-30,-120) west of the street. PRESENTATION ONLY, in the
+   v23 concept-sample technique: painted canvas facades swapped onto the
+   EXISTING buildings' wall meshes (shared materials elsewhere untouched),
+   dressing meshes ride the existing building groups and join the existing
+   occlusion fade via bMeshes parts. NOTHING is moved: no road, footprint,
+   entrance, trigger, route or save field changes; no dressing mesh is
+   added to buildings[] (collision), so nothing here can be caught on.
+   HONEST SCOPE NOTE (see CHANGELOG CONFLICTS): the shipped centre is
+   sparse — the v22 through-plot rows along Yorkshire St were almost all
+   refused by the game's own mfClear gates (the A58/A640/A671/Esplanade/
+   Cheapside convergence sterilises the plots), so the row below dresses
+   every existing footprint that fronts the block's streets; it does not
+   invent new buildings. The ginnel dresses the one existing walkable gap
+   between two existing buildings beside the block's top end: between the
+   police station (east face x=2) and the Cheapside shop (west face
+   x=32.4) at z ~-240, linking Cheapside to the Town Hall forecourt —
+   20+ units clear kerb-to-kerb under the game's own footBlocked pads. */
+(function(){
+ try{
+  var meshBefore=0;scene.traverse(function(o){if(o.isMesh)meshBefore++;});
+  function lTex(w,h,draw,rep){var c=document.createElement('canvas');c.width=w;c.height=h;var g=c.getContext('2d');draw(g);var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;if(rep){t.wrapS=t.wrapT=THREE.RepeatWrapping;}return t;}
+  var _l1=777001; function lr1(){_l1=(_l1*48271)%2147483647;return (_l1-1)/2147483646;}
+  function lam(t){return new THREE.MeshLambertMaterial({map:t});}
+  function brickUp(g,shades){ /* older upper floors: brick, grime, small stone-lintel windows */
+    g.fillStyle='#77685a';g.fillRect(0,0,256,256);
+    for(var y=0;y<256;y+=4){var off=((y/4)%2)*6;for(var x=-12;x<256;x+=12){g.fillStyle=shades[Math.floor(lr1()*shades.length)];g.fillRect(x+off+.6,y+.6,10.8,2.8);}}
+    for(var k=0;k<10;k++){var gx=lr1()*250,gl=30+lr1()*90;var gr=g.createLinearGradient(0,0,0,gl);gr.addColorStop(0,'rgba(20,14,10,.12)');gr.addColorStop(1,'rgba(20,14,10,0)');g.fillStyle=gr;g.fillRect(gx,0,2+lr1()*3,gl);}
+  }
+  function winOld(g,x,y,w,h,lit){
+    g.fillStyle='#cfc4ae';g.fillRect(x-3,y-6,w+6,5);
+    g.fillStyle='#1f2329';g.fillRect(x-2,y-2,w+4,h+4);
+    g.fillStyle=lit?'#e8a34c':'#2c3e50';g.fillRect(x,y,w,h);
+    g.fillStyle='#1f2329';g.fillRect(x+w/2-1,y,2,h);g.fillRect(x,y+h/2-1,w,2);
+    g.fillStyle='#cfc4ae';g.fillRect(x-2,y+h+3,w+4,3);
+  }
+  function shopFront(g,fasciaCol,name,doorSide){ /* fascia + glazed front + recessed door */
+    g.fillStyle=fasciaCol;g.fillRect(0,148,256,36);
+    g.fillStyle='rgba(255,255,255,.14)';g.fillRect(0,148,256,3);g.fillRect(0,181,256,3);
+    g.fillStyle='#f5eeda';g.font='700 24px "Barlow Condensed", sans-serif';g.textAlign='center';g.fillText(name,128,174);
+    g.fillStyle='#1d2836';g.fillRect(8,188,240,62);
+    g.fillStyle='rgba(160,200,235,.32)';for(var px=14;px<240;px+=44)g.fillRect(px,192,36,54);
+    var dx=doorSide>0?204:10;
+    g.fillStyle='#0d141d';g.fillRect(dx,188,40,62); /* recessed doorway: darker inset + step */
+    g.fillStyle='#d9c26a';g.fillRect(dx+(doorSide>0?5:31),216,4,4);
+    g.fillStyle='rgba(245,238,218,.25)';g.fillRect(dx-3,248,46,3);
+  }
+  function brickShopTex(shades,fasciaCol,name,seed){
+    return lTex(256,256,function(g){brickUp(g,shades);
+      winOld(g,22,20,46,52,(seed%3)===0);winOld(g,105,20,46,52,(seed%4)===1);winOld(g,188,20,46,52,false);
+      winOld(g,22,88,46,42,false);winOld(g,105,88,46,42,(seed%5)===2);winOld(g,188,88,46,42,false);
+      shopFront(g,fasciaCol,name,seed%2?1:-1);});
+  }
+  function stoneBankTex(){
+    return lTex(256,256,function(g){
+      g.fillStyle='#bfb096';g.fillRect(0,0,256,256); /* pale ashlar, civic grade */
+      g.strokeStyle='rgba(70,58,40,.30)';g.lineWidth=1;
+      for(var y=8;y<150;y+=15){g.beginPath();g.moveTo(0,y);g.lineTo(256,y);g.stroke();}
+      for(var r2=0;r2<10;r2++)for(var cx2=(r2%2)*24;cx2<256;cx2+=48){g.beginPath();g.moveTo(cx2,r2*15);g.lineTo(cx2,r2*15+15);g.stroke();}
+      winOld(g,20,26,34,58,false,true);winOld(g,76,26,34,58,true,true);winOld(g,132,26,34,58,false,true);winOld(g,188,26,34,58,false,true);
+      winOld(g,20,102,34,40,false,true);winOld(g,188,102,34,40,false,true);
+      g.fillStyle='#274435';g.fillRect(0,148,256,36);
+      g.fillStyle='#d9c26a';g.fillRect(0,148,256,3);g.fillRect(0,181,256,3);
+      g.fillStyle='#e8c96a';g.font='700 25px "Barlow Condensed", sans-serif';g.textAlign='center';g.fillText('PENNINE BANK',128,174);
+      g.fillStyle='#1d2836';g.fillRect(8,188,240,62);
+      g.fillStyle='rgba(160,200,235,.3)';for(var px=14;px<240;px+=44)g.fillRect(px,192,36,54);
+      g.fillStyle='#0d141d';g.fillRect(108,188,42,62);g.fillStyle='#d9c26a';g.fillRect(112,216,4,4);
+      g.fillStyle='#8f8168';g.fillRect(0,250,256,6);
+    });
+  }
+  function stripeTex(c1,c2){return lTex(128,32,function(g){for(var x=0;x<128;x+=16){g.fillStyle=(x/16)%2?c1:c2;g.fillRect(x,0,16,32);}},true);}
+  function glowTex(){return lTex(256,160,function(g){
+    var wg=g.createLinearGradient(0,0,0,160);wg.addColorStop(0,'#ffca7a');wg.addColorStop(1,'#dd8a34');g.fillStyle=wg;g.fillRect(0,0,256,160);
+    g.fillStyle='rgba(90,40,10,.5)';for(var sx=12;sx<244;sx+=30)g.fillRect(sx,96,24,52);
+    g.fillStyle='rgba(60,26,6,.6)';for(var bx=16;bx<244;bx+=15)g.fillRect(bx,58,7,34);
+    g.fillStyle='rgba(255,255,255,.32)';g.fillRect(10,8,60,10);});}
+  var matGlow=new THREE.MeshBasicMaterial({map:glowTex()});
+  function uvPrism(geo){var c=geo.clone(),p=c.attributes.position,uv=new Float32Array(p.count*2);
+    for(var i=0;i<p.count;i++){uv[i*2]=(p.getX(i)+.5)*6;uv[i*2+1]=p.getY(i)*2.5+(p.getZ(i)+.5)*1.5;}
+    c.setAttribute('uv',new THREE.BufferAttribute(uv,2));return c;}
+  var slateDraw=function(g){g.fillStyle='#454e57';g.fillRect(0,0,128,128);
+    for(var y=0;y<128;y+=16){var off=((y/16)%2)*8;for(var x=-16;x<128;x+=16){var v=(lr1()-.5)*14;g.fillStyle='rgb('+(69+v)+','+(78+v)+','+(87+v)+')';g.fillRect(x+off+1,y+1,14,13);}}
+    g.fillStyle='rgba(0,0,0,.38)';for(var y2=14;y2<128;y2+=16)g.fillRect(0,y2,128,2.4);};
+  var matSlate=lam(lTex(128,128,slateDraw,true));
+  var brickMat=new THREE.MeshLambertMaterial({color:0x86543e});
+  var darkMat2=new THREE.MeshLambertMaterial({color:0x2c2f33});
+  /* ---- locate the block's existing footprints by their shipped anchors ---- */
+  function nearestP5(x,z,maxD){var bi=-1,bd=1e12;for(var i=0;i<P5_BUILD.length;i++){var d=dist2(P5_BUILD[i].x,P5_BUILD[i].z,x,z);if(d<bd){bd=d;bi=i;}}return (bd<=maxD)?bi:-1;}
+  var TARGETS=[
+    {key:'bank',  ax:52.5, az:-245.7, tex:function(){return stoneBankTex();}, awn:null, glow:false, chimney:false},
+    {key:'bakery',ax:176.6,az:-138.7, tex:function(){return brickShopTex(['#96503a','#8a4632','#9d563e'],'#7c2222',"WHITTAKER'S BAKERY",1);}, awn:['#7c2222','#f5eeda'], glow:true, chimney:false, yard:true},
+    {key:'phone', ax:251.2,az:-136.9, tex:function(){return brickShopTex(['#8f4a34','#7e4230','#93523a'],'#20386b','DALE PHONE REPAIR',2);}, awn:['#20386b','#f5eeda'], glow:false, chimney:false},
+    {key:'barber',ax:125.3,az:80.7,   tex:function(){return brickShopTex(['#96503a','#8a4632','#9d563e'],'#274435',"KARIM'S BARBER",3);}, awn:['#b03a2e','#f5eeda'], glow:true, chimney:true},
+    {key:'deli',  ax:-131.9,az:-253.9,tex:function(){return brickShopTex(['#8f4a34','#7e4230','#93523a'],'#5b2d2d','CHEAPSIDE DELI',4);}, awn:['#274435','#f5eeda'], glow:false, chimney:true},
+    {key:'news',  ax:11.1, az:88.7,   tex:function(){return brickShopTex(['#96503a','#8a4632','#9d563e'],'#3a3f45','DALE NEWS',5);}, awn:null, glow:false, chimney:true}
+  ];
+  var dressed=[];
+  TARGETS.forEach(function(T){
+    var i=nearestP5(T.ax,T.az,30);if(i<0)return;
+    var b=P5_BUILD[i],e=bMeshes[i];if(!e||!e.parts||!e.parts.length)return;
+    var wall=e.parts[0],grp=wall.parent;if(!grp)return;
+    wall.material=lam(T.tex());
+    /* slate on the pitched roof (v23 UV-clone technique) */
+    for(var j=1;j<e.parts.length;j++){var m=e.parts[j];if(m&&m.geometry&&!m.geometry.attributes.uv){m.geometry=uvPrism(m.geometry);m.material=matSlate;}}
+    if(T.awn){
+      var awn=new THREE.Mesh(new THREE.BoxGeometry(b.w*.8,.8,6),lam(stripeTex(T.awn[0],T.awn[1])));
+      awn.position.set(0,b.h*.30,b.d/2+3.2);awn.rotation.x=.3;grp.add(awn);e.parts.push(awn);
+    }
+    if(T.glow){
+      var win=new THREE.Mesh(new THREE.PlaneGeometry(b.w*.68,b.h*.17),matGlow);
+      win.position.set(0,b.h*.13,b.d/2+.7);grp.add(win);e.parts.push(win);
+    }
+    if(T.chimney){
+      var roofH=Math.round(Math.min(13,Math.max(6,Math.min(b.w,b.d)*0.34)));
+      var ch=new THREE.Mesh(new THREE.BoxGeometry(4,8,4),brickMat);
+      ch.position.set(-b.w*.3,b.h+roofH-2,0);grp.add(ch);e.parts.push(ch);
+    }
+    if(T.yard){ /* bakery delivery yard behind the shop: slab + bins + crates (decorative, off the carriageway) */
+      var slab=new THREE.Mesh(new THREE.PlaneGeometry(30,16),new THREE.MeshLambertMaterial({color:0x6a7076}));
+      slab.rotation.x=-Math.PI/2;slab.position.set(0,.3,-(b.d/2+9));grp.add(slab);e.parts.push(slab);
+      [[-9,-(b.d/2+6)],[9,-(b.d/2+12)]].forEach(function(bp){
+        var bn=new THREE.Mesh(new THREE.BoxGeometry(3.5,5,3.5),new THREE.MeshLambertMaterial({color:0x3f7a3a}));
+        bn.position.set(bp[0],2.5,bp[1]);grp.add(bn);e.parts.push(bn);});
+      [[-4,-(b.d/2+13)],[0,-(b.d/2+13)]].forEach(function(cp){
+        var cr=new THREE.Mesh(new THREE.BoxGeometry(3.6,3.6,3.6),new THREE.MeshLambertMaterial({color:0x8a6a42}));
+        cr.position.set(cp[0],1.8,cp[1]);grp.add(cr);e.parts.push(cr);});
+    }
+    dressed.push(T.key+'@'+Math.round(b.x)+','+Math.round(b.z));
+  });
+  /* ---- THE GINNEL: the existing gap between the police station and the
+     Cheapside shop, dressed as The Walk: York-stone paving underfoot, shop
+     window at the Cheapside (high-street) end, then brick side walls with
+     drainpipes, rear delivery doors and bins. All dressing is flat to the
+     walls or flat on the ground and NONE of it enters buildings[], so the
+     route stays exactly as walkable as shipped. ---- */
+  var ginTex=lTex(128,128,function(g){
+    g.fillStyle='#c7bda6';g.fillRect(0,0,128,128);
+    g.fillStyle='rgba(90,80,60,.25)';for(var i=0;i<300;i++)g.fillRect(lr1()*128,lr1()*128,2,1);
+    g.strokeStyle='rgba(60,54,44,.55)';g.lineWidth=2;
+    g.beginPath();g.moveTo(0,1);g.lineTo(128,1);g.moveTo(0,65);g.lineTo(128,65);g.moveTo(64,0);g.lineTo(64,64);g.moveTo(32,64);g.lineTo(32,128);g.moveTo(96,64);g.lineTo(96,128);g.stroke();
+  },true); ginTex.repeat.set(2,4);
+  var ginSlab=new THREE.Mesh(new THREE.PlaneGeometry(27,54),lam(ginTex));
+  ginSlab.rotation.x=-Math.PI/2;ginSlab.position.set(17,.3,-240);scene.add(ginSlab);
+  var doorMat=new THREE.MeshLambertMaterial({color:0x274435});
+  function ginDoor(x,z,ry){
+    var d=new THREE.Mesh(new THREE.PlaneGeometry(6.5,11.5),doorMat);
+    d.position.set(x,5.75,z);d.rotation.y=ry;scene.add(d);
+    var st=new THREE.Mesh(new THREE.BoxGeometry(1.2,.8,8),new THREE.MeshLambertMaterial({color:0xd8d2c4}));
+    st.position.set(x+(ry>0?1:-1)*.8,.4,z);scene.add(st);
+  }
+  ginDoor(2.7,-243,Math.PI/2);      /* rear delivery door, police-station side */
+  ginDoor(31.6,-231,-Math.PI/2);    /* rear delivery door, shop side */
+  var ginWin=new THREE.Mesh(new THREE.PlaneGeometry(13,8.5),matGlow); /* shop window at the high-street end */
+  ginWin.position.set(31.7,6,-226.5);ginWin.rotation.y=-Math.PI/2;scene.add(ginWin);
+  [[3.8,-233],[30.2,-249]].forEach(function(pp){ /* drainpipes flat to the side walls */
+    var pipe=new THREE.Mesh(new THREE.CylinderGeometry(.7,.7,42,6),darkMat2);
+    pipe.position.set(pp[0],21,pp[1]);scene.add(pipe);});
+  [[6,-254,0x555b60],[28,-221,0x3f7a3a]].forEach(function(bp){ /* bins beside the service doors */
+    var bn=new THREE.Mesh(new THREE.BoxGeometry(3.5,5,3.5),new THREE.MeshLambertMaterial({color:bp[2]}));
+    bn.position.set(bp[0],2.5,bp[1]);scene.add(bn);});
+  /* ---- bollards + bins on the block (v23 pattern: post + pale band) ---- */
+  var bolMat=new THREE.MeshLambertMaterial({color:0x2b2f33}),bandMat=new THREE.MeshBasicMaterial({color:0xd8d8de});
+  var yr2=null;for(var ri=0;ri<ROADS.length;ri++)if(ROADS[ri].name==='Yorkshire Street')yr2=ROADS[ri];
+  if(yr2){[.15,.85].forEach(function(t){var p=pathPoint(yr2.pts,t);if(!p)return;
+    [-1,1].forEach(function(sd){
+      var bx=p.x+p.dz*sd*(rh(yr2)+5.5),bz=p.z-p.dx*sd*(rh(yr2)+5.5);
+      var bo=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,5,8),bolMat);bo.position.set(bx,2.5,bz);scene.add(bo);
+      var bd=new THREE.Mesh(new THREE.CylinderGeometry(1.14,1.14,1.2,8),bandMat);bd.position.set(bx,3.9,bz);scene.add(bd);
+    });});}
+  [[168,-111],[44,-217]].forEach(function(bp){ /* litter bins at the dressed fronts */
+    var bn2=new THREE.Mesh(new THREE.CylinderGeometry(1.8,1.8,4.6,8),darkMat2);
+    bn2.position.set(bp[0],2.3,bp[1]);scene.add(bn2);});
+  var meshAfter=0;scene.traverse(function(o){if(o.isMesh)meshAfter++;});
+  window.__LOOK1={block:'Yorkshire Street: Cheapside (64,-196) to A58/A640 foot (96,86)',dressed:dressed,
+    ginnel:{x:17,zFrom:-213,zTo:-267,clearWidth:20},meshesBefore:meshBefore,meshesAfter:meshAfter,
+    meshesAdded:meshAfter-meshBefore};
+  if(window.console)console.log('[DALE LOOK1] '+JSON.stringify(window.__LOOK1));
+ }catch(err){if(window.console)console.log('[DALE LOOK1] failed: '+(err&&err.message));}
 })();
 /* drop pin */
 var pinGroup=new THREE.Group();
