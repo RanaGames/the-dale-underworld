@@ -111,6 +111,17 @@
   /* right-thumb action cluster */
   #fightBtns{position:absolute;right:calc(12px + var(--sar));bottom:calc(102px + var(--sab));display:flex;flex-direction:column;gap:8px;pointer-events:auto;align-items:flex-end;}
   body.onfoot #fightBtns{bottom:calc(14px + var(--sab));}
+  /* v30.9: Attack + Block are pinned to the BOTTOM of the stack (flex
+     order; same elements, same handlers) with Attack lowest, nearest
+     the thumb corner. Reason: the stack is bottom-anchored, so with
+     every contextual button live (Dodge + Grab + Weapon + Run + Buy
+     Bat) the shipped top-of-stack Attack rode up to y≈79 at the
+     390px presented phone height — inside the talk-choice stack's
+     band (top 100). Pinned at the bottom, Attack's bbox sits at
+     y≈330–380 in every Control Size step and clears the talk stack
+     (bottom ≈295) and the left-column side feed in all states. */
+  #blockBtn{order:90;}
+  #attackBtn{order:91;}
   #sprintBtn{display:none;}
   body.onfoot #sprintBtn{display:block;}
   body.driving #shopBtn{display:none;}
@@ -130,7 +141,17 @@
   .pedal.gas{width:clamp(70px,13.5vmin,82px);height:clamp(104px,21vmin,124px);border-radius:14px;background:rgba(63,185,127,.35);border-color:#3fb97f;}
   .pedal.held{background:var(--gold);color:#14100a;}
   #attackBtn{background:#8c2b2e;color:#fff;font-size:20px;padding:14px 22px;display:none;}
-  #attackBtn.ready{display:block;background:#c23338;}
+  /* v30.9 ATTACK FIX (user: "Why there no attack button"): on foot the
+     Attack button is ALWAYS shown — the shipped rule showed it only
+     while a formal fight was live (.ready, toggled from !!rival ||
+     fighters.length), which left the F1/FIGHT-ANYONE swing with no
+     button outside combat. .ready is now ONLY the in-combat highlight
+     (brighter red + the shipped glow below); visibility is body.onfoot,
+     which updateHUD sets from footMode every tick — so no combat state,
+     target state, UI setting or presentation mode can hide it, and it
+     still leaves with the fight cluster when driving. */
+  body.onfoot #attackBtn{display:block;}
+  #attackBtn.ready{background:#c23338;}
   /* F3: stamina bar — a second thin row in the hp dock, same chip language
      (gold fill: effort, not health); flashes red when a dodge is denied
      for low stamina */
@@ -144,6 +165,15 @@
      body.f3fight (on foot, hostiles live); driving controls untouched */
   #blockBtn,#dodgeBtn{display:none;font-size:15px;padding:11px 16px;touch-action:none;}
   body.f3fight #blockBtn,body.f3fight #dodgeBtn{display:block;}
+  /* v30.9: BLOCK rides with ATTACK — always shown on foot (the F3
+     contextual rule above is superseded for Block only; Dodge stays
+     contextual on hostiles-live, Grab stays grapple-contextual). */
+  body.onfoot #blockBtn{display:block;}
+  /* v30.9 guard: in the car the fight pair can never show, even if a
+     stale f3fight class outlived a frame — driving stays pedals-only,
+     exactly as shipped. (body.onfoot / body.driving are mutually
+     exclusive by construction in updateHUD.) */
+  body.driving #attackBtn,body.driving #blockBtn{display:none;}
   #blockBtn.held,#dodgeBtn.held{background:var(--gold);color:#14100a;}
   /* F5: Grab joins the fight cluster ONLY in grapple context (body.f5grab —
      a staggered / blockstunned hostile inside 26u); same ghost language */
@@ -734,6 +764,32 @@
     html.dale-rot body.drawer-open.ui-feed-2 #sideFeed{width:min(253px,calc(50% - 206px));}
     html.dale-rot body.ui-ctl-2 #sideFeed{max-height:calc(100% - 237px);}
   }
+  /* ---------- v30.10 MOVABLE UI (layout layer — positions only) ----------
+     Free positioning ON TOP of the v30.7 step settings: the step rules
+     above own every element's SIZE; this layer owns only left/top of the
+     movable units, applied as inline styles by the layout module (JS)
+     from S.ui.pos. An element with no stored position gets NO inline
+     positioning and NO class from this layer, so the shipped layout is
+     bit-for-bit the default. .lay-moved only neutralises the transforms
+     / transitions that would fight an explicit left/top (the speed
+     cluster's centring translate, the Nokia tab's -50% translate, the
+     feed's drawer slide transition) — it changes nothing else. */
+  .lay-moved{transition:none !important;} /* a moved unit never animates a property change (the Nokia tab's transform transition would otherwise drift its box ~40px after a pin/apply) */
+  #speedCluster.lay-moved{transform:none;}
+  #statusDrawer.lay-moved{animation:none;} /* a moved drawer keeps its stored spot exactly — the shipped drawerIn slide would offset it 6px for .2s on every open; unmoved drawers keep the slide */
+  #nokiaMini.lay-moved{transform:none;}
+  #nokiaMini.lay-moved.ringing{animation:none;}
+  #sideFeed.lay-moved{transition:none;}
+  /* edit mode: movable units take pointer input (several are pointer-
+     events:none in play) and wear a subtle dashed outline; the layout
+     bar is the editor's only furniture (DONE / RESET LAYOUT). */
+  body.lay-edit .lay-unit{pointer-events:auto !important;outline:2px dashed rgba(232,179,58,.8);outline-offset:2px;cursor:grab;touch-action:none;animation:none !important;transition:none !important;}
+  body.lay-edit .lay-unit.lay-dragging{cursor:grabbing;outline-style:solid;}
+  #layoutBar{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(64px + var(--sab));z-index:45;display:none;align-items:center;gap:8px;background:var(--plate);border:1px solid rgba(232,179,58,.45);border-radius:12px;padding:8px 10px;box-shadow:var(--shadow);pointer-events:auto;max-width:94%;}
+  body.lay-edit #layoutBar{display:flex;}
+  #layoutBar .lb-note{font-family:'Barlow Condensed';font-size:13px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase;white-space:nowrap;}
+  #layoutBar .btn{padding:9px 14px;font-size:15px;white-space:nowrap;}
+  @media (prefers-reduced-motion:reduce){ #layoutBar{transition:none;} }
 </style>
 <script>
 /* DISPLAY UPDATE — rotated presentation, part 1 (state + presented size).
@@ -838,6 +894,7 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
   <div class="rowline" style="margin-top:14px;"><span>Side feed width</span><b id="setFeedState">Standard</b></div>
   <button class="btn ghost" id="setFeedBtn">Change Feed Width</button>
   <p class="small">The side feed can't be hidden — it carries ANPR and custody alerts. UI choices apply straight away and are kept with your run.</p>
+  <p class="small">Moving the HUD pieces themselves is done in-game: Pause → Edit Layout, then drag them where you want them.</p>
   <p class="small">Music and game sound are separate controls — the slider and mute here only affect Dale After Dark, the startup theme, never the Nokia, calls or effects. Like the game's other options, settings last for this session.</p>
   <button class="btn gold" data-close>Back</button>
 </div></div>
@@ -1026,6 +1083,7 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
     <button class="btn ghost" id="pauseMmBtn" style="width:100%;margin:6px 0;">Minimap Size: Standard</button>
     <button class="btn ghost" id="pauseMmShowBtn" style="width:100%;margin:6px 0;">Minimap: Shown</button>
     <button class="btn ghost" id="pauseFeedBtn" style="width:100%;margin:6px 0;">Feed Width: Standard</button>
+    <button class="btn ghost" id="pauseLayoutBtn" style="width:100%;margin:6px 0;">Edit Layout</button>
     <button class="btn ghost" id="phonePowerBtn" style="width:100%;margin:6px 0;">Phone: On</button>
     <button class="btn ghost" id="restartBtn" style="width:100%;margin:6px 0;">Restart Day</button>
     <button class="btn ghost" id="mainMenuBtn" style="width:100%;margin:6px 0;">Main Menu</button>
@@ -1108,6 +1166,14 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
     <button class="btn gold" id="safeEndDay" style="width:100%;margin-top:12px;">End Day · Lay Low</button>
     <button class="btn ghost" id="safeClose" style="width:100%;margin-top:6px;">Back to the Street</button>
   </div>
+</div>
+
+<!-- v30.10 LAYOUT EDITOR BAR — the editor's only furniture; shown only
+     in edit mode (body.lay-edit), entered from Pause → Edit Layout. -->
+<div id="layoutBar">
+  <span class="lb-note">Drag the outlined pieces</span>
+  <button class="btn gold" id="layoutDoneBtn">Done</button>
+  <button class="btn ghost" id="layoutResetBtn">Reset Layout</button>
 </div>
 
 <!-- NOKIA HANDSET (mini, persistent) -->
@@ -1516,16 +1582,37 @@ function camPlace(cx,cz,h,tilt,hMin,hMax){h=clamp(h,(hMin!==undefined)?hMin:CAM_
    its speed-based rise in every view: height = driveBase + clamp(spd/340)
    × driveRise. Switching eases the RIG PARAMETERS (tilt / heights /
    clamps) over 0.6 s — the player, the world and the controls are never
-   moved by a switch; prefers-reduced-motion snaps instead of easing. */
+   moved by a switch; prefers-reduced-motion snaps instead of easing.
+   ---- v30.9 SIX VIEWS (user orders: "make the zoom more" / "More
+   options on the zoom and angle") ----
+   The cycle is now SIX, in this order: STREET → CLOSE → CLASSIC →
+   HIGH → FAR → AERIAL. STREET (new) is low and close — tilt 38°,
+   heights ×0.55 of CLASSIC. CLOSE / CLASSIC / HIGH are the shipped
+   rows verbatim (CLASSIC bit-identical: 58°, foot 228, driving
+   208 + speed-frac × 50, clamps 205/325). FAR is EXTENDED — heights
+   ×2.2 of CLASSIC (was ×1.6), tilt 60°, with its clamp band widened
+   to fit (452/715). AERIAL (new) is the near-top-down district view —
+   tilt 78°, heights ×2.0, own clamp band (410/650). Every band follows
+   the shipped house pattern (hMin ≈ foot × 0.9, hMax ≈ foot × 1.425)
+   and contains its view's full foot + driving height range. North-up
+   in EVERY view: still tilt + height only, azimuth never touched.
+   SAVE MIGRATION: the stored S.camMode index changed meaning with
+   the new order (v30.6–v30.8 stored 0=CLASSIC, 1=CLOSE, 2=HIGH,
+   3=FAR). ensureGoods remaps an old state ONCE — old 0→2, 1→1, 2→3,
+   3→4 — guarded by the append-only S.camVer flag (stamped 2 on every
+   state this build creates or migrates), so a player's chosen view
+   survives the upgrade and the remap can never run twice. */
 var CAM_VIEWS=[
- {name:'CLASSIC',tilt:58,foot:228,driveBase:208,driveRise:50,hMin:205,hMax:325},
+ {name:'STREET',tilt:38,foot:125,driveBase:114,driveRise:27.5,hMin:113,hMax:178},
  {name:'CLOSE',tilt:45,foot:160,driveBase:146,driveRise:35,hMin:144,hMax:228},
+ {name:'CLASSIC',tilt:58,foot:228,driveBase:208,driveRise:50,hMin:205,hMax:325},
  {name:'HIGH',tilt:72,foot:285,driveBase:260,driveRise:62.5,hMin:256,hMax:406},
- {name:'FAR',tilt:60,foot:365,driveBase:333,driveRise:80,hMin:328,hMax:520}
+ {name:'FAR',tilt:60,foot:502,driveBase:458,driveRise:110,hMin:452,hMax:715},
+ {name:'AERIAL',tilt:78,foot:456,driveBase:416,driveRise:100,hMin:410,hMax:650}
 ];
 var camViewCur={tilt:CAM_TILT,foot:CAM_H_FOOT,driveBase:208,driveRise:50,hMin:CAM_H_MIN,hMax:CAM_H_MAX};
 var camFrom=null,camTransT=1; /* transition state: camFrom snapshot -> camView() target, camTransT 0..1 over 0.6 s */
-function camModeIdx(){var m=(typeof S!=='undefined'&&S)?S.camMode:0;if(typeof m!=='number'||!isFinite(m))m=0;return clamp(Math.floor(m),0,CAM_VIEWS.length-1);}
+function camModeIdx(){var m=(typeof S!=='undefined'&&S)?S.camMode:2;if(typeof m!=='number'||!isFinite(m))m=2;return clamp(Math.floor(m),0,CAM_VIEWS.length-1);} /* v30.9: the missing/corrupt fallback is 2 = CLASSIC in the six-view order (was index 0, which is STREET now) */
 function camView(){return CAM_VIEWS[camModeIdx()];}
 function camParamsOf(v){return {tilt:v.tilt*Math.PI/180,foot:v.foot,driveBase:v.driveBase,driveRise:v.driveRise,hMin:v.hMin,hMax:v.hMax};}
 function camSnapTo(v){camViewCur=camParamsOf(v);camFrom=null;camTransT=1;camTiltCur=camViewCur.tilt;}
@@ -1540,7 +1627,7 @@ function camViewTick(dt){
 function camSyncBtn(){var b=$('camBtn');if(!b)return;var n=camView().name.charAt(0)+camView().name.slice(1).toLowerCase();b.title='Camera view: '+n;b.setAttribute('aria-label','Camera view: '+n+' — tap to change view');}
 function cycleCamView(){
  if(typeof S==='undefined'||!S)return;
- if(S.camMode===undefined||typeof S.camMode!=='number')S.camMode=0; /* append-only state guard, mirrors ensureGoods */
+ if(S.camMode===undefined||typeof S.camMode!=='number')S.camMode=2; /* append-only state guard, mirrors ensureGoods · v30.9: default is CLASSIC = index 2 in the six-view order */
  S.camMode=(camModeIdx()+1)%CAM_VIEWS.length;
  var v=camView();
  if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){camSnapTo(v);}
@@ -3974,7 +4061,7 @@ function newState(){
   outfit:{Head:'none_head',Jacket:'tracksuit',Bottoms:'joggers',Trainers:'worn',Accessories:'none_acc'},
   ownedClothes:{none_head:true,tracksuit:true,joggers:true,worn:true,none_acc:true},
   car:'saloon',ownedCars:{saloon:true},carMods:{saloon:{color:null,tint:0,alloy:false,loud:false}},
-  carDamage:0,balaCd:0,muted:false,phoneOn:true,tracksuitCW:'charcoal',camMode:0,ui:{hud:1,ctl:1,mm:1,mmShow:true,feed:1}}; /* v30.5: append-only — tracksuit colourway (safe default charcoal; older states read via tsCW()) · v30.6: append-only — camMode = camera view index (0 = CLASSIC; older states default via ensureGoods) · v30.7: append-only — ui = UI customization (presentation only; 1 = Standard / Shown = today's look; older states default via ensureGoods) */
+  carDamage:0,balaCd:0,muted:false,phoneOn:true,tracksuitCW:'charcoal',camMode:2,camVer:2,ui:{hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}}}; /* v30.5: append-only — tracksuit colourway (safe default charcoal; older states read via tsCW()) · v30.6: append-only — camMode = camera view index (0 = CLASSIC in the four-view order; older states default via ensureGoods) · v30.7: append-only — ui = UI customization (presentation only; 1 = Standard / Shown = today's look; older states default via ensureGoods) · v30.9: append-only — camMode default is 2 = CLASSIC in the SIX-view order, and camVer = 2 stamps the state as already migrated (ensureGoods remaps pre-v30.9 indices once, guarded by this flag) · v30.10: append-only — ui.pos = movable-UI positions (element key → {x,y} as % of the presented game-root size; empty = every element at its shipped default; older states default via ensureGoods) */
 }
 AREAS.forEach(function(a){});
 function outfitStats(){
@@ -4284,7 +4371,7 @@ var stickVec={x:0,y:0};
  $('weaponBtn').onclick=function(){cycleWeapon();};
  $('shopBtn').onclick=function(){ if(S.cash>=WEAPONS.bat.price&&!S.ownedWeapons.bat){S.cash-=WEAPONS.bat.price;S.ownedWeapons.bat=true;toast('Bought Baseball Bat');updateHUD();} else if(S.ownedWeapons.bat){toast('Bat already owned');} else toast('Bat costs £150'); };
  $('pauseBtn').onclick=function(){if(!S.playing)return;if(typeof combatClearInputs==='function')combatClearInputs();S.paused=true;syncPhonePower();$('pauseScreen').classList.add('on');};
- $('camBtn').onclick=function(){if(!S||!S.playing||S.paused)return;cycleCamView();}; /* v30.6: element-based tap like the other HUD buttons — cycles CLASSIC → CLOSE → HIGH → FAR */
+ $('camBtn').onclick=function(){if(!S||!S.playing||S.paused)return;cycleCamView();}; /* v30.6: element-based tap like the other HUD buttons · v30.9: cycles STREET → CLOSE → CLASSIC → HIGH → FAR → AERIAL */
  $('phonePowerBtn').onclick=function(){setPhonePower(!phoneIsOn());};
  $('resumeBtn').onclick=function(){S.paused=false;$('pauseScreen').classList.remove('on');};
  $('restartBtn').onclick=function(){$('pauseScreen').classList.remove('on');startDay(true);};
@@ -5279,8 +5366,14 @@ function updateCombatF1(dt){
   pReact.staggerT=0;pReact.kdT=0;pReact.protectT=0;if(player.fig)player.fig.rotation.z=0; /* F2: reactions are an on-foot state */
   return;
  }
- /* --- F3: contextual combat buttons (Block/Dodge join Attack only while
-    on foot with hostiles live — the user's contextual-controls rule) --- */
+ /* --- F3: contextual combat buttons (Dodge joins only while on foot
+    with hostiles live — the user's contextual-controls rule) ---
+    v30.9 SUPERSESSION: that rule no longer gates ATTACK or BLOCK —
+    both are always visible on foot via body.onfoot in the CSS (the
+    user found himself on foot with no attack button outside a formal
+    fight, because Attack's visibility was the .ready toggle in
+    updateCombat: !!rival || fighters.length). body.f3fight now
+    drives Dodge (and the Block highlight path) only. --- */
  document.body.classList.toggle('f3fight',combatHasHostiles());
  document.body.classList.toggle('f5grab',!!f5GrappleTarget()); /* F5: Grab shows only while a grapple is actually on (contextual-controls rule) */
  /* --- soft-target maintenance: stable until out of range, obstructed or downed --- */
@@ -6007,10 +6100,17 @@ function ensureGoods(){
  if(S.snakeHi===undefined)S.snakeHi=0;
  if(S.ringtone===undefined)S.ringtone='classic';
  if(S.phoneOn===undefined)S.phoneOn=true; /* S1: optional append — old saves default to phone ON */
- if(S.camMode===undefined||typeof S.camMode!=='number')S.camMode=0; /* v30.6: optional append — old saves default to the CLASSIC camera view */
+ if(S.camVer!==2){ /* v30.9 CAMERA SAVE MIGRATION — runs ONCE per state, guarded by the camVer stamp (newState ships camVer:2, so fresh states skip it entirely): a pre-v30.9 state stored camMode in the FOUR-view order (0=CLASSIC, 1=CLOSE, 2=HIGH, 3=FAR); remap to the SIX-view order so the player's chosen view is preserved (0→2 CLASSIC, 1→1 CLOSE, 2→3 HIGH, 3→4 FAR). A state with no usable camMode (pre-v30.6) defaults to CLASSIC = 2. The stamp is written in the same pass, so the repeated ensureGoods calls can never remap twice. */
+  var cmOld=(typeof S.camMode==='number'&&isFinite(S.camMode))?Math.floor(S.camMode):-1;
+  S.camMode=(cmOld>=0&&cmOld<=3)?[2,1,3,4][cmOld]:2;
+  S.camVer=2;
+ }
+ if(S.camMode===undefined||typeof S.camMode!=='number')S.camMode=2; /* v30.6: optional append — old saves default to the CLASSIC camera view · v30.9: CLASSIC is index 2 in the six-view order */
  if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1}; /* v30.7: append-only — UI customization; old states default to today's look (Standard / Shown) */
  ['hud','ctl','mm','feed'].forEach(function(k){if(typeof S.ui[k]!=='number'||!isFinite(S.ui[k]))S.ui[k]=1;S.ui[k]=Math.max(0,Math.min(2,Math.floor(S.ui[k])));});
  if(typeof S.ui.mmShow!=='boolean')S.ui.mmShow=S.ui.mmShow!==false;
+ if(!S.ui.pos||typeof S.ui.pos!=='object'||Array.isArray(S.ui.pos))S.ui.pos={}; /* v30.10: append-only — movable-UI positions; old states default to {} = all shipped positions */
+ (function(){var LK=['feed','minimap','tasks','topbar','speed','phone','stick','fight','steer','pedals','talk'];Object.keys(S.ui.pos).forEach(function(k){if(LK.indexOf(k)<0){delete S.ui.pos[k];return;}var p=S.ui.pos[k];if(!p||typeof p!=='object'||typeof p.x!=='number'||typeof p.y!=='number'||!isFinite(p.x)||!isFinite(p.y)){delete S.ui.pos[k];return;}p.x=Math.max(0,Math.min(100,p.x));p.y=Math.max(0,Math.min(100,p.y));});})(); /* v30.10: sanitise the positions map — unknown keys and corrupt entries are dropped, never thrown */
  if(!S.seenCams)S.seenCams=[]; /* X-3 (v31): append-only — ANPR cameras the player has discovered (design §7.1 fairness ruling); safe default empty, old saves load clean */
  if(S.missedTotal===undefined)S.missedTotal=0;
  if(!S.carRecords)S.carRecords={};
@@ -8325,6 +8425,162 @@ function uiToggleMm(){var u=uiEnsure();if(!u)return;u.mmShow=!uiCfg().mmShow;uiA
  window.__daleUi={cfg:uiCfg,apply:uiApply,cycle:uiCycle,toggleMm:uiToggleMm,sync:uiSyncBtns};
 })();
 
+/* ---------- v30.10 MOVABLE UI — drag-to-move layout editor ----------
+   Free positioning layered ON TOP of v30.7: the step settings own every
+   element's SIZE (body ui-* classes + the --hudF/--ctlF/--mmF variables,
+   untouched); this layer owns only POSITION, stored append-only inside
+   the same state object as S.ui.pos = {key: {x, y}} where x/y are
+   PERCENTAGES of the game root's PRESENTED size (the box the player
+   actually sees), so a saved layout survives rotation, presentation
+   changes and different screen sizes. Empty/absent pos = every element
+   at its shipped default: the layer then writes no inline style and
+   adds no class, so a player who never opens the editor sees zero
+   change at every size step in both presentations.
+   MOVABLE SET (current mode's visible units only):
+     feed    #sideFeed        minimap  #statusDrawer (see note)
+     tasks   #tasksPanel      topbar   .bar (the top bar as ONE unit)
+     speed   #speedCluster    phone    #nokiaMini (the phone side tab)
+     stick   #stick           fight    #fightBtns (ONE stack, as shipped)
+     steer   #steerBtns       pedals   #pedals (as shipped)
+     talk    #interactBar (the right-column talk-choice stack)
+   MINIMAP NOTE: #mmWrap lives in the status drawer's flow — its shipped
+   position is derived from the sibling panels above it (whose heights
+   vary with content and HUD scale), so it cannot take an independent
+   left/top without breaking the exact-default guarantee. The drawer is
+   therefore the minimap's layout unit: dragging it moves the drawer
+   with the minimap inside, defaults stay bit-for-bit at every size
+   step, and the minimap's own size steps + show/hide toggle (v30.7,
+   #mmWrap rules) are untouched. Edit mode opens the drawer so the unit
+   is on screen; the prior drawer state is restored on exit.
+   DRAG MATH (the rotated-presentation audit, 4th path): all drag and
+   apply arithmetic is done in PRESENTED space — pointer clientX/Y and
+   getBoundingClientRect() both live there, in rotated and unrotated
+   modes alike, so a dragged element follows the finger 1:1 in both.
+   Conversion to the element's local (unrotated) left/top happens in
+   exactly one place, layToLocal(): unrotated it is a plain root-offset;
+   rotated (root turned 90° CW) local left = presented top offset and
+   local top = root local height − presented left offset − the
+   element's local height (its presented width). Clamping is done in
+   presented space against the root's presented rect, so the element's
+   box stays FULLY inside the game root at all times. */
+var LAY_UNITS=[
+ {key:'feed',   el:function(){return $('sideFeed');}},
+ {key:'minimap',el:function(){return $('statusDrawer');}},
+ {key:'tasks',  el:function(){return $('tasksPanel');}},
+ {key:'topbar', el:function(){return document.querySelector('.bar');},fixW:true},
+ {key:'speed',  el:function(){return $('speedCluster');},fixW:true,tf:true},
+ {key:'phone',  el:function(){return $('nokiaMini');},tf:true},
+ {key:'stick',  el:function(){return $('stick');}},
+ {key:'fight',  el:function(){return $('fightBtns');}},
+ {key:'steer',  el:function(){return $('steerBtns');}},
+ {key:'pedals', el:function(){return $('pedals');}},
+ {key:'talk',   el:function(){return $('interactBar');},imp:true}
+];
+var layEditing=false,layDrag=null,layWasDrawer=false;
+function layPosMap(){if(typeof S==='undefined'||!S)return null;if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}};if(!S.ui.pos||typeof S.ui.pos!=='object'||Array.isArray(S.ui.pos))S.ui.pos={};return S.ui.pos;}
+function layRootRect(){var r=$('root');return r?r.getBoundingClientRect():{left:0,top:0,right:window.innerWidth,bottom:window.innerHeight,width:window.innerWidth,height:window.innerHeight};}
+function layToLocal(px,py,rect,rr){ /* presented left/top → local left/top */
+ if(dispRot())return {x:py-rr.top,y:rr.width-(px-rr.left)-rect.width};
+ return {x:px-rr.left,y:py-rr.top};}
+function laySetLocal(u,x,y){var el=u.el();if(!el)return;
+ if(u.imp){el.style.setProperty('left',x+'px','important');el.style.setProperty('top',y+'px','important');el.style.setProperty('right','auto','important');el.style.setProperty('bottom','auto','important');el.style.setProperty('transform','none','important');}
+ else{el.style.left=x+'px';el.style.top=y+'px';el.style.right='auto';el.style.bottom='auto';if(u.tf)el.style.transform='none';}}
+function layPin(u){ /* freeze the element at its CURRENT presented spot under an explicit left/top — geometry-identical, proven in the harness */
+ var el=u.el();if(!el||el.classList.contains('lay-moved'))return false;
+ var r=el.getBoundingClientRect();if(!r.width||!r.height)return false;
+ var rr=layRootRect(),loc=layToLocal(r.left,r.top,r,rr);
+ laySetLocal(u,loc.x,loc.y);
+ if(u.fixW)el.style.width=(dispRot()?r.height:r.width)+'px';
+ el.classList.add('lay-moved');return true;}
+function layPlacePresented(u,px,py){var el=u.el();if(!el)return;var r=el.getBoundingClientRect();if(!r.width)return;var rr=layRootRect();var loc=layToLocal(px,py,r,rr);laySetLocal(u,loc.x,loc.y);}
+function layStore(u,px,py,rr){var m=layPosMap();if(!m)return;rr=rr||layRootRect();if(!rr.width||!rr.height)return;
+ m[u.key]={x:Math.round(((px-rr.left)/rr.width*100)*100)/100,y:Math.round(((py-rr.top)/rr.height*100)*100)/100};}
+function layApplyOne(u){var m=layPosMap();if(!m)return false;var p=m[u.key];if(!p)return false;
+ var el=u.el();if(!el)return false;var r=el.getBoundingClientRect();if(!r.width||!r.height)return false; /* hidden (other mode / drawer shut): applies when it next shows */
+ var rr=layRootRect();if(!rr.width||!rr.height)return false;
+ var px=rr.left+p.x/100*rr.width, py=rr.top+p.y/100*rr.height;
+ px=Math.max(rr.left,Math.min(rr.right-r.width,px)); py=Math.max(rr.top,Math.min(rr.bottom-r.height,py)); /* clamp: fully inside the root, again on every apply */
+ layPin(u); layPlacePresented(u,px,py);
+ if(Math.abs(px-rr.left)/rr.width*100!==p.x||Math.abs(py-rr.top)/rr.height*100!==p.y)layStore(u,px,py,rr); /* persist the clamped spot, not the off-screen one */
+ return true;}
+function layoutApply(){var m=layPosMap();if(!m)return;LAY_UNITS.forEach(function(u){ /* apply = make the screen match S.ui.pos exactly: a unit with a stored spot takes it (clamped); a unit whose spot was removed returns to its shipped default */
+ if(m[u.key])layApplyOne(u);else{var el=u.el();if(el&&el.classList.contains('lay-moved'))layClearOne(u);}});}
+function layClearOne(u){var el=u.el();if(!el)return;
+ if(u.imp){['left','top','right','bottom','transform'].forEach(function(pr){el.style.removeProperty(pr);});}
+ else{el.style.left='';el.style.top='';el.style.right='';el.style.bottom='';el.style.transform='';}
+ el.style.width='';el.classList.remove('lay-moved');}
+function layUnitFromTarget(t){if(!t||!t.closest)return null;for(var i=0;i<LAY_UNITS.length;i++){var el=LAY_UNITS[i].el();if(el&&(t===el||el.contains(t)))return LAY_UNITS[i];}return null;}
+function layVisible(u){var el=u.el();if(!el)return false;var r=el.getBoundingClientRect();return r.width>0&&r.height>0;}
+function enterLayoutEdit(){if(layEditing||typeof S==='undefined'||!S||!S.playing||!S.paused)return;
+ layoutApply();
+ layWasDrawer=document.body.classList.contains('drawer-open');
+ document.body.classList.add('drawer-open'); /* expose the minimap's unit while editing */
+ layoutApply(); /* the drawer unit can only take its stored spot once visible */
+ $('pauseScreen').classList.remove('on');
+ document.body.classList.add('lay-edit');layEditing=true;
+ LAY_UNITS.forEach(function(u){var el=u.el();if(el)el.classList.toggle('lay-unit',layVisible(u));});}
+function exitLayoutEdit(){if(!layEditing)return;
+ if(layDrag){layDrag=null;}
+ document.body.classList.remove('lay-edit');layEditing=false;
+ LAY_UNITS.forEach(function(u){var el=u.el();if(el)el.classList.remove('lay-unit','lay-dragging');});
+ if(!layWasDrawer)document.body.classList.remove('drawer-open');
+ if(typeof ensureGoods==='function')ensureGoods(); /* sanitise what the drags wrote, through the shipped guard */
+ layoutApply();
+ $('pauseScreen').classList.add('on'); /* back to the paused game / pause menu, still paused */}
+function resetLayout(){var m=layPosMap();if(m)Object.keys(m).forEach(function(k){delete m[k];});
+ LAY_UNITS.forEach(layClearOne); /* shipped defaults return immediately, in the editor */
+ LAY_UNITS.forEach(function(u){var el=u.el();if(el&&layEditing)el.classList.toggle('lay-unit',layVisible(u));});}
+(function(){ /* editor wiring: capture-phase on #root, so in edit mode a
+   movable element's own gameplay handlers (stick, pedals, fight buttons,
+   Nokia tab, minimap tap, TASKS head) NEVER receive the gesture — the
+   capture listener runs before any descendant handler and stops the
+   event; the matching click is swallowed the same way. Outside edit
+   mode every listener below returns at once and play is untouched. */
+ var rootEl=$('root');if(!rootEl)return;
+ $('pauseLayoutBtn').addEventListener('click',enterLayoutEdit);
+ $('layoutDoneBtn').addEventListener('click',exitLayoutEdit);
+ $('layoutResetBtn').addEventListener('click',resetLayout);
+ rootEl.addEventListener('pointerdown',function(e){
+  if(!layEditing)return;
+  if(e.target&&e.target.closest&&e.target.closest('#layoutBar'))return;
+  var u=layUnitFromTarget(e.target);if(!u)return;
+  e.preventDefault();e.stopPropagation();
+  if(layDrag)return;
+  var el=u.el(),r=el.getBoundingClientRect(); /* drag-start rect measured BEFORE the pin, so the pin (geometry-identical by construction) can never shift the reference frame */
+  if(!layPin(u))return;
+  layDrag={u:u,pid:e.pointerId,sx:e.clientX,sy:e.clientY,rx:r.left,ry:r.top,w:r.width,h:r.height};
+  el.classList.add('lay-dragging');
+  try{el.setPointerCapture(e.pointerId);}catch(err){}
+ },true);
+ window.addEventListener('pointermove',function(e){
+  if(!layDrag||e.pointerId!==layDrag.pid)return;
+  var rr=layRootRect();
+  var px=layDrag.rx+(e.clientX-layDrag.sx),py=layDrag.ry+(e.clientY-layDrag.sy);
+  px=Math.max(rr.left,Math.min(rr.right-layDrag.w,px)); /* clamp DURING the drag: the box stops at the edge, fully on-screen */
+  py=Math.max(rr.top,Math.min(rr.bottom-layDrag.h,py));
+  layPlacePresented(layDrag.u,px,py);
+  layStore(layDrag.u,px,py,rr);
+ },true);
+ function layEndDrag(e){if(!layDrag)return;if(e.pointerId!==undefined&&e.pointerId!==layDrag.pid)return;var el=layDrag.u.el();if(el)el.classList.remove('lay-dragging');layDrag=null;}
+ window.addEventListener('pointerup',layEndDrag,true);
+ window.addEventListener('pointercancel',layEndDrag,true);
+ rootEl.addEventListener('click',function(e){
+  if(!layEditing)return;
+  if(e.target&&e.target.closest&&e.target.closest('#layoutBar'))return;
+  if(layUnitFromTarget(e.target)){e.preventDefault();e.stopPropagation();}
+ },true);
+ /* re-clamp triggers that change sizes or the presented box: v30.7 step
+     changes (observed via body class — the step logic itself is
+     untouched), the HUD coming on, rotation / resize. */
+ var layRaf=0;
+ function laySchedule(){if(layRaf)return;layRaf=requestAnimationFrame(function(){layRaf=0;layoutApply();});}
+ new MutationObserver(laySchedule).observe(document.body,{attributes:true,attributeFilter:['class']});
+ var hudEl=$('hud');if(hudEl)new MutationObserver(laySchedule).observe(hudEl,{attributes:true,attributeFilter:['class']});
+ window.addEventListener('resize',laySchedule);
+ window.addEventListener('orientationchange',laySchedule);
+ window.__daleLayout={apply:layoutApply,enter:enterLayoutEdit,exit:exitLayoutEdit,reset:resetLayout,units:LAY_UNITS,editing:function(){return layEditing;},pos:function(){return layPosMap();}}; /* pos(): the live S.ui.pos map, exposed for audit like the shipped __S3 / __MAP_AUDIT hooks */
+})();
+
 function tryLandscapeLock(){
  try{
   if(!screen.orientation||!screen.orientation.lock)return;
@@ -8670,6 +8926,7 @@ player.mesh.position.set(player.x,0,player.z);
 camPos.x=player.x;camPos.z=player.z;
 camSnapTo(camView());camSyncBtn(); /* v30.6: boot in the saved view (CLASSIC on any fresh/old state) with no transition */
 try{if(window.__daleUi)window.__daleUi.apply();}catch(e){} /* v30.7: UI customization applies at boot, before gameplay */
+try{if(window.__daleLayout)window.__daleLayout.apply();}catch(e){} /* v30.10: saved element positions apply at boot, alongside the v30.7 application (hidden units apply when they next show) */
 camPlace(player.x,player.z,camViewCur.foot,camViewCur.tilt,camViewCur.hMin,camViewCur.hMax);
 (function(){
  var lg=$('gangLegend');lg.innerHTML=AREAS.filter(function(a,i,arr){return arr.findIndex(function(b){return b.gang===a.gang;})===i;}).map(function(a){return '<div class="li"><span class="chip" style="background:'+a.color+'"></span>'+a.gang+' — '+a.name+'</div>';}).join('')
@@ -8923,6 +9180,266 @@ function s3MeshKey(mesh){
  }catch(e){}
  window.__S3={spares:function(){return s3Spares;},target:function(){return s3Target;},doSteal:s3DoSteal,ride:function(){return S?S.ride:null;}};
 })();
+
+/* ================= v30.11 — SUNNY & IMMY'S GOLF R (the leader car) ======
+   The user's order: "Make sunny and immy drive a golf r".
+   ONE new car, ONE appended layer — everything rides shipped systems:
+   · THE CAR: a sixth archetype APPENDED to the registries at runtime
+     (CARS.golfr / CAR_TUNE.golfr / SEATS.golfr). The shipped literals
+     are never edited, and this layer runs after buildEntities and the
+     S3 boot audit, so the traffic fleet cycle and __S3_AUDIT see the
+     original five keys exactly as shipped. Dressed by makeCarMesh on
+     the SAME hatch body as 'hot', plus performance-model dressing and
+     Moss Street Crew gold (AREAS newbold colour #ffd23f — Sunny's own
+     jacket colour) as extra parts below. The footprint (15.8 x 31) is
+     unique across CARS, so the S3 mesh-key derivation reads 'golfr'
+     off the mesh itself, exactly like every other car. Descriptive
+     naming only — "German Hot Hatch — Golf R class"; no real badges
+     or logos anywhere (mesh, labels or text).
+   · PARKED: at the brothers' Moss Street spot the car is an ordinary
+     S3 spare (own:false, rideRec:null, one PARKED_SOLIDS entry via
+     s3AddSolid) — the shipped Steal prompt, theft flow and stolen-ANPR
+     wiring apply verbatim. Both brothers stand at their shipped spots,
+     talkable / fightable / boss-tier exactly as shipped.
+   · CRUISE: the car becomes an ordinary traffic[] entry on Moss
+     Street and the SHIPPED traffic loop drives it (same pathPoint /
+     lane / corner-brake code as every other car — NO parallel driving
+     AI). Moss Street (486,120)-(482,470) lies wholly inside the
+     Newbold areaOf radius (every point < 360 from the area centre
+     (580,215); worst point is 273), so the cruise cannot leave
+     Newbold. Shipped traffic cars carry NO visible occupants, so the
+     brothers are not drawn seated either: their figures hide, their
+     leader state stays 'active' with L.x/L.z riding the car, and the
+     shipped gold minimap dots ride with them. An updateLeaders
+     wrapper parks in-car brothers out of the wander/reconciliation
+     pass (a brother in the car is not "missing from his spot"), and
+     findInteract / s2Targets / leaderInteract wrappers keep cruising
+     brothers un-talkable and un-targetable.
+   · CYCLE (the day is 300 s): PARKED 150 s (half the day — arrive on
+     Moss Street in the morning and they are stood at the car), then
+     CRUISE 100 s, then RETURNING until the car next passes the spot
+     (Moss Street ping-pongs past it every pass, ~16-20 s a lap), where
+     it parks and the brothers get out. Transitions happen ONLY at the
+     spot. Cycle state is S.leaderCar {phase,t} — append-only with
+     safe defaults; any load starts parked at the spot, cycle fresh,
+     so a mid-cruise save/custody reloads into a clean parked state.
+   · THEFT CONSEQUENCE: taking the car — parked theft OR carjack —
+     fires addTension('newbold', +18) through the shipped path:
+     serious, but below the +26 for putting a leader down (the crew
+     can replace a motor; it cannot replace a brother). The stolen
+     ride record's keeper is set to the crew (never the player), so
+     ANPR / police / day-end link-back treat it as the crew's car.
+   · CARJACK: the shipped S3 window (stopped / crawling / crashed)
+     finds the car in traffic[] untouched; a wrapper diverts ONLY this
+     car: Sunny (the driver) is pulled out first and leaderPromote
+     runs — Immy auto-joins through the shipped brother rule (join
+     radius 320; he is ~34 units away in the passenger seat) under the
+     shipped 2-token cap, boss tier, F1-F5 as any leader fight. The
+     ride wiring after the pull-out is s3Carjack's own tail verbatim.
+   · GONE: stolen / written off / impounded — a startDay wrapper
+     (running after the shipped startDay, whose leadersResetDay has
+     already put the brothers back on their spots) returns the car to
+     the spot the same way: the single LC.mesh is detached from every
+     role it held (player ride, world spare, traffic entry) before
+     being parked, so it can never duplicate — if the player's current
+     ride record still references it, the record is cleared and he is
+     put back in his own car by the shipped applyCar path first.
+     While the car is gone the brothers stay on foot at the spot. */
+var LC_KEY='golfr';
+CARS.golfr={name:'German Hot Hatch — Golf R class',desc:'Golf R class — savage AWD launch, planted grip, quad pipes. SUNNY & IMMY\u2019s motor — not for sale.',price:99999,rep:999,speed:352,accel:462,handling:1.18,boot:10,attention:58,flex:12,w:15.8,l:31,body:'hatch',defColor:0x14161a};
+CAR_TUNE.golfr={align:1.24,steer:1.10,roll:.62,tau:1.52,brake:330,revF:.28};
+SEATS.golfr=3;
+var LC_PARK_T=150,LC_CRUISE_T=100,LC_TENSION=18,LC_KEEPER='MOSS STREET CREW';
+var LC_SPOT={x:495,z:211}; /* the east kerb of Moss Street, ~27 units north of Sunny's spot — the brothers' car sits on their street, beside them */
+var LC={mode:'boot',mesh:null,spare:null,traf:null,retT:0,lastTs:0};
+function lcEnsureState(){if(!S.leaderCar||typeof S.leaderCar!=='object')S.leaderCar={phase:'parked',t:LC_PARK_T};if(S.leaderCar.phase!=='parked'&&S.leaderCar.phase!=='cruise')S.leaderCar.phase='parked';if(typeof S.leaderCar.t!=='number'||!isFinite(S.leaderCar.t)||S.leaderCar.t<0)S.leaderCar.t=LC_PARK_T;}
+function lcRoad(){for(var i=0;i<ROADS.length;i++)if(ROADS[i].name==='Moss Street')return ROADS[i];return null;}
+function lcRoadT(road,x,z){var bt=0,bd=1e9;for(var i=0;i<=200;i++){var p=pathPoint(road.pts,i/200);var d=dist2(x,z,p.x,p.z);if(d<bd){bd=d;bt=i/200;}}return bt;}
+function lcSpotPose(){var r=lcRoad();var t=lcRoadT(r,LC_SPOT.x,LC_SPOT.z);var p=pathPoint(r.pts,t);var rotY=Math.atan2(p.dx,p.dz)+Math.PI;return{x:LC_SPOT.x,z:LC_SPOT.z,rotY:rotY,h:-rotY,t:t};}
+var LC_POSE=lcSpotPose();
+function lcSunny(){return leaderById('sunny');}
+function lcImmy(){return leaderById('immy');}
+function lcBrothers(){var a=lcSunny(),b=lcImmy();return (a&&b)?[a,b]:[];}
+function lcBuildMesh(){
+ var mesh=makeCarMesh(CARS.golfr,0x14161a,2,true);
+ /* performance-model dressing in Moss Street Crew gold (#ffd23f): side
+    stripes, mirror caps, a gold spoiler blade over the black hot-hatch
+    spoiler, a gold grille bar, and quad exhaust tips (the saloon's own
+    layout). Pure dressing — footprint, shadow plane and spec untouched. */
+ var gold=new THREE.MeshLambertMaterial({color:0xffd23f});
+ var spec=CARS.golfr,w=spec.w,l=spec.l;
+ function part(sx,sy,sz,x,y,z,mat){var m=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),mat||gold);m.position.set(x,y,z);mesh.add(m);return m;}
+ part(.5,.9,l*.7,-w/2-.12,6.6,0);part(.5,.9,l*.7,w/2+.12,6.6,0);       /* crew-gold side stripes */
+ part(1.1,1.7,2.7,-w/2-.6,12.7,-6.56);part(1.1,1.7,2.7,w/2+.6,12.7,-6.56); /* mirror caps */
+ part(w*.7,.7,4.2,0,20.4,l/2-2.2);                                     /* spoiler blade */
+ part(w*.62,.7,.4,0,4.6,-l/2-1.3);                                     /* grille bar */
+ [[w/2-5.6],[-w/2+3],[-w/2+5.6]].forEach(function(px){var e=new THREE.Mesh(new THREE.CylinderGeometry(.8,.8,3,7),CAR_EXH);e.rotation.x=Math.PI/2;e.position.set(px[0],1.6,l/2+.8);mesh.add(e);}); /* quad tips (the shared pipe is the fourth) */
+ return mesh;
+}
+function lcParkAtSpot(){
+ if(LC.traf){var ix=traffic.indexOf(LC.traf);if(ix>=0)traffic.splice(ix,1);LC.traf=null;}
+ if(!LC.mesh.parent)scene.add(LC.mesh);
+ LC.mesh.visible=true;
+ LC.mesh.position.set(LC_POSE.x,0,LC_POSE.z);
+ LC.mesh.rotation.set(0,LC_POSE.rotY,0);
+ if(!LC.spare){
+  LC.spare={mesh:LC.mesh,key:LC_KEY,h:LC_POSE.h,own:false,rideRec:null,leaderCar:true,solid:null};
+  LC.spare.solid=s3AddSolid(LC_POSE.x,LC_POSE.z,LC_POSE.h,LC_KEY);
+  s3Spares.push(LC.spare);
+ }
+ LC.mode='parked';lcEnsureState();S.leaderCar.phase='parked';S.leaderCar.t=LC_PARK_T;
+}
+function lcBrothersOut(){
+ lcBrothers().forEach(function(L){L.inCar=false;if(L.state==='active'){L.x=L.def.x;L.z=L.def.z;L.tx=L.def.x;L.tz=L.def.z;L.fig.visible=true;L.fig.position.set(L.x,0,L.z);if(L.label)L.label.visible=true;L.proxy.x=L.x;L.proxy.z=L.z;L.proxy.down=false;}});
+}
+function lcBrothersIn(){
+ lcBrothers().forEach(function(L){L.inCar=true;L.fig.visible=false;if(L.label)L.label.visible=false;});
+}
+function lcLeaderFightOn(){for(var i=0;i<fighters.length;i++)if(fighters[i].leaderId||fighters[i].s2Kind==='leader')return true;return false;}
+function lcCanCruise(){
+ if(LC.mode!=='parked')return false;
+ var bs=lcBrothers();if(bs.length<2)return false;
+ for(var i=0;i<bs.length;i++){if(bs[i].state!=='active'||bs[i].inCar)return false;} /* a brother down today (state 'downtoday'), fighting, or already in the car — no cruise */
+ if(lcLeaderFightOn())return false; /* never while the player is in a leader fight */
+ if(interactNPC&&interactNPC.type==='leader')return false; /* never mid-interaction */
+ return true;
+}
+function lcDepart(){
+ var road=lcRoad();if(!road)return false;
+ if(LC.spare){s3ConsumeSpare(LC.spare);LC.spare=null;}
+ lcBrothersIn();
+ lcBrothers().forEach(function(L){L.x=LC_POSE.x;L.z=LC_POSE.z;L.proxy.x=LC_POSE.x;L.proxy.z=LC_POSE.z;}); /* dots ride the car from the first frame of the cruise */
+ var t={road:road,t:LC_POSE.t,dir:1,speed:80,spd:0,mesh:LC.mesh,nearCd:0,x:LC_POSE.x,z:LC_POSE.z,crashT:0,chaseT:0,key:LC_KEY,leaderCar:true};
+ traffic.push(t);LC.traf=t;LC.mode='cruise';LC.retT=0;
+ lcEnsureState();S.leaderCar.phase='cruise';S.leaderCar.t=LC_CRUISE_T;
+ toast('SUNNY & IMMY are cruising Newbold in the Golf R');
+ return true;
+}
+function lcArrive(){lcParkAtSpot();lcBrothersOut();toast('SUNNY & IMMY are back on Moss Street');}
+/* the carjack diversion: s3Carjack's own flow, with the actual driver
+   pulled out — Sunny first, Immy joining through the brother rule */
+function lcCarjack(t){
+ var ix=traffic.indexOf(t);if(ix<0)return;
+ traffic.splice(ix,1);if(LC.traf===t)LC.traf=null;
+ var rot=t.mesh.rotation.y,hx=-Math.sin(rot),hz=-Math.cos(rot);
+ var SN=lcSunny(),IM=lcImmy();
+ SN.inCar=false;SN.x=t.x+hz*17;SN.z=t.z-hx*17;SN.fig.visible=true;SN.fig.position.set(SN.x,0,SN.z);
+ IM.inCar=false;IM.x=t.x-hz*17;IM.z=t.z+hx*17;IM.fig.visible=true;IM.fig.position.set(IM.x,0,IM.z);
+ s2Witness(t.x,t.z);addHeat(6); /* witnesses / Heat: the shipped carjack values */
+ leaderPromote(SN,0); /* Immy auto-joins: brother rule, join radius 320 — he is ~34 units away */
+ addTension('newbold',LC_TENSION); /* carjacking it is the same loss to the crew as stealing it — same spike */
+ s3ParkCurrentAsSpare();
+ carDead=false;
+ var ownKey=S.ride?S.ride.ownKey:S.car;
+ S.ride=s3MakeRideRec(LC_KEY,ownKey);S.ride.keeper=LC_KEEPER;
+ S.car=LC_KEY;S.carDamage=0;prevCarKey=S.car;
+ s3EnterRideMesh(t.mesh);
+ LC.mode='player';
+ toast('\uD83D\uDE97 CARJACKED — '+CARS.golfr.name+' · plate '+S.ride.plate+' is HOT. And it\u2019s SUNNY & IMMY\u2019s — Moss Street Tension spikes');
+ updateHUD();
+}
+var _lcCarjack=s3Carjack;
+s3Carjack=function(t){if(t&&t.leaderCar){lcCarjack(t);return;}_lcCarjack(t);};
+var _lcSteal=s3StealSpare;
+s3StealSpare=function(sp){
+ var wasLC=!!(sp&&sp.leaderCar);
+ _lcSteal(sp);
+ if(wasLC&&S.car===LC_KEY&&s3RideActive()&&player.mesh===LC.mesh){ /* fired only on a steal that actually landed (a wreck refusal changes nothing) */
+  LC.spare=null;LC.mode='player';
+  S.ride.keeper=LC_KEEPER;
+  addTension('newbold',LC_TENSION);
+  toast('That\u2019s SUNNY & IMMY\u2019s motor — Moss Street Tension spikes');
+ }
+};
+var _lcUL=updateLeaders;
+updateLeaders=function(dt){
+ var held=[];
+ leaders.forEach(function(L){if(L.inCar&&L.state==='active'){L.state='cruise';held.push(L);}});
+ _lcUL(dt);
+ held.forEach(function(L){L.state='active';});
+};
+var _lcFI=findInteract;
+findInteract=function(){
+ _lcFI();
+ if(interactNPC&&interactNPC.type==='leader'&&interactNPC.leaderRef&&interactNPC.leaderRef.inCar){
+  interactNPC=null; /* a brother in a moving car cannot be talked to */
+  if(s3Target){$('interactBar').style.display='flex';S3_SOCIAL_CHIPS.forEach(function(id){$(id).style.display='none';});if(s3Chip){s3Chip.style.display='';s3Chip.textContent=s3Target.kind==='traffic'?'\uD83D\uDE97 Carjack':'\uD83D\uDE97 Steal — '+CARS[s3Target.spare.key].name;}}
+  else $('interactBar').style.display='none';
+ }
+};
+var _lcS2T=s2Targets;
+s2Targets=function(){return _lcS2T().filter(function(h){return !(h.leaderRef&&h.leaderRef.inCar);});}; /* nor soft-targeted */
+var _lcLI=leaderInteract;
+leaderInteract=function(n,kind){if(n&&n.leaderRef&&n.leaderRef.inCar)return;_lcLI(n,kind);};
+var _lcOCR=onCrashRef;
+onCrashRef=function(t){if(t&&t.leaderCar){t.ref=t;t.criminal=false;return;}_lcOCR(t);}; /* ramming the Golf R never spawns the generic "pile out" confrontation — the brothers' fight route is the carjack, and every other car is untouched */
+var _lcImp=impoundCar;
+impoundCar=function(key,fee){
+ var had=(S&&S.ride&&S.ride.key===LC_KEY&&key===S.car);
+ _lcImp(key,fee);
+ if(had){LC.mode='gone';LC.traf=null;LC.spare=null;} /* seized for good (the shipped stolen-ride impound) — back at the spot tomorrow */
+};
+var _lcRS=renderScreens;
+renderScreens=function(which){ /* the brothers' car is not a lot listing: hide the key for the render unless it is the car being driven right now */
+ if(S&&S.car!==LC_KEY&&CARS.golfr){var g=CARS.golfr;delete CARS.golfr;try{_lcRS(which);}finally{CARS.golfr=g;}}
+ else _lcRS(which);
+};
+function lcResetDay(){
+ lcEnsureState();
+ lcBrothers().forEach(function(L){L.inCar=false;}); /* leadersResetDay (inside startDay) has already put them back on their spots on foot */
+ if(LC.traf){var ix=traffic.indexOf(LC.traf);if(ix>=0)traffic.splice(ix,1);LC.traf=null;}
+ for(var i=s3Spares.length-1;i>=0;i--){if(s3Spares[i].key===LC_KEY)s3ConsumeSpare(s3Spares[i]);}
+ LC.spare=null;
+ if(S.ride&&S.ride.key===LC_KEY){
+  /* the player ended the day in the brothers' car: the shipped stolen-
+     ride handling governs him (he keeps his own car, at the safe-house
+     side per startDay) — the ride record is cleared and his own car is
+     rebuilt by applyCar BEFORE the Golf R is parked, so the one mesh
+     is never in two roles at once */
+  var ownKey=S.ride.ownKey||'saloon';
+  var gx=LC.mesh.position.x,gz=LC.mesh.position.z;
+  if(player.mesh===LC.mesh)scene.remove(LC.mesh);
+  S.ride=null;S.car=ownKey;S.carDamage=(S.carDamageBy&&S.carDamageBy[ownKey])||0;prevCarKey=ownKey;carDead=false;
+  applyCar();
+  if(footMode&&player.mesh)player.mesh.position.set(gx,0,gz); /* on foot: his own car is left where the Golf R was taken from, not teleported to his feet */
+ } else if(S.car===LC_KEY){ /* defensive: 'golfr' as current car with no ride record should never occur — restore an owned car rather than strand the state */
+  var ok=null;for(var k in S.ownedCars){if(S.ownedCars[k]){ok=k;break;}}
+  if(ok){S.car=ok;prevCarKey=ok;applyCar();}
+ }
+ lcParkAtSpot();
+}
+var _lcSD=startDay;
+startDay=function(first){_lcSD(first);if(LC.mesh)lcResetDay();};
+/* the cycle watcher: its own rAF (the game loop is untouched) — timers,
+   brother/minimap sync while cruising, and possession reconciliation */
+function lcTick(ts){
+ requestAnimationFrame(lcTick);
+ if(!LC.mesh)return;
+ var dt=Math.min(.05,LC.lastTs?((ts-LC.lastTs)/1000):0);LC.lastTs=ts;
+ if(!S||!S.playing||S.paused||dt<=0)return;
+ lcEnsureState();
+ if(S.ride&&S.ride.key===LC_KEY){ /* the player has the car — possession wins over every other mode */
+  if(LC.traf){var ix=traffic.indexOf(LC.traf);if(ix>=0)traffic.splice(ix,1);LC.traf=null;}
+  LC.mode='player';
+ } else if(LC.mode==='player'){
+  var held=false;for(var i=0;i<s3Spares.length;i++)if(s3Spares[i].key===LC_KEY)held=true;
+  if(!held&&player.mesh!==LC.mesh)LC.mode='gone'; /* impounded / swapped away — mesh is nowhere in the world */
+ }
+ if(LC.mode==='parked'){
+  S.leaderCar.t-=dt;
+  if(S.leaderCar.t<=0&&lcCanCruise())lcDepart();
+ } else if((LC.mode==='cruise'||LC.mode==='returning')&&LC.traf){
+  var bs=lcBrothers();
+  for(var bi=0;bi<bs.length;bi++){bs[bi].x=LC.traf.x;bs[bi].z=LC.traf.z;bs[bi].proxy.x=LC.traf.x;bs[bi].proxy.z=LC.traf.z;} /* figures ride the car: positions + gold minimap dots */
+  if(LC.mode==='cruise'){S.leaderCar.t-=dt;if(S.leaderCar.t<=0){LC.mode='returning';LC.retT=0;}}
+  else{LC.retT+=dt;var d=dist2(LC.traf.x,LC.traf.z,LC_POSE.x,LC_POSE.z);if(d<34||(LC.retT>30&&d<70))lcArrive();} /* parks only at the spot — the radius is the two traffic lanes passing the kerb */
+ }
+}
+lcEnsureState();S.leaderCar.phase='parked';S.leaderCar.t=LC_PARK_T; /* any load — old save or mid-cruise save — starts with the car parked at the spot and the cycle fresh */
+LC.mesh=lcBuildMesh();
+lcParkAtSpot();
+requestAnimationFrame(lcTick);
+window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.leaderCar.phase:null,t:S.leaderCar?Math.round(S.leaderCar.t):null,inTraffic:!!LC.traf,isSpare:!!LC.spare};},car:function(){return LC;},pose:LC_POSE,spot:LC_SPOT,depart:lcDepart,arrive:lcArrive,resetDay:lcResetDay,canCruise:lcCanCruise,carjack:lcCarjack,TENSION:LC_TENSION,PARK_T:LC_PARK_T,CRUISE_T:LC_CRUISE_T};
 
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
