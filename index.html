@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark" />
 <link rel="icon" href="data:," />
 <title>The Dale: Underworld</title>
@@ -17,8 +17,9 @@
     --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0;height:100%;overflow:hidden;background:#0b0f13;font-family:'Barlow',system-ui,sans-serif;color:var(--ink);}
-  #game{position:fixed;inset:0;}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b0f13;font-family:'Barlow',system-ui,sans-serif;color:var(--ink);touch-action:none;}
+  #game{position:fixed;inset:0;touch-action:none;}
+  #hud{touch-action:none;}
   #game canvas{display:block;touch-action:none;}
   .noselect{user-select:none;-webkit-user-select:none;}
   /* ---------- HUD (compact) ---------- */
@@ -166,16 +167,20 @@
     #statusDrawer{width:178px;}
     #hpDock{width:40vw;}
   }
-  #callCard,#jobCard{display:none !important;}
+  #callCard,#jobCard,#callBanner{display:none !important;}
   /* ---------- NOKIA ---------- */
   /* collapsed Nokia: a small phone button — tap for the full handset */
-  #nokiaMini{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(30px + var(--sab));width:56px;height:56px;border-radius:16px;background:linear-gradient(160deg,#5b7186,#3c4f63);border:1px solid #2b3a49;z-index:15;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:0;}
+  /* S1: slim side tab on the right edge (was a 56x56 bottom-centre button) */
+  #nokiaMini{position:fixed;right:env(safe-area-inset-right,0px);top:50%;transform:translateY(-50%);width:20px;height:80px;border-radius:9px 0 0 9px;background:linear-gradient(200deg,#5b7186,#3c4f63);border:1px solid #2b3a49;border-right:none;z-index:15;cursor:pointer;box-shadow:-4px 6px 16px rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:0;}
+  #nokiaMini.off{display:none !important;}
+  body.phone-off #phoneScreen{display:none !important;}
+  #nkIcon svg{width:14px;height:14px;}
   #hud.on ~ #nokiaMini{display:flex;}
   #nokiaMini .nk-speaker,#nokiaMini .nk-lcd,#nokiaMini .nk-keys,#nokiaMini .nk-open{display:none;}
   #nkIcon{display:flex;align-items:center;justify-content:center;}
-  #nkBadge{position:absolute;top:-7px;right:-7px;min-width:21px;height:21px;border-radius:11px;background:var(--red);color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 5px;border:2px solid #0b0f13;font-family:'Barlow Condensed';}
+  #nkBadge{position:absolute;top:-6px;left:-9px;min-width:17px;height:17px;border-radius:9px;background:var(--red);color:#fff;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 4px;border:2px solid #0b0f13;font-family:'Barlow Condensed';}
   #nokiaMini.ringing{animation:nkPulse .9s ease-in-out infinite;}
-  @keyframes nkPulse{0%,100%{transform:translateX(-50%) scale(1);box-shadow:0 0 0 0 rgba(232,179,58,.45);}50%{transform:translateX(-50%) scale(1.08);box-shadow:0 0 0 12px rgba(232,179,58,0);}}
+  @keyframes nkPulse{0%,100%{transform:translateY(-50%) translateX(0);box-shadow:0 0 0 0 rgba(232,179,58,.45);}25%{transform:translateY(-50%) translateX(-3px);}50%{transform:translateY(-50%) translateX(0) scale(1.06);box-shadow:0 0 0 10px rgba(232,179,58,0);}75%{transform:translateY(-50%) translateX(-3px);}}
   #nokiaBig{position:relative;}
   #phoneScreen.on #nokiaBig{animation:phoneIn .22s ease-out;}
   @keyframes phoneIn{from{transform:translateY(26px) scale(.96);opacity:0;}to{transform:none;opacity:1;}}
@@ -225,7 +230,7 @@
   #startScreen svg{height:96px;width:auto;}
   @media (min-width:700px){ #startScreen .panel{max-width:780px;} #startScreen .howto{grid-template-columns:1fr 1fr 1fr;} #startScreen .legend{grid-template-columns:1fr 1fr 1fr;} }
   @media (prefers-reduced-motion:reduce){ #callCard.on{animation:none;} #nokiaMini.ringing{animation:none;} }
-  /* ---------- ROTATE PROMPT (gameplay is landscape; menus stay portrait-friendly) ---------- */
+  /* ---------- ROTATE PROMPT (S4: the whole game is landscape-only — menus included) ---------- */
   #rotatePrompt{position:fixed;inset:0;z-index:60;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0b0f13;text-align:center;padding:24px;}
   #rotatePrompt .rpPhone{width:54px;height:88px;border:3px solid var(--gold);border-radius:10px;position:relative;animation:rpTurn 1.8s ease-in-out infinite;}
   #rotatePrompt .rpPhone::after{content:'';position:absolute;left:50%;bottom:6px;transform:translateX(-50%);width:16px;height:3px;border-radius:2px;background:var(--gold);}
@@ -234,6 +239,9 @@
   #rotatePrompt .rpT span{color:var(--gold);}
   #rotatePrompt .rpS{font-size:15px;color:var(--dim);max-width:320px;line-height:1.45;}
   @media (prefers-reduced-motion:reduce){ #rotatePrompt .rpPhone{animation:none;transform:rotate(90deg);} }
+  /* S4: CSS-level coverage so the prompt is up over boot/menus even before the
+     game script runs (JS below makes the same call every 350 ms and on rotate) */
+  @media (orientation:portrait) and (pointer:coarse){ #rotatePrompt{display:flex;} }
   /* ---------- LANDSCAPE GAMEPLAY (short screens: phones held sideways) ---------- */
   @media (orientation:landscape) and (max-height:540px){
     .bar{padding-top:calc(4px + var(--sat));}
@@ -256,7 +264,7 @@
     body.onfoot #fightBtns{bottom:calc(10px + var(--sab));}
     #fightBtns .btn{padding:9px 13px;font-size:14px;}
     #attackBtn{font-size:17px;padding:11px 18px;}
-    #nokiaMini{bottom:calc(26px + var(--sab));width:50px;height:50px;}
+    #nokiaMini{width:20px;height:80px;}
     #hpDock{width:min(340px,38vw);}
     #debtCard{width:min(400px,56vw);}
     #interactBar{bottom:auto !important;top:calc(96px + var(--sat));}
@@ -286,7 +294,7 @@
   @keyframes panelIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
   .panel{box-shadow:0 18px 50px rgba(0,0,0,.55);}
   #nokiaMini{box-shadow:0 8px 22px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.22);transition:transform .18s ease,box-shadow .18s ease;}
-  #nokiaMini:active{transform:translateX(-50%) scale(.94);}
+  #nokiaMini:active{transform:translateY(-50%) scale(.94);}
   #nkBadge{box-shadow:0 2px 8px rgba(0,0,0,.5);}
   #heatWrap .k{color:#c9858a;}
   #cashPill .k{color:#b39b5e;}
@@ -669,7 +677,7 @@
     <div class="howto">
       <div>🕹️ <b>Move:</b> left stick, WASD or arrow keys</div>
       <div>📞 <b>Calls:</b> Accept a call, drive to the gold pin before the timer dies</div>
-      <div>📦 <b>Stash:</b> you start with Crack ×4 and Heroin ×4 (your battered hatch's boot holds 8) — drops use stock</div>
+      <div>📦 <b>Stash:</b> you start with Crack ×4 and Heroin ×4 (your performance saloon's boot holds 16) — drops use stock</div>
       <div>🔥 <b>Heat:</b> drops raise it. Police chase when it's high — get caught or max it and you're arrested: custody, charges, seizures</div>
       <div>🏠 <b>Safe house:</b> Deeplish (green ring) — end the day there to cool off and re-up</div>
       <div>⚔️ <b>Rival turf:</b> drops pay +25% but raise Tension — high Tension and a rival car may try to rob you</div>
@@ -691,6 +699,7 @@
     <h2>Paused</h2>
     <button class="btn gold" id="resumeBtn" style="width:100%;margin:6px 0;">Resume</button>
     <button class="btn ghost" id="muteBtn" style="width:100%;margin:6px 0;">Sound: On</button>
+    <button class="btn ghost" id="phonePowerBtn" style="width:100%;margin:6px 0;">Phone: On</button>
     <button class="btn ghost" id="restartBtn" style="width:100%;margin:6px 0;">Restart Day</button>
     <button class="btn ghost" id="mainMenuBtn" style="width:100%;margin:6px 0;">Main Menu</button>
   </div>
@@ -855,11 +864,11 @@
 </div>
 <div id="bubble" style="position:fixed;z-index:17;display:none;background:#f5f2e8;color:#14161a;border-radius:10px;padding:6px 10px;font-size:13.5px;max-width:230px;transform:translate(-50%,-100%);box-shadow:0 4px 14px rgba(0,0,0,.4);"></div>
 
-<!-- ROTATE PROMPT (gameplay only; menus stay portrait-friendly) -->
+<!-- ROTATE PROMPT (S4: covers everything — boot, menus and gameplay) -->
 <div id="rotatePrompt">
   <div class="rpPhone"></div>
   <div class="rpT">TURN YOUR PHONE <span>SIDEWAYS</span></div>
-  <div class="rpS">The Dale is played in landscape — wider view of the street, steering on the left, pedals on the right. Menus and the Nokia are fine upright; the driving isn't.</div>
+  <div class="rpS">The whole game runs in landscape now — menus included. Wider view of the street, steering on the left, pedals on the right. Turn your phone to play.</div>
 </div>
 
 <div id="errBox"></div>
@@ -1111,7 +1120,8 @@ function buildGroundTexture(){
  seed=_gseed;
  /* turf tints */
  /* MAP REBUILD §5: gang-colour radial washes REMOVED from the ground texture —
-    turf identity stays on the minimap, banners and area labels only. */
+    turf identity stays on the minimap and banners only (Stage S6: the painted
+    ground area labels are gone too). */
  /* River Roch — Phase 3: greener banks (muddy grass fringe under the water) */
  g.lineCap='round';g.lineJoin='round';
  g.strokeStyle='#3e5233';g.lineWidth=46;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
@@ -1310,10 +1320,10 @@ function buildGroundTexture(){
  g.textAlign='center';
  g.fillStyle='#e8b33a';g.beginPath();g.arc(X(-30),Y(-120),13,0,7);g.fill();g.fillStyle='#14100a';g.font='700 15px Barlow';g.fillText('★',X(-30),Y(-114));
  g.fillStyle='#f5eeda';g.font='700 16px Barlow';g.fillText('Rochdale Town Hall',X(-30),Y(-88));
- /* area labels */
- g.textAlign='center';
- AREAS.forEach(function(a){g.font='700 18px "Barlow Condensed", Barlow, sans-serif';g.lineWidth=5;g.strokeStyle='rgba(0,0,0,.65)';var t=a.name.toUpperCase();g.strokeText(t,X(a.x),Y(a.z)-118);g.fillStyle=a.color;g.fillText(t,X(a.x),Y(a.z)-118);
-   g.font='600 11px "Barlow Condensed", Barlow';g.fillStyle='rgba(255,255,255,.85)';g.fillText(a.gang+' turf',X(a.x),Y(a.z)-94);});
+ /* area labels — REMOVED (Stage S6): district names are no longer painted on
+    the ground texture. District names live on the area-entry banner and the
+    minimap; the AREAS data itself is unchanged and still drives banners,
+    drops, tension and reports. */
  /* edge direction labels */
  g.font='700 22px Barlow';g.fillStyle='rgba(255,255,255,.6)';g.textAlign='left';
  g.fillText('← to Bury · Bolton',X(-1280),Y(-90)); g.fillText('to Milnrow →',X(1120),Y(300)); g.fillText('to Oldham →',X(1080),Y(790));
@@ -2111,7 +2121,7 @@ carChev.rotation.x=Math.PI;carChev.rotation.y=Math.PI/4;carChev.visible=false;sc
 var CARS={
  battered:{name:'Battered Silver Hatchback',desc:'Starter. Slow, invisible, tiny boot.',price:0,rep:0,speed:252,accel:300,handling:.92,boot:8,attention:6,flex:1,w:15,l:29,body:'hatch',defColor:0xb9bdc2},
  hot:{name:'Blacked-Out Hot Hatch',desc:'Golf R style. Fast, nippy in back streets, loud — HIGH attention.',price:650,rep:8,speed:332,accel:430,handling:1.16,boot:10,attention:55,flex:8,w:15.5,l:30,body:'hatch',defColor:0x14161a},
- saloon:{name:'Black German Saloon',desc:'Audi/BMW style, private plate. Fast on main roads, big boot.',price:1400,rep:18,speed:352,accel:420,handling:1.0,boot:16,attention:45,flex:10,w:16,l:36,body:'saloon',defColor:0x101216},
+ saloon:{name:'German Performance Saloon — M5 class',desc:'M5 class — twin-turbo V8 pace, planted grip, quad pipes, private plate. Your starter now; big boot.',price:1400,rep:18,speed:386,accel:450,handling:1.08,boot:16,attention:45,flex:10,w:16,l:36,body:'saloon',defColor:0x101216},
  coupe:{name:'German Coupe',desc:'Merc style. Very fast top end, worse in tight streets, high Flex.',price:2600,rep:32,speed:388,accel:450,handling:.9,boot:12,attention:60,flex:14,w:16,l:35,body:'coupe',defColor:0x2a2e35},
  suv:{name:'White Luxury SUV',desc:'Range Rover style. The boss car — huge boot, highest Flex, noticed everywhere, too wide for alleys.',price:4200,rep:55,speed:342,accel:400,handling:.82,boot:24,attention:80,flex:18,w:19,l:38,body:'suv',defColor:0xf2f3f5}
 };
@@ -2158,7 +2168,7 @@ var WET_GRIP=1.0;
 var CAR_TUNE={
  battered:{align:.95,steer:1.0,roll:1.15,tau:1.85,brake:262,revF:.27},
  hot:{align:1.2,steer:1.12,roll:.85,tau:1.62,brake:312,revF:.28},
- saloon:{align:1.08,steer:1.0,roll:.8,tau:1.58,brake:298,revF:.27},
+ saloon:{align:1.16,steer:1.02,roll:.68,tau:1.50,brake:322,revF:.28},
  coupe:{align:1.12,steer:.97,roll:.7,tau:1.52,brake:318,revF:.28},
  suv:{align:.92,steer:.95,roll:1.5,tau:1.78,brake:278,revF:.26}
 };
@@ -2326,7 +2336,22 @@ function makeCarMesh(spec,color,tint,alloyBlack){
    /* chrome side strips — the German saloon tell */
    carPart(grp,carGeo(.5,.9,l*.86),CAR_CHROME,-w/2-.12,bodyY+.4,0);
    carPart(grp,carGeo(.5,.9,l*.86),CAR_CHROME,w/2+.12,bodyY+.4,0);
-   carPart(grp,carGeo(w*.6,.8,.5),CAR_CHROME,0,bodyY+2.6,-l/2-1);
+   /* S5 performance dress-up (M5 class): kidney grille, front splitter,
+      side skirts, subtle boot-lip spoiler, quad exhausts (with the shared
+      pipe above). Pure dressing on the SAME w x l footprint — the shadow
+      plane (children[0]) and spec.w/l are untouched, so the S3 mesh-key
+      derivation and PARKED_SOLIDS footprints are unaffected. */
+   carPart(grp,carGeo(3.7,3,.5),CAR_CHROME,-2.3,bodyY+1.5,-l/2-1);
+   carPart(grp,carGeo(3.7,3,.5),CAR_CHROME,2.3,bodyY+1.5,-l/2-1);
+   carPart(grp,carGeo(2.8,2.2,.6),CAR_TRIM,-2.3,bodyY+1.5,-l/2-1.05);
+   carPart(grp,carGeo(2.8,2.2,.6),CAR_TRIM,2.3,bodyY+1.5,-l/2-1.05);
+   carPart(grp,carGeo(w-.4,1.7,1.3),CAR_TRIM,0,wheelR+.1,-l/2-.6);
+   carPart(grp,carGeo(.7,1.8,l*.72),CAR_TRIM,-w/2-.2,wheelR-.4,0);
+   carPart(grp,carGeo(.7,1.8,l*.72),CAR_TRIM,w/2+.2,wheelR-.4,0);
+   carPart(grp,carGeo(w-2,.9,3.4),bodyMat,0,bodyY+bodyH/2+.55,l/2-1.4);
+   var exh2=carPart(grp,carCyl(.8,.8,3,7),CAR_EXH,w/2-5.6,1.6,l/2+.8);exh2.rotation.x=Math.PI/2;
+   var exh3=carPart(grp,carCyl(.8,.8,3,7),CAR_EXH,-w/2+3,1.6,l/2+.8);exh3.rotation.x=Math.PI/2;
+   var exh4=carPart(grp,carCyl(.8,.8,3,7),CAR_EXH,-w/2+5.6,1.6,l/2+.8);exh4.rotation.x=Math.PI/2;
  } else if(kind==='coupe'){
    /* lip spoiler + sleeker haunches */
    carPart(grp,carGeo(w-.8,1,l*.16),bodyMat,0,cabY+cabH*.2,l/2-1);
@@ -2342,7 +2367,7 @@ function makeCarMesh(spec,color,tint,alloyBlack){
  /* wheels: steer pivots at the front (-Z), spin groups inside */
  var wheels=[];
  [[-w/2,-l*.32,1],[w/2,-l*.32,1],[-w/2,l*.32,0],[w/2,l*.32,0]].forEach(function(p){
-   var piv=makeWheel(wheelR,alloyBlack||isHot);
+   var piv=makeWheel(wheelR,alloyBlack||isHot||kind==='saloon'); /* S5: dark alloys on the performance saloon */
    piv.position.set(p[0],wheelR,p[1]);grp.add(piv);
    wheels.push({pivot:piv,front:!!p[2]});
  });
@@ -2884,8 +2909,8 @@ function newState(){
   weapon:'fists',ownedWeapons:{fists:true},atkCd:0,hp:100,
   outfit:{Head:'none_head',Jacket:'tracksuit',Bottoms:'joggers',Trainers:'worn',Accessories:'none_acc'},
   ownedClothes:{none_head:true,tracksuit:true,joggers:true,worn:true,none_acc:true},
-  car:'battered',ownedCars:{battered:true},carMods:{battered:{color:null,tint:0,alloy:false,loud:false}},
-  carDamage:0,balaCd:0,muted:false};
+  car:'saloon',ownedCars:{saloon:true},carMods:{saloon:{color:null,tint:0,alloy:false,loud:false}},
+  carDamage:0,balaCd:0,muted:false,phoneOn:true};
 }
 AREAS.forEach(function(a){});
 function outfitStats(){
@@ -2921,7 +2946,7 @@ function pathPoint(pts,t){
  var last=pts[pts.length-1];return{x:last[0],z:last[1],dx:1,dz:0};
 }
 function buildEntities(){
- player.mesh=makeCarMesh(CARS.battered,0xb9bdc2,0,false);scene.add(player.mesh);
+ player.mesh=makeCarMesh(carSpec(),carMod().color,carMod().tint,carMod().alloy);scene.add(player.mesh); /* S5: spawn mesh = the current car (performance saloon on a fresh state) */
  player.fig=makeFigure(0x8b9096,0x6d7278,0xc9a189,{gear:true,shoe:0x9aa0a6});scene.add(player.fig);
  police.mesh=makePoliceMesh();police.mesh.position.set(police.x,0,police.z);scene.add(police.mesh);
  var keys=Object.keys(CARS);
@@ -3182,7 +3207,8 @@ var stickVec={x:0,y:0};
  })();
  $('weaponBtn').onclick=function(){cycleWeapon();};
  $('shopBtn').onclick=function(){ if(S.cash>=WEAPONS.bat.price&&!S.ownedWeapons.bat){S.cash-=WEAPONS.bat.price;S.ownedWeapons.bat=true;toast('Bought Baseball Bat');updateHUD();} else if(S.ownedWeapons.bat){toast('Bat already owned');} else toast('Bat costs £150'); };
- $('pauseBtn').onclick=function(){if(!S.playing)return;if(typeof combatClearInputs==='function')combatClearInputs();S.paused=true;$('pauseScreen').classList.add('on');};
+ $('pauseBtn').onclick=function(){if(!S.playing)return;if(typeof combatClearInputs==='function')combatClearInputs();S.paused=true;syncPhonePower();$('pauseScreen').classList.add('on');};
+ $('phonePowerBtn').onclick=function(){setPhonePower(!phoneIsOn());};
  $('resumeBtn').onclick=function(){S.paused=false;$('pauseScreen').classList.remove('on');};
  $('restartBtn').onclick=function(){$('pauseScreen').classList.remove('on');startDay(true);};
  $('muteBtn').onclick=function(){S.muted=!S.muted;$('muteBtn').textContent=S.muted?'Sound: Off':'Sound: On';if(engGain)engGain.gain.value=0;};
@@ -3353,6 +3379,119 @@ function combatHostiles(){
  return list;
 }
 function combatHasHostiles(){return combatHostiles().length>0;}
+/* ================= S2 — FIGHT ANYONE (targeting / hostility edge ONLY) ====
+   Extends F1 soft targeting so ANY NPC pedestrian can be swung at: an
+   attack press toward a non-hostile acquires them through the same arc /
+   LOS / step-in rules (combatAcquire(true) from the press + swing-start
+   paths only — the passive per-tick lock maintenance stays hostiles-only,
+   so civilians never light the target ring just by standing nearby).
+   Reactions run through EXISTING systems only: civilians flee/scream on
+   the bystander path; able lads are PROMOTED into fighters[] and fight
+   through the shipped F4 brain ('thug', or 'crew' + Tension on their
+   turf); aunties and witnesses escalate through the existing aunty stage
+   machine + complain(); mates can never be injured (see s2ApplyHit);
+   swinging at the police is instant maximum response via busted().
+   Consequences: Heat, Tension, complain(), per-area npcMemory, and the
+   S.assaults day count (optional append, defaults 0 — no new currency,
+   no parallel reputation). The combat CORE (state machine, chain,
+   block/dodge/stamina, tokens, telegraphs) is untouched by this stage. */
+var S2_MATE_LINES=['Oi — watch it, soft lad.','Pack it in, daft lad — I\u2019m on your side.','Nearly had me then. Nearly.','Save it for them lot, yeah?','You swing at me again I\u2019m telling your mum.'];
+var S2_SCREAM=['Help! He\u2019s hitting me!','Please — I\u2019ve done nowt!','Somebody ring the police!','Leave off! Get away from me!'];
+var s2WitnessCd=0;
+var s2PoliceO={x:0,z:0,hp:9999,maxHp:9999,down:false};
+function s2PedKind(p){
+ if(p.s2Kind)return p.s2Kind;
+ var ix=peds.indexOf(p);if(ix<0)ix=0;
+ var r=((ix*37)+11)%100; /* deterministic per ped: ~58% civilian, ~21% able lad (thug), ~21% crew-affiliated */
+ p.s2Kind=r<58?'civ':(r<79?'thug':'crew');
+ if(p.hp===undefined)p.hp=100;
+ return p.s2Kind;
+}
+function s2Flee(p,fx,fz){
+ var a=Math.atan2(p.x-fx,p.z-fz);
+ p.tx=clamp(p.x+Math.sin(a)*330,-1250,1250);p.tz=clamp(p.z+Math.cos(a)*330,-1250,1250);
+ p.s2FleeT=5;p.waitT=5;
+}
+function s2Targets(){
+ var list=[],i,p;
+ for(i=0;i<peds.length;i++){p=peds[i];if(p.down)continue;list.push({o:p,s2:'ped',s2Key:'ped'+i});}
+ aunties.forEach(function(a,ai){if(!a._s2o)a._s2o={x:a.x,z:a.z,hp:9999,maxHp:9999,down:false};a._s2o.x=a.x;a._s2o.z=a.z;list.push({o:a._s2o,s2:'aunty',s2Key:'aun'+ai,ref:a});});
+ if(footMode)crew.forEach(function(c){if(c.withYou&&c.mode==='follow'&&c.fig.visible){if(!c._s2o)c._s2o={x:0,z:0,hp:9999,maxHp:9999,down:false};c._s2o.x=c.fig.position.x;c._s2o.z=c.fig.position.z;list.push({o:c._s2o,s2:'mate',s2Key:'mate'+c.def.id,crewRef:c});}}); /* per-mate target object (same pattern as the aunties' _s2o) — each mate's lock/dodge is tested against THEIR OWN position */
+ s2PoliceO.x=police.x;s2PoliceO.z=police.z;list.push({o:s2PoliceO,s2:'police',s2Key:'police'});
+ return list;
+}
+function s2Witness(x,z){
+ /* aunties escalate through their OWN stage machine — set straight to the
+    calling stage (the swear-at-an-aunty precedent); her machine resolves
+    plate/desc/vague itself, and on foot that means she gets the plate. */
+ aunties.forEach(function(a){
+  if(a.stage===0&&a.cd<0&&dist2(x,z,a.x,a.z)<200){a.stage=2;a.callT=a.watch?2.6:3.6;a.label.visible=true;a.fig.visible=true;showProg('\uD83D\uDC75 '+a.street+' — CALLING POLICE…',0,'Leave her street to make it vague!');}
+ });
+ peds.forEach(function(p){if(dist2(x,z,p.x,p.z)<110&&!p.down)s2Flee(p,x,z);}); /* bystanders scatter */
+ if(gameT>s2WitnessCd){s2WitnessCd=gameT+8;var ar=areaOf(x,z);complain(ar?ar.name:'street','vague');} /* one street complaint per incident window */
+}
+function s2Promote(p,kind,dmg,area){
+ var ix=peds.indexOf(p);if(ix>=0)peds.splice(ix,1);
+ var crewK=kind==='crew';
+ var f={x:p.x,z:p.z,hp:(crewK?100:80),maxHp:(crewK?100:80),mesh:p.mesh,areaId:area?area.id:'centre',atkT:0,down:false,dmg:crewK?11:9,s2:true,s2Kind:kind};
+ f.hp-=dmg;
+ fighters.push(f);
+ if(crewK){combatAIInit(f,'crew');addTension(f.areaId,WEAPONS[S.weapon].tension);toast((area?area.gang:'Local crew')+' — he\u2019s one of theirs. It\u2019s on!');bubble(p.mesh,'You\u2019ve no idea whose street this is!');}
+ else{toast('Wrong lad to swing at — he\u2019s squaring up!');bubble(p.mesh,'Come on then, soft lad!');}
+ combat.target={o:f,isRival:false}; /* the lock follows him into the fight */
+}
+function s2ApplyHit(h,w,prof,ci){
+ if(S.assaults===undefined)S.assaults=0;
+ if(h.s2==='mate'){
+  /* MATES ARE NEVER INJURED by the player: the swing is dodged, full stop.
+     No hp, loyalty or injury state is read or written here — the mate /
+     loyalty / injury systems stay exactly as shipped. Banter only. */
+  var c=h.crewRef;if(!c)return;
+  var mx=c.fig.position.x,mz=c.fig.position.z;
+  var away=Math.atan2(mx-player.x,mz-player.z),side=(Math.random()<.5?1:-1)*1.35;
+  var nx=mx+Math.sin(away+side)*30,nz=mz+Math.cos(away+side)*30;
+  if(!footBlocked(nx,nz)){c.fig.position.x=nx;c.fig.position.z=nz;}
+  if(gameT>(c.s2DodgeCd||0)){c.s2DodgeCd=gameT+5;bubble(c.fig,pick(S2_MATE_LINES));}
+  return;
+ }
+ if(h.s2==='police'){
+  /* the existing maximum-escalation endpoint: Heat-max busted path */
+  S.assaults++;police.mode='chase';
+  toast('You swung at a police officer — maximum response!');
+  busted('Attacked a police officer — maximum response, you were lifted on the spot.');
+  return;
+ }
+ if(h.s2==='aunty'){
+  var a=h.ref;S.assaults++;
+  if(a.fig.userData)a.fig.userData.stagT=.35;
+  bubble(a.fig,pick(['Help! POLICE! He\u2019s hit me!','You thug! I\u2019m ringing the police!']));
+  addHeat(w.heat+4);
+  var aa=areaOf(a.x,a.z);if(aa)setNpcMemory(aa.id,npcMemory(aa.id)-2); /* her street remembers, hard */
+  a.stage=2;a.callT=a.watch?2.2:3.0;a.label.visible=true;a.cd=45; /* fastest route to police attention in the game */
+  showProg('\uD83D\uDC75 '+a.street+' — CALLING POLICE…',0,'Leave her street to make it vague!');
+  s2Witness(a.x,a.z);updateHUD();return;
+ }
+ var p=h.o;
+ if(!p||p.down)return;
+ S.assaults++;
+ var dmg=w.dmg*prof.dmg,kind=s2PedKind(p),area=areaOf(p.x,p.z);
+ if(kind==='crew'&&!area)kind='thug';
+ sfxHit(ci,S.weapon);
+ combat.hitStopT=COMBAT.hitStop[ci];combat.hitStopPair={a:null,b:p};
+ var ang=Math.atan2(p.x-player.x,p.z-player.z);
+ combatKnockSlide(p,ang,w.knock*prof.knock); /* same collision-checked slide — never through a wall */
+ if(p.mesh&&p.mesh.userData)p.mesh.userData.stagT=prof.stag;
+ addHeat(w.heat);
+ if(kind==='civ'){
+  p.s2Hits=(p.s2Hits||0)+1;
+  bubble(p.mesh,pick(S2_SCREAM));
+  if(ci===2||p.s2Hits>=3){p.down=true;p.s2DownT=2.6;p.s2FleeT=0;} /* floored briefly (stylised, no gore) — then up and gone */
+  else s2Flee(p,player.x,player.z);
+ }else s2Promote(p,kind,dmg,area);
+ if(area)setNpcMemory(area.id,npcMemory(area.id)-1); /* a street where you batter someone remembers */
+ s2Witness(p.x,p.z);
+ updateHUD();
+}
 /* line of sight against the EXISTING buildings[] footprints (exact hw/hd —
    the walls as drawn): segment vs AABB slab test. No locks, no hits
    through walls, ever. */
@@ -3379,12 +3518,22 @@ function combatValid(h,range){
  if(d>range)return false;
  return combatLOS(player.x,player.z,h.o.x,h.o.z);
 }
-function combatAcquire(){
+function combatAcquire(s2ok){
  /* nearest hostile inside the facing arc (point-blank counts in any
     direction), unobstructed — the acquisition rule the lock, the Q cycle
-    fallbacks and the mobile attack-press re-aim all share. */
+    fallbacks and the mobile attack-press re-aim all share. S2: with
+    s2ok (attack press / swing start ONLY), if no hostile qualifies, the
+    nearest attackable NPC under the EXACT same arc + LOS rules is
+    acquired instead — hostiles always win over bystanders. */
  var face=combatFaceAng(),best=null,bd=1e9;
  combatHostiles().forEach(function(h){
+  if(!combatValid(h,COMBAT.acquireRange))return;
+  var d=dist2(player.x,player.z,h.o.x,h.o.z);
+  var ad=Math.abs(combatAngDiff(Math.atan2(h.o.x-player.x,h.o.z-player.z),face));
+  if(d>40&&ad>COMBAT.acquireArc/2)return;
+  if(d<bd){bd=d;best=h;}
+ });
+ if(!best&&s2ok)s2Targets().forEach(function(h){
   if(!combatValid(h,COMBAT.acquireRange))return;
   var d=dist2(player.x,player.z,h.o.x,h.o.z);
   var ad=Math.abs(combatAngDiff(Math.atan2(h.o.x-player.x,h.o.z-player.z),face));
@@ -3513,7 +3662,7 @@ function combatStepIn(h){
 function combatStartSwing(){
  var w=WEAPONS[S.weapon];
  var h=combat.target;
- if(!h||!combatValid(h,COMBAT.lockRange)){h=combatAcquire();combat.target=h;}
+ if(!h||!combatValid(h,COMBAT.lockRange)){h=combatAcquire(true);combat.target=h;}
  if(!h){return false;}
  var d=dist2(player.x,player.z,h.o.x,h.o.z);
  if(d>COMBAT.stepInMax){toast('Too far — get close to swing');return false;}
@@ -3647,6 +3796,7 @@ function combatApplyHit(h){
     chain hit's profile (multipliers on the frozen WEAPONS row). */
  var w=WEAPONS[S.weapon];
  var prof=combat.curHit||COMBAT.chain[S.weapon][0],ci=combat.curIdx||0,o=h.o;
+ if(h.s2)return s2ApplyHit(h,w,prof,ci); /* S2: NPC pedestrians resolve at the hostility edge — the core path below is for rival/fighters only, unchanged */
  if(o.kdT>0||o.protectT>0)return; /* F2: downed or just stood up — the hit does nothing */
  if(o.maxHp===undefined)o.maxHp=h.isRival?100:o.hp;
  /* F3 BLOCK (enemy side): the SAME combatBlockChip mechanics as the
@@ -3666,6 +3816,7 @@ function combatApplyHit(h){
  if(!immune)combatKnockSlide(o,ang,blocked?(ci===2?COMBAT.blockKnock.heavy:COMBAT.blockKnock.light):w.knock*prof.knock);
  if(blocked&&ci===2)o.blockStunT=COMBAT.blockStunHeavy;
  addHeat(w.heat);
+ if(o.s2&&o.s2Kind==='crew')addTension(o.areaId,w.tension); /* S2: hitting a promoted crew lad on his turf raises Tension, same table numbers as the rival */
  if(h.isRival){
   addTension(o.areaId,w.tension);
   toast(w.name+' hit! Rival HP '+Math.max(0,Math.round(o.hp)));
@@ -3682,8 +3833,9 @@ function combatResolveContact(){
     reach) with clear LOS takes the hit — at most once per swing
     (per-swing hit registry keyed by swing id + hostile). */
  var face=combatFaceAng();
- combatHostiles().forEach(function(h){
-  var key=combat.swingId+':'+(h.isRival?'rival':'fighter');
+ var contactList=combatHostiles();s2Targets().forEach(function(h){contactList.push(h);}); /* S2: the same arc/reach/LOS contact test now also covers NPC pedestrians */
+ contactList.forEach(function(h){
+  var key=combat.swingId+':'+(h.s2Key||(h.isRival?'rival':'fighter'));
   if(combat.hitReg[key])return;
   var d=dist2(player.x,player.z,h.o.x,h.o.z);
   if(d>COMBAT.hitRange)return;
@@ -3706,7 +3858,7 @@ function combatPressAttack(){
     the arc, the lock (and the step-in) re-aims to them. Between presses
     the lock persists. Desktop gets the same re-aim free; Q is its
     deliberate switch. */
- var acq=combatAcquire();
+ var acq=combatAcquire(true); /* S2: a press toward a non-hostile makes them the target */
  if(acq&&(!combat.target||acq.o!==combat.target.o))combat.target=acq;
  if(combat.phase==='idle'){combatStartSwing();}
  else if(!combat.buffered){combat.buffered=true;combat.bufferT=COMBAT.bufferWindow;}
@@ -4063,6 +4215,7 @@ function ensureGoods(){
  if(!S.tokens)S.tokens={clothes:false,lot:false};
  if(S.snakeHi===undefined)S.snakeHi=0;
  if(S.ringtone===undefined)S.ringtone='classic';
+ if(S.phoneOn===undefined)S.phoneOn=true; /* S1: optional append — old saves default to phone ON */
  if(S.missedTotal===undefined)S.missedTotal=0;
  if(!S.carRecords)S.carRecords={};
  if(!S.impounded)S.impounded={};
@@ -4146,8 +4299,7 @@ function makeJobOffer(){
  var risk={courier:'Risk: low Heat',fraud:'Risk: +25 DELAYED Heat tomorrow (CCTV)',swipe:'Risk: small Heat · loot = stock',debt:'Risk: Tension if it kicks off',chop:'Risk: hot car — police interest up'}[type];
  sideOffer={type:type,payout:pay,risk:risk};
  $('miniText').innerHTML='NEW JOB txt:<br>'+JOB_NAMES[type]+'<br>open fone > JOBS';
- toast('📱 New side job on the phone — JOBS tab');
- sfx('ring');
+ if(phoneIsOn()){toast('📱 New side job on the phone — JOBS tab');sfx('ring');} /* S1: silent while phone off; offer waits in JOBS */
 }
 function acceptJob(){
  if(!sideOffer)return;
@@ -4261,16 +4413,52 @@ function exposeDodgy(rec,why){
 
 /* ================= NOKIA PHONE UI ================= */
 var phoneView='home',phoneOpen=false,menuSel=0,snakeOn=false,lastText='Line is quiet…';
-var MENU=['CALLS','JOBS','STOCK','GAMES'];
+var MENU=['CALLS','JOBS','STOCK','GAMES','SETTINGS'];
+/* ================= S1 — PHONE POWER + SIDE TAB =================
+   The closed phone is now a slim tab on the right edge (#nokiaMini restyled).
+   The old ringing banner is retired: its job lives on the tab (pulse + badge).
+   Power OFF hides the tab entirely, silences the Line, and would-be callers
+   fall through the EXISTING missed-call path (missed/missedTotal, Rep −1,
+   scheduleCall(8)) — no new economy. S.phoneOn is an optional append on the
+   state with a safe default of ON, so existing runs load unchanged. */
+function phoneIsOn(){return !S||S.phoneOn!==false;}
+var queuedBriefing=null;
+function syncPhonePower(){
+ var off=!phoneIsOn();
+ $('nokiaMini').classList.toggle('off',off);
+ document.body.classList.toggle('phone-off',off);
+ var pb=$('phonePowerBtn');if(pb)pb.textContent='Phone: '+(off?'Off':'On');
+ if(off&&phoneOpen)closePhone();
+}
+function missCallNow(notify){
+ /* the existing missed-call path, verbatim counters/consequences */
+ ringing=null;stopRing();S.missed++;S.missedTotal++;S.rep=Math.max(0,S.rep-1);
+ $('miniText').innerHTML='Missed call.<br>Rep −1';
+ var mb=$('nkBadge');mb.style.display='flex';mb.textContent='1';
+ if(notify)toast('Missed call — Rep −1');
+ scheduleCall(8);updateObjective();
+}
+function setPhonePower(on){
+ if(!S)return;
+ S.phoneOn=!!on;
+ if(!on){
+   if(ringing)missCallNow(false); /* a call ringing as you switch off counts as missed */
+   if(phoneOpen)closePhone();
+   syncPhonePower();
+   toast('Phone off — the Line is silent');
+ } else {
+   syncPhonePower();
+   toast('Phone on');
+   if(queuedBriefing){var q=queuedBriefing;queuedBriefing=null;setTimeout(function(){toast(q);},400);}
+ }
+}
 function syncCallBanner(){
- var b=$('callBanner');if(!b)return;
- document.body.classList.toggle('ringing',!!ringing);
- if(ringing&&!phoneOpen){
-   b.classList.add('on');
-   $('cbTitle').textContent=ringing.caller+' is calling…';
-   $('cbMeta').textContent='Wants '+ringing.qty+'× '+PROD[ringing.product].label+(ringing.extra?' + vapes':'')+' · £'+ringing.payout+' · '+ringing.window+'s · '+ringing.area.short;
+ /* S1: banner retired — ringing state is shown on the side tab only */
+ var b=$('callBanner');if(b)b.classList.remove('on');
+ document.body.classList.toggle('ringing',!!ringing&&phoneIsOn());
+ if(ringing&&!phoneOpen&&phoneIsOn()){
    var bd=$('nkBadge');bd.style.display='flex';bd.textContent='!';
- } else b.classList.remove('on');
+ }
 }
 function ringNokia(){
  $('nokiaMini').classList.add('ringing');
@@ -4284,6 +4472,7 @@ $('cbAnswer').onclick=function(){acceptCall();};
 $('cbDecline').onclick=function(){declineCall();};
 function fmtClock(){var s=Math.max(0,Math.ceil(S.clock));return Math.floor(s/60)+':'+('0'+(s%60)).slice(-2);}
 function openPhone(){
+ if(!phoneIsOn())return; /* S1: phone off = handset unreachable */
  if(typeof combatClearInputs==='function')combatClearInputs(); /* F1: Nokia open = menu open for combat inputs */
  phoneOpen=true;$('phoneScreen').classList.add('on');
  $('nkBadge').style.display='none';
@@ -4315,6 +4504,10 @@ function renderPhone(){
    var rt='RINGTONE: '+S.ringtone.toUpperCase()+(S.snakeHi>=50?' (chirpy unlocked)':'')+(S.snakeHi>=100?' (royal unlocked)':'');
    m.innerHTML='<span class="mi sel" data-g="snake">&gt; SNAKE — hi '+S.snakeHi+'</span><span class="mi" data-g="ring">RINGTONES: '+S.ringtone.toUpperCase()+'</span><span style="font-size:11px;">Snake: lay-low only.\nHeat cools while u play.\n50 pts = chirpy tone\n100 pts = royal tone</span>';
    m.querySelectorAll('[data-g]').forEach(function(el){el.onclick=function(){if(el.getAttribute('data-g')==='snake')startSnake();else cycleRingtone();};});
+ } else if(phoneView==='settings'){
+   $('softL').textContent='POWER';$('softR').textContent='Back';
+   m.innerHTML='<span class="mi sel" data-p="power">&gt; PHONE: '+(phoneIsOn()?'ON':'OFF')+' — tap to turn '+(phoneIsOn()?'OFF':'ON')+'</span><span style="font-size:11px;">Off = no tab on screen,\nno rings. Callers count as\nmissed (Rep −1), same as\nletting it ring out.\nTurning off closes the\nfone — turn back on in\nthe pause menu (⚙).</span>';
+   var pel=m.querySelector('[data-p="power"]');if(pel)pel.onclick=function(){setPhonePower(!phoneIsOn());if(phoneIsOn())renderPhone();};
  } else {
    phoneView='home';$('softL').textContent='Select';$('softR').textContent='Close';
    var html='<span style="font-size:12px;">'+(ringing?'CALLING… answer it!':'Day '+S.day+' · '+fmtClock()+' · Heat '+Math.round(S.heat)+'%')+'\nLast txt: '+lastText+'</span>\n';
@@ -4338,12 +4531,13 @@ $('nkOk').onclick=function(){
  if(snakeOn){snake.paused=!snake.paused;return;}
  if(phoneView==='home'){phoneView=MENU[menuSel].toLowerCase();renderPhone();}
  else if(phoneView==='games')startSnake();
+ else if(phoneView==='settings'){setPhonePower(!phoneIsOn());if(phoneIsOn())renderPhone();}
 };
 $('softL')&&0;
 document.querySelector('.nk-soft').addEventListener('click',function(e){
  var r=e.currentTarget.getBoundingClientRect();
  if(e.clientX<r.left+r.width/2){ /* left soft key */
-   if(phoneView==='call')acceptCall(); else if(phoneView==='jobs'&&sideOffer)acceptJob(); else if(phoneView==='games')startSnake(); else if(phoneView==='home'){phoneView=MENU[menuSel].toLowerCase();renderPhone();}
+   if(phoneView==='call')acceptCall(); else if(phoneView==='jobs'&&sideOffer)acceptJob(); else if(phoneView==='games')startSnake(); else if(phoneView==='settings'){setPhonePower(!phoneIsOn());if(phoneIsOn())renderPhone();} else if(phoneView==='home'){phoneView=MENU[menuSel].toLowerCase();renderPhone();}
  } else { /* right soft key */
    if(phoneView==='call'&&ringing)declineCall();
    else if(phoneView!=='home'){phoneView='home';renderPhone();}
@@ -5158,7 +5352,8 @@ function dailyRollovers(){
  Object.keys(S.complaints||{}).forEach(function(st){if(S.complaints[st]>=3)toast('📮 Residents of '+st+' have been complaining — patrols stepped up there.');});
  var hunt=AREAS.filter(function(a){return a.id!==ENDS&&tensionLevel(a.id)==='HUNTING';}).map(function(a){return a.gang;});
  var sim=AREAS.filter(function(a){return a.id!==ENDS&&tensionLevel(a.id)==='SIMMERING';}).map(function(a){return a.gang;});
- toast('☀ Day '+S.day+' briefing — your ends are '+endsStatus().toUpperCase()+(hunt.length?'. Hunting you: '+hunt.join(', '):'')+(sim.length?'. Simmering: '+sim.join(', '):'')+'.');
+ var briefTxt='☀ Day '+S.day+' briefing — your ends are '+endsStatus().toUpperCase()+(hunt.length?'. Hunting you: '+hunt.join(', '):'')+(sim.length?'. Simmering: '+sim.join(', '):'')+'.';
+ if(phoneIsOn())toast(briefTxt);else queuedBriefing=briefTxt; /* S1: no briefing popup while off — delivered on next power-on */
  AREAS.forEach(function(a){if(a.id!==ENDS&&(S.avoidedToday||[]).indexOf(a.id)<0){} });
  /* tension cools for gangs whose turf you avoided yesterday */
  AREAS.forEach(function(a){if(a.id!==ENDS&&(S.turfYesterday||[]).indexOf(a.id)<0)addTensionRaw(a.id,-7);});
@@ -5169,7 +5364,7 @@ function addTensionRaw(id,n){S.tension[id]=clamp((S.tension[id]||0)+n,0,100);}
 function startDay(first){
  ensureGoods();ensureRecord2();
  S.clock=300;S.earned=0;S.drops=0;S.missed=0;S.sideDone=0;S.jobsToday=[];S.dayMarkers=[];S.crashFeed=[];S.snitchReports=[];S.social={talks:0,swears:0,mouthFights:0};
- S.arrestsToday=0;style={reckless:0,legit:0,events:[],runReckless:0,cleanRun:true};S.turfYesterday=[];
+ S.arrestsToday=0;S.assaults=0; /* S2: daily street-assault count (optional append — old saves default via s2ApplyHit) */ style={reckless:0,legit:0,events:[],runReckless:0,cleanRun:true};S.turfYesterday=[];
  S.heat=S.pendingHeat||0;S.pendingHeat=0;S.hp=100;
  if(S.heat>0)toast('☀ CCTV caught up — fraud heat lands: +'+Math.round(S.heat)+'%');
  /* top-up the Line stock within boot */
@@ -5184,7 +5379,7 @@ function startDay(first){
  Object.keys(S.carRecords).forEach(function(k){S.carRecords[k].scansToday=0;});
  scheduleCall(4);nextJobT=22;nextCallT=4;
  MATES.forEach(function(m){mateState[m.id].rodeToday=false;mateState[m.id].cutToday=0;if(mateState[m.id].swearSpam)mateState[m.id].swearSpam=0;});
- updateObjective();updateHUD();
+ updateObjective();updateHUD();syncPhonePower();
 }
 function endDay(){
  S.droveCar=S.car;
@@ -5204,6 +5399,7 @@ function endDay(){
   +'<div class="rowline"><span>Crashes / incidents</span><b style="font-size:13px;">'+(S.crashFeed&&S.crashFeed.length?S.crashFeed.join(' · '):'clean')+'</b></div>'
   +'<div class="rowline"><span>Snitch reports</span><b style="font-size:13px;">'+(S.snitchReports&&S.snitchReports.length?S.snitchReports.join(' · '):'none')+'</b></div>'
   +'<div class="rowline"><span>Social</span><b>talks '+S.social.talks+' · swears '+S.social.swears+' · mouth-fights '+S.social.mouthFights+'</b></div>'
+  +'<div class="rowline"><span>Street assaults</span><b>'+(S.assaults||0)+'</b></div>'
   +'<div class="rowline"><span>Driving style</span><b>reckless '+style.reckless+' · legit '+style.legit+' · licence '+totalPoints()+'/12 pts'+(S.banDays>0?' · BANNED '+S.banDays+'d':'')+'</b></div>'
   +'<div class="rowline"><span>Crew</span><b style="font-size:13px;">'+matesLine+'</b></div>'
   +(raceLine?'<div class="rowline"><span>Races</span><b>'+raceLine+'</b></div>':'')
@@ -5688,16 +5884,18 @@ function updateGame(dt,realDt){
  peds.forEach(function(p){
    p.waitT-=dt;
    var d=dist2(player.x,player.z,p.x,p.z);
+   if(p.s2DownT>0){p.s2DownT-=dt;p.mesh.rotation.z=Math.PI/2;if(p.s2DownT<=0){p.down=false;p.mesh.rotation.z=0;s2Flee(p,player.x,player.z);}p.mesh.position.set(p.x,0,p.z);animateFigure(p.mesh,dt,0,false,false);return;} /* S2: floored civilian — up after a beat and gone */
    if(d<66&&speedNow()>55){p.diveT=.55;p.dx=(p.x-player.x)/d*190;p.dz=(p.z-player.z)/d*190;}
    if(p.diveT>0){p.diveT-=dt;p.x+=p.dx*dt;p.z+=p.dz*dt;}
+   else if(p.s2FleeT>0){p.s2FleeT-=dt;var fa=Math.atan2(p.tx-p.x,p.tz-p.z);p.x+=Math.sin(fa)*165*dt;p.z+=Math.cos(fa)*165*dt;p.mesh.rotation.y=fa+Math.PI;} /* S2: fleeing — runs from the trouble */
    else if(p.waitT<0){p.waitT=2+Math.random()*3;p.tx=p.x+(Math.random()*70-35);p.tz=p.z+(Math.random()*70-35);}
    else{var a3=Math.atan2(p.tx-p.x,p.tz-p.z);p.x+=Math.sin(a3)*22*dt;p.z+=Math.cos(a3)*22*dt;p.mesh.rotation.y=a3+Math.PI;}
    p.mesh.position.set(p.x,0,p.z);
-   animateFigure(p.mesh,dt,p.diveT>0?200:22,false,p.diveT>0);
+   animateFigure(p.mesh,dt,p.diveT>0?200:(p.s2FleeT>0?165:22),false,p.diveT>0);
  });
  /* ---------- CALLS ---------- */
  if(ringing){ringT-=dt;if(ringT<5&&ringT>4.9)ringNokia();if(ringT<=0){ringing=null;stopRing();S.missed++;S.missedTotal++;S.rep=Math.max(0,S.rep-1);$('miniText').innerHTML='Missed call.<br>Rep −1';var mb=$('nkBadge');mb.style.display='flex';mb.textContent='1';toast('Missed call — Rep −1');scheduleCall(8);updateObjective();}}
- else if(!job&&!sideJob){nextCallT-=dt;if(nextCallT<0){if(!(S.areaMute&&areaOf(player.x,player.z)&&areaOf(player.x,player.z).id===S.areaMute))makeCall();else scheduleCall(6);}}
+ else if(!job&&!sideJob){nextCallT-=dt;if(nextCallT<0){if(!phoneIsOn()){/* S1: phone off — the would-be caller goes through the existing missed-call path */S.missed++;S.missedTotal++;S.rep=Math.max(0,S.rep-1);$('miniText').innerHTML='Missed call (fone off).<br>Rep −1';scheduleCall(8);updateObjective();}else if(!(S.areaMute&&areaOf(player.x,player.z)&&areaOf(player.x,player.z).id===S.areaMute))makeCall();else scheduleCall(6);}}
  if(S.areaMuteT>0){S.areaMuteT-=dt;if(S.areaMuteT<0)S.areaMute=null;}
  if(job){job.timeLeft-=dt;
    if(dist2(player.x,player.z,job.spot.x,job.spot.z)<34&&speedNow()<160){var cleanRun=style.cleanRun;var extraPay=0;completeJob();if(cleanRun&&S.drops>0){extraPay=10;S.cash+=10;toast('Smooth, clean run — customer tipped +£10');}}
@@ -5827,8 +6025,9 @@ function updateCombat(dt){
  /* fighters (crash fights) */
  if(fighters.length){
    var allDown=true;
+   var s2Done=[];
    fighters.forEach(function(f){
-     if(f.down){f.mesh.rotation.z=Math.PI/2;return;}
+     if(f.down){f.mesh.rotation.z=Math.PI/2;if(f.s2){f.downT=(f.downT===undefined?3:f.downT)-dt;if(f.downT<0)s2Done.push(f);}return;} /* S2: a downed street lad is out of the fight — removed quietly below, never through the crash-fight fightersDown payout */
      allDown=false;
      var fIncap=combatTickReact(f,dt); /* F2: hit-pause pair / staggered / downed */
      if(fIncap){f.mesh.position.set(f.x,0,f.z);if(f.kdT>0)f.mesh.rotation.z=Math.PI/2;f.aiHeld=f.kdT>0?'down':'stagger';return;} /* aiHeld only reports the hold; aiState stays the brain's own */
@@ -5852,7 +6051,8 @@ function updateCombat(dt){
      crew.forEach(function(c){if(c.withYou&&c.mode==='follow'){c.atkT=(c.atkT||0)-dt;if(dist2(f.x,f.z,c.fig.position.x,c.fig.position.z)<60&&c.atkT<0&&combatMateStrikeOK(f)){c.atkT=1.1;combatMateHit(f);c.fig.userData.atkT=.32;f.hp-=(c.def.role==='MUSCLE'?13:6);}}});
      if(f.hp<=0){f.down=true;f.hp=0;} /* F4 fix: combatApplyHit clamps fighter hp at 0, so v27's hp<0 test was unreachable from player hits — a solo crash fight could never be won by punching (mates' unclamped damage masked it). <=0 makes the EXISTING downed -> fightersDown path reachable as designed; no new outcome code. */
    });
-   if(allDown&&fighters.length)fightersDown();
+   s2Done.forEach(function(f){scene.remove(f.mesh);var ix=fighters.indexOf(f);if(ix>=0)fighters.splice(ix,1);}); /* S2 cleanup */
+   if(allDown&&fighters.length&&fighters.some(function(f){return !f.s2;}))fightersDown(); /* S2: the crash-fight payout only fires when a real crash fighter was in it */
  }
  /* crew pickup */
  for(var ci=crew.length-1;ci>=0;ci--){var c=crew[ci];
@@ -5926,19 +6126,34 @@ function drawMinimap(){
  g.fillText(mmSt?('📍 '+mmSt):('📍 '+(curArea?curArea.name:'Between areas')),4,128.5);
 }
 
-/* ================= ORIENTATION — gameplay is landscape, menus stay portrait-friendly ================= */
+/* ================= S4 — LANDSCAPE-ONLY + NO PAGE ZOOM =================
+   Presentation only: no gameplay logic below this line or above it changed.
+   LANDSCAPE: the rotate prompt now covers the WHOLE game — boot, menus and
+   gameplay — on any portrait viewport. That includes portrait-shaped desktop
+   windows (a normal landscape desktop window is untouched). The earlier
+   "menus stay portrait-friendly" decision is superseded by S4. rotateHold
+   still freezes only live gameplay behind the prompt, exactly as before.
+   LOCK: tryLandscapeLock() (already wired to the START button — the first
+   gesture that enters the game) requests fullscreen, then
+   screen.orientation.lock('landscape'), failing silently where the platform
+   refuses (iOS Safari has no orientation lock for web pages — there the
+   rotate prompt is the enforcement, and no lock is faked).
+   NO PAGE ZOOM: viewport maximum-scale=1 + user-scalable=no (head meta),
+   touch-action:none on html/body/#game/#hud (CSS), plus the gesture guards
+   below for iOS Safari, which ignores both. This is PAGE zoom only — the
+   driving camera's own speed-based zoom is gameplay and is untouched.
+   Menu panels keep their own touch-action, so they still scroll. */
 var rotateHold=false;
 function anyMenuOpen(){return !!document.querySelector('.screen.on');}
 function updateRotate(){
  var el=$('rotatePrompt');if(!el)return;
  var portrait=window.innerHeight>window.innerWidth;
- var coarse=('ontouchstart' in window)||(window.matchMedia&&window.matchMedia('(pointer: coarse)').matches);
- var show=!!(S&&S.playing&&portrait&&coarse&&!anyMenuOpen());
- rotateHold=show;
- el.style.display=show?'flex':'none';
+ rotateHold=!!(portrait&&S&&S.playing);
+ el.style.display=portrait?'flex':'none';
 }
 setInterval(updateRotate,350);
 window.addEventListener('orientationchange',updateRotate);
+window.addEventListener('resize',updateRotate);
 function tryLandscapeLock(){
  try{
   if(!screen.orientation||!screen.orientation.lock)return;
@@ -5950,6 +6165,25 @@ function tryLandscapeLock(){
   else lockIt();
  }catch(e){}
 }
+/* S4 zoom guards (iOS Safari path + belt-and-braces elsewhere). Gameplay
+   controls listen for pointer events, which none of this cancels, so
+   multitouch — steer + pedals + combat buttons together — keeps
+   registering; only the browser's own page-zoom gestures are swallowed. */
+(function(){
+ function pd(e){if(e.cancelable)e.preventDefault();}
+ document.addEventListener('gesturestart',pd);
+ document.addEventListener('gesturechange',pd);
+ document.addEventListener('gestureend',pd);
+ document.addEventListener('touchmove',function(e){
+  if(e.touches.length>1&&!(e.target&&e.target.closest&&e.target.closest('.panel')))pd(e);
+ },{passive:false});
+ var lastEnd=0;
+ document.addEventListener('touchend',function(e){
+  var now=Date.now();
+  if(now-lastEnd<320&&e.target&&e.target.closest&&e.target.closest('#game,#hud'))pd(e);
+  lastEnd=now;
+ },{passive:false});
+})();
 
 /* ================= PHASE 5 — LIGHTING & ATMOSPHERE (presentation + WET_GRIP hook) =================
    Day/night cycle keyed to the existing day clock (S.clock counts 300 -> 0 across a
@@ -6255,7 +6489,8 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
 /* ================= INIT ================= */
 S=newState();ensureGoods();ensureRecord2();
 AREAS.forEach(function(a){S.tension[a.id]=14+Math.floor(Math.random()*22);});
-buildEntities();applyOutfitToFigure();ensureRecord('battered');
+buildEntities();applyOutfitToFigure();ensureRecord(S.car); /* S5: the ANPR record created at boot belongs to the start car */
+window.__S5_AUDIT={starter:S.car,specName:CARS[S.car].name,speed:CARS[S.car].speed,accel:CARS[S.car].accel,tau:CAR_TUNE[S.car].tau,t90:Math.round(CAR_TUNE[S.car].tau*Math.LN10*100)/100,brake:CAR_TUNE[S.car].brake,batteredInWorld:!!CARS.battered,footprint:{w:CARS.saloon.w,l:CARS.saloon.l}};
 player.mesh.position.set(player.x,0,player.z);
 camPos.x=player.x;camPos.z=player.z;
 camPlace(player.x,player.z,CAM_H_FOOT);
@@ -6276,13 +6511,242 @@ camPlace(player.x,player.z,CAM_H_FOOT);
 $('startBtn').onclick=function(){
  try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}
  if(AC&&AC.state==='suspended')AC.resume();
- tryLandscapeLock(); /* gameplay is landscape; menus stay portrait-friendly */
+ tryLandscapeLock(); /* S4: first gesture into the game — fullscreen + landscape lock where the platform allows it */
  startEngine();
  S.playing=true;$('startScreen').classList.remove('on');$('hud').classList.add('on');
  startDay(true);
  toast('Day 1 — the Line is live. Watch the Nokia.');
 };
 window.addEventListener('resize',function(){fitCamera();renderer.setSize(window.innerWidth,window.innerHeight);});
+
+/* ================= S3 — ROB ANYONE'S CAR (steal parked / carjack traffic) ====
+   A thin layer over the shipped machinery — no system below is edited:
+   · S.car always names the archetype being driven, so the v24 physics read
+     CAR_TUNE[S.car] / carSpec() exactly as before: a stolen car drives with
+     ITS archetype's tune, and the mesh is ADOPTED (never rebuilt), with
+     player.h = -mesh.rotation.y — the same nose-first mapping the v29 boot
+     check proves — so there is no first-frame snap.
+   · S.ride (OPTIONAL append, absent/null on every pre-S3 state) is the
+     current-ride record while in a stolen car: a newRecord() with
+     stolen=true and a keeper who is never the player. ensureRecord() is
+     wrapped so ANPR (camera + police scans), markers and incident flows
+     read the ride record while it is live — the shipped STOLEN-marker
+     scan path (instant pursuit) does the rest. The stolen key is NEVER
+     added to S.ownedCars, so the garage, CAR FILES paperwork (insurance /
+     tax / MOT / plate change) and saves-as-owned never see it, and
+     carMod() reads neutral while stolen (it cannot be customised).
+   · Every car that is not the current ride lives in s3Spares with exactly
+     one PARKED_SOLIDS entry (added when parked, removed when taken), so
+     the world keeps his own car and abandoned stolen cars where they were
+     left — solid, visible and stealable again, in-session.
+   · Carjacking removes the traffic entry from traffic[] outright (no
+     ghost route blocker — remaining traffic never counted it again) and
+     the driver resolves through the shipped S2 rules: s2PedKind decides
+     flee (civ) vs fight (thug/crew, promoted via s2Promote into the F4
+     brain); witnesses/aunties go through s2Witness. */
+var s3Spares=[],s3Target=null,s3Chip=null;
+var S3_PARK_KEYS=['battered','hot','saloon'];
+function s3RideActive(){return !!(S&&S.ride&&S.ride.key===S.car);}
+function s3MakeRideRec(key,ownKey){
+ var rec=newRecord(key);
+ rec.keeper=pick(KEEPERS); /* somebody else's car — the keeper is never you */
+ rec.stolen=true;rec.key=key;rec.ownKey=ownKey;rec.dmg=0;
+ return rec;
+}
+function s3AddSolid(x,z,h,key){
+ var spec=CARS[key];
+ var s={x:x,z:z,lax:Math.sin(h),laz:-Math.cos(h),wax:Math.cos(h),waz:Math.sin(h),hw:spec.w/2,hd:spec.l/2};
+ PARKED_SOLIDS.push(s);return s;
+}
+function s3RemoveSolid(s){if(!s)return;var i=PARKED_SOLIDS.indexOf(s);if(i>=0)PARKED_SOLIDS.splice(i,1);}
+function s3ConsumeSpare(sp){var i=s3Spares.indexOf(sp);if(i>=0)s3Spares.splice(i,1);s3RemoveSolid(sp.solid);sp.solid=null;}
+/* park whatever he is currently riding (his own car, or the stolen ride he
+   is leaving) as a world spare, with its damage saved the shipped way —
+   per-key carDamageBy for his own, on the ride record for a stolen one */
+function s3ParkCurrentAsSpare(){
+ if(!player.mesh)return;
+ var curKey=S.ride?S.ride.key:S.car;
+ if(S.ride)S.ride.dmg=S.carDamage;
+ else{if(!S.carDamageBy)S.carDamageBy={};S.carDamageBy[curKey]=S.carDamage;}
+ var sp={mesh:player.mesh,key:curKey,h:player.h,own:!S.ride,rideRec:S.ride||null};
+ sp.solid=s3AddSolid(player.mesh.position.x,player.mesh.position.z,player.h,curKey);
+ s3Spares.push(sp);
+}
+function s3EnterRideMesh(mesh){
+ player.mesh=mesh;
+ player.x=mesh.position.x;player.z=mesh.position.z;
+ player.h=-mesh.rotation.y; /* nose-first: the v29 mapping, no snap */
+ player.vx=0;player.vz=0;player.steer=0;player.yawVel=0;player.driftAmt=0;player.slip=0;player.rollV=0;player.pitchV=0;
+ footMode=null;carPark=null;player.fig.visible=false;
+}
+function s3StealSpare(sp){
+ if(!footMode)return;
+ if(sp.own&&(S.carDamageBy&&S.carDamageBy[sp.key]>=100)){toast('She\u2019s written off — tow her from the lot first');return;}
+ if(!sp.own&&sp.rideRec&&sp.rideRec.dmg>=100){toast('That one\u2019s wrecked — engine\u2019s dead');return;}
+ s3ParkCurrentAsSpare();
+ s3ConsumeSpare(sp);
+ carDead=false; /* the dead car, if any, is the one just parked — not this one */
+ if(sp.own){
+   S.ride=null;S.car=sp.key;S.carDamage=(S.carDamageBy&&S.carDamageBy[sp.key])||0;prevCarKey=S.car;
+   s3EnterRideMesh(sp.mesh);
+   toast('Back in your '+CARS[sp.key].name);
+ }else{
+   var ownKey=S.ride?S.ride.ownKey:S.car;
+   S.ride=sp.rideRec||s3MakeRideRec(sp.key,ownKey);
+   S.car=sp.key;S.carDamage=S.ride.dmg||0;prevCarKey=S.car;
+   s3EnterRideMesh(sp.mesh);
+   toast('\uD83D\uDE97 STOLEN — '+CARS[sp.key].name+' · plate '+S.ride.plate+' is HOT. ANPR = instant pursuit');
+ }
+ updateHUD();
+}
+function s3Carjack(t){
+ if(!footMode)return;
+ var ix=traffic.indexOf(t);if(ix<0)return;
+ traffic.splice(ix,1); /* out of the traffic system cleanly — no ghost blocker */
+ /* the driver comes out at the side of the car */
+ var hx=-Math.sin(t.mesh.rotation.y),hz=-Math.cos(t.mesh.rotation.y);
+ var dx=t.x+hz*17,dz=t.z-hx*17;
+ var fig=makeFigure(pick([0x707880,0x5a4a3a,0x3a4a5c,0x74584a]),pick([0x2c2f36,0x3a3f4a,0x23272e]),pick([0xc9a189,0x8a5a3b,0x6e4530,0xe0b490]),{shoe:0x24262a});
+ fig.position.set(dx,0,dz);scene.add(fig);
+ var drv={mesh:fig,fig:fig,x:dx,z:dz,tx:dx,tz:dz,diveT:0,waitT:3}; /* mesh: = the shipped ped field (ped loop / S2 read p.mesh, exactly as buildEntities' peds); fig: carried too, matching the social-wrapper convention */
+ peds.push(drv);
+ var kind=s2PedKind(drv),area=areaOf(t.x,t.z);
+ s2Witness(t.x,t.z);addHeat(6); /* aunties/bystanders react through the shipped witness system */
+ if(kind==='civ'){bubble(fig,pick(['Oi! That\u2019s my car!','Get off! Somebody help!','Take it — just don\u2019t hurt me!']));s2Flee(drv,player.x,player.z);}
+ else s2Promote(drv,kind,0,area); /* fighter types square up through the S2/F4 rules */
+ s3ParkCurrentAsSpare();
+ carDead=false;
+ var ownKey=S.ride?S.ride.ownKey:S.car;
+ S.ride=s3MakeRideRec(t.key,ownKey);
+ S.car=t.key;S.carDamage=0;prevCarKey=S.car;
+ s3EnterRideMesh(t.mesh);
+ toast('\uD83D\uDE97 CARJACKED — '+CARS[t.key].name+' · plate '+S.ride.plate+' is HOT. ANPR = instant pursuit');
+ updateHUD();
+}
+function s3DoSteal(){
+ if(!s3Target||!footMode)return;
+ if(s3Target.kind==='traffic')s3Carjack(s3Target.traf);else s3StealSpare(s3Target.spare);
+ s3Target=null;if(s3Chip)s3Chip.style.display='none';
+}
+/* ---- wrappers (the openScreen/renderScreens precedent — originals run
+   untouched underneath; S3 only diverts the current-ride cases) ---- */
+var _s3EnsureRecord=ensureRecord;
+ensureRecord=function(key){if(s3RideActive()&&key===S.car)return S.ride;return _s3EnsureRecord(key);};
+var _s3CarMod=carMod;
+carMod=function(){if(s3RideActive())return {color:null,tint:0,alloy:false,loud:false};return _s3CarMod();};
+var _s3ApplyCar=applyCar;
+applyCar=function(){
+ if(S&&S.ride){ /* a shipped flow rebuilds the car (garage take-out, station
+   swap, paint re-apply…): the stolen ride is left parked in the world as a
+   spare instead of being deleted, and the car being materialised loses
+   its world spare so it never exists twice */
+   s3ParkCurrentAsSpare();
+   S.ride=null;player.mesh=null;
+   for(var i=s3Spares.length-1;i>=0;i--){if(s3Spares[i].own&&s3Spares[i].key===S.car){scene.remove(s3Spares[i].mesh);s3ConsumeSpare(s3Spares[i]);}}
+   S.carDamage=(S.carDamageBy&&S.carDamageBy[S.car])||0;prevCarKey=S.car;
+ }
+ _s3ApplyCar();
+};
+var _s3ImpoundCar=impoundCar;
+impoundCar=function(key,fee){
+ if(S&&S.ride&&key===S.car&&S.ride.key===key){ /* a stolen ride is SEIZED:
+   it leaves the world for good and never enters S.impounded (there is no
+   release for a car that was never his) — he is put back in his own car
+   at the safe house, exactly where the shipped impound flow lands him */
+   scene.remove(player.mesh);
+   var ownKey=S.ride.ownKey;S.ride=null;
+   for(var i=s3Spares.length-1;i>=0;i--){if(s3Spares[i].own&&s3Spares[i].key===ownKey){scene.remove(s3Spares[i].mesh);s3ConsumeSpare(s3Spares[i]);}}
+   S.car=ownKey;S.carDamage=(S.carDamageBy&&S.carDamageBy[ownKey])||0;prevCarKey=ownKey;carDead=false;
+   player.x=SAFE.x;player.z=SAFE.z+30;player.vx=0;player.vz=0;
+   applyCar();
+   toast('The stolen '+CARS[key].name+' was seized — impounded for good. It was never yours to release.');
+   updateHUD();return;
+ }
+ _s3ImpoundCar(key,fee);
+};
+var S3_SOCIAL_CHIPS=['chip_chat','chip_bigup','chip_swear','chip_threaten','chip_ctx'];
+var _s3FindInteract=findInteract;
+findInteract=function(){
+ _s3FindInteract();
+ if(!s3Chip)return;
+ if(!footMode){s3Target=null;s3Chip.style.display='none';return;}
+ var fx=footMode.x,fz=footMode.z,best=1e9;s3Target=null;
+ s3Spares.forEach(function(sp){var d=dist2(fx,fz,sp.mesh.position.x,sp.mesh.position.z);if(d<44&&d<best){best=d;s3Target={kind:'spare',spare:sp,d:d};}});
+ traffic.forEach(function(t){ /* carjack window: stopped or crawling —
+   jammed queues, braking for the walker, corner crawls, crash-stopped */
+   if(t.chaseT>0)return;var spd=(t.spd===undefined?t.speed:t.spd);if(!(spd<28||t.crashT>0))return;
+   var d=dist2(fx,fz,t.x,t.z);if(d<36&&d<best){best=d;s3Target={kind:'traffic',traf:t,d:d};}
+ });
+ var npcD=1e9;
+ if(interactNPC){var nx=interactNPC.x,nz=interactNPC.z;
+   if(nx===undefined&&interactNPC.fig){nx=interactNPC.fig.position.x;nz=interactNPC.fig.position.z;}
+   if(nx!==undefined)npcD=dist2(fx,fz,nx,nz);}
+ if(s3Target&&best<npcD){
+   $('interactBar').style.display='flex';
+   S3_SOCIAL_CHIPS.forEach(function(id){$(id).style.display='none';});
+   s3Chip.style.display='';
+   s3Chip.textContent=s3Target.kind==='traffic'?'\uD83D\uDE97 Carjack':(s3Target.spare.own?'\uD83D\uDE97 Get In — your '+CARS[s3Target.spare.key].name:'\uD83D\uDE97 Steal — '+CARS[s3Target.spare.key].name);
+ }else{
+   s3Chip.style.display='none';
+   S3_SOCIAL_CHIPS.forEach(function(id){$(id).style.display='';});
+ }
+};
+/* E (and F, when it would not start a fight) run the same prompt the chip
+   shows — the shipped keydown listener runs first, so walking back into
+   his CURRENT car keeps its exact shipped behaviour and wins ties */
+window.addEventListener('keydown',function(e){
+ if(!S||!S.playing||S.paused||!footMode||!s3Target)return;
+ if(e.key==='e'||e.key==='E')s3DoSteal();
+ else if((e.key==='f'||e.key==='F')&&typeof combat!=='undefined'&&!combat.target&&!(typeof fighters!=='undefined'&&fighters.length))s3DoSteal();
+});
+/* ---- init: register the world's parked cars + traffic archetypes ---- */
+/* the archetype is read off the MESH itself: makeCarMesh builds every car
+   on a shadow plane of (spec.w+8) x (spec.l+8), and all five archetypes
+   have a unique footprint — so the key comes from the car's own geometry,
+   with the placement-order key kept only as a cross-check in the audit */
+function s3MeshKey(mesh){
+ try{
+  var g=mesh.children[0].geometry,p=g.parameters;
+  var w=p.width-8,l=p.height-8;
+  for(var k in CARS){if(Math.abs(CARS[k].w-w)<.01&&Math.abs(CARS[k].l-l)<.01)return k;}
+ }catch(e){}
+ return null;
+}
+(function s3Init(){
+ var ck=Object.keys(CARS),trafMismatch=0;
+ traffic.forEach(function(t,i){ /* buildEntities cycles Object.keys(CARS)
+   in push order — the footprint read must agree, and is what is used */
+   var byIndex=ck[i%ck.length],byMesh=s3MeshKey(t.mesh);
+   if(byMesh&&byMesh!==byIndex)trafMismatch++;
+   t.key=byMesh||byIndex;
+ });
+ var tMesh={};traffic.forEach(function(t){tMesh[t.mesh.uuid]=1;});
+ var found=[];
+ scene.children.forEach(function(g){if(g.userData&&g.userData.wheels&&g!==player.mesh&&g!==police.mesh&&!tMesh[g.uuid])found.push(g);});
+ var matched=0,parkMismatch=0;
+ found.forEach(function(g){ /* each parked mesh sits exactly on a
+   PARKED_SOLIDS entry (the shipped __PARKED_AUDIT invariant) */
+   var bi=-1,bd=1e9;
+   for(var i=0;i<PARKED_SOLIDS.length;i++){var s=PARKED_SOLIDS[i];var d=dist2(g.position.x,g.position.z,s.x,s.z);if(d<bd){bd=d;bi=i;}}
+   if(bi<0||bd>2)return;
+   matched++;
+   var byMesh=s3MeshKey(g),byOrder=S3_PARK_KEYS[bi%3];
+   if(byMesh&&byMesh!==byOrder)parkMismatch++;
+   s3Spares.push({mesh:g,key:byMesh||byOrder,h:-g.rotation.y,own:false,rideRec:null,solid:PARKED_SOLIDS[bi]});
+ });
+ window.__S3_AUDIT={parkedMeshes:found.length,solids:PARKED_SOLIDS.length,registered:matched,keys:s3Spares.map(function(s){return s.key;}),trafficKeys:traffic.map(function(t){return t.key;}),keyMismatches:{parked:parkMismatch,traffic:trafMismatch}};
+ s3Chip=document.createElement('button');
+ s3Chip.className='btn gold';s3Chip.id='chip_steal';
+ s3Chip.style.cssText='font-size:14px;padding:9px 12px;display:none;';
+ s3Chip.textContent='\uD83D\uDE97 Steal';
+ $('interactBar').appendChild(s3Chip);
+ s3Chip.onclick=function(){s3DoSteal();};
+ try{var how=document.querySelector('#startScreen .howto');
+   if(how)how.innerHTML+='<div>\uD83D\uDE97 <b>Steal:</b> any parked car is yours — walk up, hit Steal. Carjack traffic when it\u2019s stopped. Stolen plates are HOT: ANPR means instant pursuit, and you can\u2019t insure or customise a robbed car</div>';
+ }catch(e){}
+ window.__S3={spares:function(){return s3Spares;},target:function(){return s3Target;},doSteal:s3DoSteal,ride:function(){return S?S.ride:null;}};
+})();
+
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
