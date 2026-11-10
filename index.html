@@ -896,6 +896,9 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
   <button class="btn ghost" id="setFsBtn">Turn Fullscreen On</button>
   <div class="rowline" style="margin-top:14px;"><span>Police AI debug (dev only)</span><b id="setPolDbgState">Off</b></div>
   <button class="btn ghost" id="setPolDbgBtn">Toggle Police Debug</button>
+  <div class="rowline" style="margin-top:14px;"><span>Graphics quality</span><b id="setGfxState">High</b></div>
+  <button class="btn ghost" id="setGfxBtn">Switch to Balanced</button>
+  <p class="small">High is the full semi-realistic pass. Balanced lowers the render resolution and softens contact shadows and wet sheen if your phone struggles — the look, lighting and world stay the same. Kept with your run.</p>
   <p class="small">Developer overlay: live police AI states, last-known position, arrest lock. Off by default; session only.</p>
   <p class="small" id="fsIosNote" style="display:none;">On iPhone, Safari can't fullscreen a web page in the browser — add The Dale to your Home Screen for true fullscreen.</p>
   <div class="rowline" style="margin-top:14px;"><span>HUD size</span><b id="setHudState">Standard</b></div>
@@ -1699,8 +1702,8 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.12;
 $('game').appendChild(renderer.domElement);
 var scene=new THREE.Scene();
-scene.background=new THREE.Color(0x263341);
-scene.fog=new THREE.FogExp2(0x263341,0.00016) /* R1: thinned so 3,000-unit landmarks read through it */;
+scene.background=new THREE.Color(0x39434e); /* v30.16: boots at the overcast midday grade (P5 eases it from here) */
+scene.fog=new THREE.FogExp2(0x3d454e,0.00016) /* R1: thinned so 3,000-unit landmarks read through it — density unchanged by v30.16 */;
 var camera=new THREE.PerspectiveCamera(55,viewW()/viewH(),5,6500) /* R1: far plane past the chunk-cull distance */;
 /* ---- PHASE 1 CAMERA RIG — GTA Chinatown Wars-style fixed angled view ----
    Tilt: 50 degrees down from horizontal (spec range 45-55).
@@ -1799,16 +1802,35 @@ function fitCamera(){
 fitCamera();
 scene.add(new THREE.HemisphereLight(0xc7dcf5,0x59544c,1.02)); /* §5: brown bounce cut */
 var sun=new THREE.DirectionalLight(0xfff1d8,1.25); /* §5 */ sun.position.set(300,600,150); scene.add(sun);
+/* ================= v30.16 — SEMI-REALISTIC GRAPHICS: SHARED GROUNDING =================
+   Soft contact-shadow texture (radial gradient, dark core -> transparent edge)
+   shared by the building grounding set, every car and every figure, so the
+   world sits IN its light instead of on flat black discs. Materials are
+   created ONCE here and registered in GFX16.shadowMats so the Graphics
+   quality tier can scale their strength without touching any mesh.
+   Shadow maps stay OFF (renderer.shadowMap.enabled=false above, unchanged):
+   a shadow pass would re-render the whole ~4k-mesh scene a second time —
+   the frame-cost proxy in the v30.16 changelog entry shows why contact
+   grounding is the shipped solution. */
+var GFX16={shadowMats:[],tier:1};
+function gfxShadowTex(){var c=document.createElement('canvas');c.width=c.height=128;var g=c.getContext('2d');var gr=g.createRadialGradient(64,64,6,64,64,62);gr.addColorStop(0,'rgba(0,0,0,0.92)');gr.addColorStop(.55,'rgba(0,0,0,0.55)');gr.addColorStop(.82,'rgba(0,0,0,0.18)');gr.addColorStop(1,'rgba(0,0,0,0)');g.fillStyle=gr;g.fillRect(0,0,128,128);var t=new THREE.CanvasTexture(c);return t;}
+var GFX_SHADOW_TEX=gfxShadowTex();
+function gfxShadowMat(opacity){var m=new THREE.MeshBasicMaterial({map:GFX_SHADOW_TEX,transparent:true,opacity:opacity,depthWrite:false});m.userData.baseOpacity=opacity;GFX16.shadowMats.push(m);return m;}
 
 /* ---- Ground: canvas texture painted from the real-map data ---- */
 function buildGroundTexture(){
  var cw=1860,ch=2260, /* R1: world canvas at 0.1 px/unit over R1_BOUNDS */c=document.createElement('canvas');c.width=cw;c.height=ch;var g=c.getContext('2d');
  function X(x){return (x+9800)/18600*cw;} function Y(z){return (z+6800)/22600*ch;} /* R1 mapping */
- g.fillStyle='#4c5548';g.fillRect(0,0,cw,ch); /* MAP REBUILD §5 ground base */
+ g.fillStyle='#565a4e';g.fillRect(0,0,cw,ch); /* MAP REBUILD §5 ground base · v30.16: muted grey-green northern ground (was #4c5548 saturated green) */
  /* block texture noise — richer two-tone grain; seed saved/restored so the shared rnd() stream (and therefore building layout) is unchanged */
  var _gseed=seed;
  for(var i=0;i<14000;i++){var light=rnd()>.48;g.fillStyle=light?'rgba(200,210,190,'+(rnd()*.055)+')':'rgba(5,12,10,'+(rnd()*.075)+')';g.fillRect(rnd()*cw,rnd()*ch,1+rnd()*3,1+rnd()*3);}
  seed=_gseed;
+ /* v30.16: large-scale tonal variation — worn urban grey-green vs greener
+    outskirts, so districts don't read as one flat fill. Private LCG: the
+    shared rnd() stream (building layout) is untouched. Paint only. */
+ (function(){var ls=771177;function lr(){ls=(ls*48271)%2147483647;return (ls-1)/2147483646;}
+   for(var bi=0;bi<260;bi++){var bx=lr()*cw,by=lr()*ch,br=30+lr()*120;var bg=g.createRadialGradient(bx,by,4,bx,by,br);var tone=lr()>.5?'90,96,78':'104,104,92';bg.addColorStop(0,'rgba('+tone+','+(0.05+lr()*0.07)+')');bg.addColorStop(1,'rgba('+tone+',0)');g.fillStyle=bg;g.beginPath();g.arc(bx,by,br,0,7);g.fill();}})();
  /* turf tints */
  /* MAP REBUILD §5: gang-colour radial washes REMOVED from the ground texture —
     turf identity stays on the minimap and banners only (Stage S6: the painted
@@ -1819,12 +1841,12 @@ function buildGroundTexture(){
  g.fillStyle='rgba(112,116,84,.35)';g.beginPath();g.ellipse(X(-4900),Y(-5200),130,80,0.4,0,7);g.fill();
  /* River Roch — Phase 3: greener banks (muddy grass fringe under the water) */
  g.lineCap='round';g.lineJoin='round';
- g.strokeStyle='#3e5233';g.lineWidth=6;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
- g.strokeStyle='#50663f';g.lineWidth=4.5;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
- g.strokeStyle='#2b5f8a';g.lineWidth=3.3;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
- g.strokeStyle='#3d7ab0';g.lineWidth=1.5;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
- g.strokeStyle='#2b5f8a';g.lineWidth=3.3;g.beginPath();R1_CANAL.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* R1: Rochdale Canal, one continuous band */
- g.strokeStyle='#3d7ab0';g.lineWidth=1.5;g.beginPath();R1_CANAL.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+ g.strokeStyle='#46523c';g.lineWidth=6;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* v30.16: muddier bank fringe */
+ g.strokeStyle='#55624a';g.lineWidth=4.5;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+ g.strokeStyle='#38565e';g.lineWidth=3.3;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* v30.16: slate-teal Pennine water (was bright game blue #2b5f8a) */
+ g.strokeStyle='#54707a';g.lineWidth=1.5;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* pale flow line — the cheap reflectivity read */
+ g.strokeStyle='#38565e';g.lineWidth=3.3;g.beginPath();R1_CANAL.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* R1: Rochdale Canal, one continuous band · v30.16 water palette */
+ g.strokeStyle='#54707a';g.lineWidth=1.5;g.beginPath();R1_CANAL.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
  g.fillStyle='#9fc6e8';g.font='700 5px Barlow, sans-serif';g.save();g.translate(X(-2700),Y(560));g.rotate(0.5);g.fillText('River Roch',0,0);g.restore();
  /* roads — Phase 3: slab-tone pavements (distinct from tarmac) with slab joints,
     grass verges on suburban streets, then a UK markings pass. Painted road-NAME
@@ -1842,10 +1864,10 @@ function buildGroundTexture(){
    }
    var mid=pathPoint(r.pts,.5),naId=mid?nearestAreaId(mid.x,mid.z):'';
    if(r.cls==='S'&&(naId==='norden'||naId==='spotland'||naId==='castleton'||naId==='heywood')){ /* grass verge */
-     g.strokeStyle='#55663f';g.lineWidth=wpx+4;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+     g.strokeStyle='#5c6a4c';g.lineWidth=wpx+4;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* v30.16: muted verge green */
    }
-   g.strokeStyle='#9aa0a2';g.lineWidth=wpx+pvPx(r);g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* pavement slabs */
-   g.strokeStyle='#393f46';g.lineWidth=wpx;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* tarmac */
+   g.strokeStyle='#8f9291';g.lineWidth=wpx+pvPx(r);g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* pavement slabs · v30.16: weathered concrete grey (was #9aa0a2) */
+   g.strokeStyle='#33383d';g.lineWidth=wpx;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* tarmac · v30.16: worn blue-grey asphalt (was #393f46) */
    /* slab joints across the pavement band */
    g.strokeStyle='rgba(20,22,24,.25)';g.lineWidth=1;g.beginPath();
    for(var si=0;si<r.pts.length-1;si++){
@@ -2110,7 +2132,7 @@ function buildGroundTexture2(){
  function X2(x){return (x-(WORLD2.cx-WORLD2.w/2))/WORLD2.w*cw;}
  function Y2(z){return (z-(WORLD2.cz-WORLD2.h/2))/WORLD2.h*ch;}
  var ls=987123; function lrnd(){ls=(ls*48271)%2147483647;return (ls-1)/2147483646;}
- g.fillStyle='#4c5548';g.fillRect(0,0,cw,ch); /* same ground base as the Rochdale canvas */
+ g.fillStyle='#565a4e';g.fillRect(0,0,cw,ch); /* same ground base as the Rochdale canvas · v30.16 muted palette */
  for(var i=0;i<8000;i++){var light=lrnd()>.48;g.fillStyle=light?'rgba(200,210,190,'+(lrnd()*.055)+')':'rgba(5,12,10,'+(lrnd()*.075)+')';g.fillRect(lrnd()*cw,lrnd()*ch,1+lrnd()*3,1+lrnd()*3);} /* lighter speckle than canvas 1: same read at 0.76 px/unit, faster first paint */
  g.lineCap='round';g.lineJoin='round';
  function roadWpx(r){return Math.round(rh(r)*2*(cw/WORLD2.w));} /* canvas px per world unit on this canvas */
@@ -2118,8 +2140,8 @@ function buildGroundTexture2(){
  function drawRoad2(r){
    if(r.cls==='R')return;
    var wpx=roadWpx(r);
-   g.strokeStyle='#9aa0a2';g.lineWidth=wpx+pvPx(r);g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X2(p[0]),Y2(p[1])):g.moveTo(X2(p[0]),Y2(p[1]));});g.stroke(); /* pavement slabs */
-   g.strokeStyle='#393f46';g.lineWidth=wpx;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X2(p[0]),Y2(p[1])):g.moveTo(X2(p[0]),Y2(p[1]));});g.stroke(); /* tarmac */
+   g.strokeStyle='#8f9291';g.lineWidth=wpx+pvPx(r);g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X2(p[0]),Y2(p[1])):g.moveTo(X2(p[0]),Y2(p[1]));});g.stroke(); /* pavement slabs · v30.16 palette */
+   g.strokeStyle='#33383d';g.lineWidth=wpx;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X2(p[0]),Y2(p[1])):g.moveTo(X2(p[0]),Y2(p[1]));});g.stroke(); /* tarmac · v30.16 palette */
    g.strokeStyle='rgba(20,22,24,.25)';g.lineWidth=1;g.beginPath();
    for(var si=0;si<r.pts.length-1;si++){
      var ax=X2(r.pts[si][0]),ay=Y2(r.pts[si][1]),bx=X2(r.pts[si+1][0]),by=Y2(r.pts[si+1][1]);
@@ -2195,8 +2217,8 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
  function bpick(a){return a[Math.floor(brnd()*a.length)];}
  /* ---- shared facade canvas textures ---- */
  function mkTex(draw){var c=document.createElement('canvas');c.width=256;c.height=256;var g=c.getContext('2d');draw(g);var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;return t;}
- function brick(g,base,plinth){g.fillStyle=base;g.fillRect(0,0,256,256);g.fillStyle='rgba(0,0,0,.055)';for(var y=4;y<256;y+=9)g.fillRect(0,y,256,1);for(var i=0;i<340;i++){g.fillStyle=(i%2?'rgba(255,232,205,':'rgba(12,6,0,')+(0.028+(i%5)*0.009)+')';g.fillRect((i*67)%250,(i*41)%250,13,5);}if(plinth){g.fillStyle=plinth;g.fillRect(0,242,256,14);}}
- function win(g,x,y,w,h,lit,arch){g.fillStyle='#cfc4ae';g.fillRect(x-3,y-7,w+6,6);g.fillStyle='#f4f1e9';g.fillRect(x-2,y-2,w+4,h+5);g.fillStyle=lit?'#ffb45c':'#31465c';g.fillRect(x,y,w,h);if(arch){g.beginPath();g.arc(x+w/2,y,w/2,Math.PI,0);g.fill();}g.fillStyle='rgba(255,255,255,.28)';g.fillRect(x+2,y+2,Math.max(2,w*.36),Math.max(2,h*.4));g.fillStyle='#f4f1e9';g.fillRect(x+w/2-1,y,2,h);g.fillRect(x,y+h/2-1,w,2);g.fillStyle='#cfc4ae';g.fillRect(x-3,y+h+4,w+6,4);}
+ function brick(g,base,plinth){g.fillStyle=base;g.fillRect(0,0,256,256);g.fillStyle='rgba(0,0,0,.055)';for(var y=4;y<256;y+=9)g.fillRect(0,y,256,1);for(var i=0;i<340;i++){g.fillStyle=(i%2?'rgba(255,232,205,':'rgba(12,6,0,')+(0.028+(i%5)*0.009)+')';g.fillRect((i*67)%250,(i*41)%250,13,5);} /* v30.16: per-brick tonal variation + baked base grime/AO on EVERY facade (was sample-only) */ for(var b2=0;b2<130;b2++){g.fillStyle=(b2%3?'rgba(20,10,4,':'rgba(255,226,196,')+(0.03+((b2*7)%5)*0.011)+')';g.fillRect((b2*97)%244,(b2*53)%238,11,4);}var ao2=g.createLinearGradient(0,182,0,256);ao2.addColorStop(0,'rgba(12,9,6,0)');ao2.addColorStop(1,'rgba(12,9,6,.34)');g.fillStyle=ao2;g.fillRect(0,182,256,74);if(plinth){g.fillStyle=plinth;g.fillRect(0,242,256,14);}}
+ function win(g,x,y,w,h,lit,arch){g.fillStyle='#cfc4ae';g.fillRect(x-3,y-7,w+6,6);g.fillStyle='#f4f1e9';g.fillRect(x-2,y-2,w+4,h+5);g.fillStyle=lit?'#ffb45c':'#2e3d47';g.fillRect(x,y,w,h); /* v30.16: unlit glass muted slate (was #31465c); lit windows stay warm — night signalling unchanged */if(arch){g.beginPath();g.arc(x+w/2,y,w/2,Math.PI,0);g.fill();}g.fillStyle='rgba(255,255,255,.28)';g.fillRect(x+2,y+2,Math.max(2,w*.36),Math.max(2,h*.4));g.fillStyle='#f4f1e9';g.fillRect(x+w/2-1,y,2,h);g.fillRect(x,y+h/2-1,w,2);g.fillStyle='#cfc4ae';g.fillRect(x-3,y+h+4,w+6,4);}
  function door(g,x,y,w,h,col){g.fillStyle='#e9e3d3';g.fillRect(x-3,y-4,w+6,h+4);g.fillStyle=col;g.fillRect(x,y,w,h);g.fillStyle='rgba(255,255,255,.32)';g.fillRect(x+w*.16,y+7,w*.28,h*.32);g.fillStyle='#d9c26a';g.fillRect(x+w-8,y+h*.52,4,4);}
  function terraceTex(base,doorCol,litSeed){return mkTex(function(g){brick(g,base,'#3f3a36');
    /* MAP REBUILD §4 facade modules on the 34x40 terrace unit: door 7x14, windows 8x10, storey pitch 13, stone lintels, plinth band */
@@ -2245,19 +2267,28 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
   ind:[indTex('#6d7680'),indTex('#7a6a58'),indTex('#5f6d75')].map(lm),
   stone:lm(stoneTex()),clock:lm(clockTex()),safe:lm(safeTex())
  };
- var roofMats=[0x41474e,0x48525b,0x4a4640] /* §5 slate family */.map(function(c){return new THREE.MeshLambertMaterial({color:c});});
- var roofMat=new THREE.MeshLambertMaterial({color:0x464c50});
+ /* v30.16: roofs get real surface — canvas textures by typology (slate courses
+    with per-slate variation + moss flecks for pitched roofs; mineral felt for
+    flat roofs), shared materials exactly as before. Tints keep the §5 slate
+    family values so the palette read is unchanged, only surfaced. */
+ function roofTex(kind){var c=document.createElement('canvas');c.width=c.height=256;var g=c.getContext('2d');var rs=5150;function rr(){rs=(rs*48271)%2147483647;return (rs-1)/2147483646;}
+   if(kind==='felt'){g.fillStyle='#4a4d4c';g.fillRect(0,0,256,256);for(var fi=0;fi<2600;fi++){g.fillStyle=fi%2?'rgba(255,255,255,.05)':'rgba(0,0,0,.07)';g.fillRect(rr()*256,rr()*256,2,2);}g.fillStyle='rgba(0,0,0,.22)';g.fillRect(0,84,256,3);g.fillRect(0,170,256,3); /* felt seams */ }
+   else{g.fillStyle='#3c4148';g.fillRect(0,0,256,256);for(var ry3=0;ry3<256;ry3+=16){var off3=((ry3/16)%2)*21;for(var rx3=-21;rx3<256;rx3+=42){var v3=rr();g.fillStyle='rgba('+(v3>.5?'215,222,230':'8,10,14')+','+(0.05+v3*0.09)+')';g.fillRect(rx3+off3+1,ry3+1,40,14);}}for(var mi=0;mi<26;mi++){g.fillStyle='rgba(96,110,70,'+(0.10+rr()*0.14)+')';g.fillRect(rr()*250,rr()*250,3+rr()*7,2+rr()*4);} /* moss flecks */ g.fillStyle='rgba(0,0,0,.28)';for(var sy3=15;sy3<256;sy3+=16)g.fillRect(0,sy3,256,2); /* course shadow lines */}
+   var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
+ var ROOF_TEX_SLATE=roofTex('slate'),ROOF_TEX_FELT=roofTex('felt');
+ var roofMats=[0xffffff,0xe9edf0,0xdcd6c4] /* near-white tints: the slate texture itself carries the §5 slate-family darkness; the three tints give slate / blue-slate / stone-tile variety */.map(function(c){return new THREE.MeshLambertMaterial({color:c,map:ROOF_TEX_SLATE});});
+ var roofMat=new THREE.MeshLambertMaterial({color:0xf0f2f0,map:ROOF_TEX_FELT}); /* flat roofs: mineral felt (texture carries the tone) */
  var roofDetailMat=new THREE.MeshLambertMaterial({color:0x353a3c});
  var roofLightMat=new THREE.MeshBasicMaterial({color:0xb5a17b});
  var brickPlain=new THREE.MeshLambertMaterial({color:0x86543e});
  var trimMat=new THREE.MeshLambertMaterial({color:0xd8d2c4});
  var darkMat=new THREE.MeshLambertMaterial({color:0x2c2f33});
- var hedgeMat=new THREE.MeshLambertMaterial({color:0x39543a});
+ var hedgeMat=new THREE.MeshLambertMaterial({color:0x44543c}); /* v30.16: muted hedge green */
  var shutterMat=new THREE.MeshLambertMaterial({color:0x99a1a8});
  var signMat=new THREE.MeshLambertMaterial({color:0x274435});
  var binMats=[0x3f7a3a,0x555b60,0x6b4a2f].map(function(c){return new THREE.MeshLambertMaterial({color:c});});
  /* pitched-roof prism: one shared unit geometry, ridge along local X, scaled per building */
- var PRISM=(function(){var v=[[-.5,0,.5],[.5,0,.5],[.5,1,0],[.5,1,0],[-.5,1,0],[-.5,0,.5],[.5,0,-.5],[-.5,0,-.5],[-.5,1,0],[-.5,1,0],[.5,1,0],[.5,0,-.5],[-.5,0,-.5],[-.5,0,.5],[-.5,1,0],[.5,0,.5],[.5,0,-.5],[.5,1,0]];var pos=new Float32Array(54);for(var i=0;i<18;i++){pos[i*3]=v[i][0];pos[i*3+1]=v[i][1];pos[i*3+2]=v[i][2];}var gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.BufferAttribute(pos,3));gg.computeVertexNormals();return gg;})();
+ var PRISM=(function(){var v=[[-.5,0,.5],[.5,0,.5],[.5,1,0],[.5,1,0],[-.5,1,0],[-.5,0,.5],[.5,0,-.5],[-.5,0,-.5],[-.5,1,0],[-.5,1,0],[.5,1,0],[.5,0,-.5],[-.5,0,-.5],[-.5,0,.5],[-.5,1,0],[.5,0,.5],[.5,0,-.5],[.5,1,0]];var pos=new Float32Array(54);for(var i=0;i<18;i++){pos[i*3]=v[i][0];pos[i*3+1]=v[i][1];pos[i*3+2]=v[i][2];}var gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.BufferAttribute(pos,3)); /* v30.16: UVs added (positions byte-identical) so the pitched roofs can carry the slate texture — u along the ridge, v up the slope */ var uv=new Float32Array(36);for(var ui2=0;ui2<18;ui2++){uv[ui2*2]=v[ui2][0]+.5;uv[ui2*2+1]=v[ui2][1]+(v[ui2][2]+.5)*.35;}gg.setAttribute('uv',new THREE.BufferAttribute(uv,2));gg.computeVertexNormals();return gg;})();
  SAFE_KIT={mat:MAT.safe,prism:PRISM,roof:roofMats[0],brick:brickPlain};
  function nearestArea(x,z){var best=null,bd=1e12;for(var i=0;i<AREAS.length;i++){var dx=x-AREAS[i].x,dz=z-AREAS[i].z,dd=dx*dx+dz*dz;if(dd<bd){bd=dd;best=AREAS[i].id;}}return{id:best,d:Math.sqrt(bd)};}
  function addMesh(grp,parts,geom,mat,px,py,pz){if(px===undefined){px=0;py=0;pz=0;}var mm=new THREE.Mesh(geom,mat);mm.position.set(px,py,pz);grp.add(mm);parts.push(mm);return mm;} /* MAP REBUILD lint: NO addMesh call may omit position args — the missing args in mfEmit were the v21 roof-slab bug (NaN transform, walls never rendered) */
@@ -2842,8 +2873,8 @@ bMeshes.push({x:SAFE.x,z:SAFE.z-19,hw:24,hd:18,top:54,parts:[safeHouseMesh,safeR
 (function(){
  try{
   /* ---- plot dressing: assigned greens, courts, yards (visual only, no collision) ---- */
-  var lawnM=new THREE.MeshLambertMaterial({color:0x5d7346}),courtM=new THREE.MeshLambertMaterial({color:0x6a7076}),
-      stoneM=new THREE.MeshLambertMaterial({color:0x8a8578}),grassM=new THREE.MeshLambertMaterial({color:0x55663f});
+  var lawnM=new THREE.MeshLambertMaterial({color:0x66744f}),courtM=new THREE.MeshLambertMaterial({color:0x74777a}),
+      stoneM=new THREE.MeshLambertMaterial({color:0x8a8578}),grassM=new THREE.MeshLambertMaterial({color:0x5c6a4c}); /* v30.16: muted lawn/verge palette */
   function slab(x,z,w,d,mat,ry){var m=new THREE.Mesh(new THREE.BoxGeometry(w,1.2,d),mat);m.position.set(x,0.6,z);if(ry)m.rotation.y=ry;scene.add(m);return m;}
   slab(-668,-884,150,110,lawnM);            /* Norden Green (§7) — defined green, NOT building land */
   slab(-1000,240,80,60,lawnM);              /* Heywood pocket, Market/Dawson corner */
@@ -2872,7 +2903,7 @@ bMeshes.push({x:SAFE.x,z:SAFE.z-19,hw:24,hd:18,top:54,parts:[safeHouseMesh,safeR
   instSet(new THREE.BoxGeometry(1,1,1),new THREE.MeshLambertMaterial({color:0x33302b}),function(b){dummy.position.set(b.x,1.5,b.z);dummy.rotation.set(0,b.rot,0);dummy.scale.set(b.w+3,7,b.d+3);});
   instSet(new THREE.BoxGeometry(1,1,1),new THREE.MeshLambertMaterial({color:0x353a3c}),function(b){dummy.position.set(b.x,b.h-0.8,b.z);dummy.rotation.set(0,b.rot,0);dummy.scale.set(b.w+4,1.6,b.d+4);});
   var shGeo=new THREE.PlaneGeometry(1,1);shGeo.rotateX(-Math.PI/2);
-  instSet(shGeo,new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.28,depthWrite:false}),function(b){dummy.position.set(b.x,0.35,b.z);dummy.rotation.set(0,b.rot,0);dummy.scale.set(b.w+10,1,b.d+10);});
+  instSet(shGeo,gfxShadowMat(0.5),function(b){dummy.position.set(b.x,0.35,b.z);dummy.rotation.set(0,b.rot,0);dummy.scale.set(b.w+13,1,b.d+13);}); /* v30.16: soft-gradient contact shadow, wider + stronger core (was flat black, opacity .28, +10) — same ONE instanced set, same draw-call count; the gradient texture supplies the falloff the flat disc never had */
   /* ---- §11.1 PERMANENT GATE: per-building AABB assertion over the fade registry.
      Every entry must have a finite world AABB with min.y <= 0.1 and max.y >= top-6.
      (In v21 this fails for every mfEmit building: the wall box AABB was NaN.) ---- */
@@ -2904,8 +2935,8 @@ bMeshes.push({x:SAFE.x,z:SAFE.z-19,hw:24,hd:18,top:54,parts:[safeHouseMesh,safeR
    parked lists), Middleton Bus Station with a static bus, Middleton Gardens. */
 (function(){
  try{
-  var lawnM2=new THREE.MeshLambertMaterial({color:0x5d7346}),courtM2=new THREE.MeshLambertMaterial({color:0x6a7076}),
-      hedgeM2=new THREE.MeshLambertMaterial({color:0x39543a}),darkM2=new THREE.MeshLambertMaterial({color:0x2c2f33}),
+  var lawnM2=new THREE.MeshLambertMaterial({color:0x66744f}),courtM2=new THREE.MeshLambertMaterial({color:0x74777a}),
+      hedgeM2=new THREE.MeshLambertMaterial({color:0x44543c}),darkM2=new THREE.MeshLambertMaterial({color:0x2c2f33}), /* v30.16 palette */
       bayM2=new THREE.MeshLambertMaterial({color:0xd8d8d2});
   function slab2(x,z,w,d,mat,ry){x-=3810;z+=9600; /* R1: X-1 Middleton dressing rides its block */var m=new THREE.Mesh(new THREE.BoxGeometry(w,1.2,d),mat);m.position.set(x,0.6,z);if(ry)m.rotation.y=ry;scene.add(m);return m;}
   function box2(x,y,z,w,h,d,mat,ry){x-=3810;z+=9600; /* R1 */var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);if(ry)m.rotation.y=ry;scene.add(m);return m;}
@@ -3611,7 +3642,13 @@ var CAR_GEO_CACHE={},CAR_MAT_CACHE={};
 function carGeo(w,h,d){var k='b'+w+'_'+h+'_'+d;if(!CAR_GEO_CACHE[k])CAR_GEO_CACHE[k]=new THREE.BoxGeometry(w,h,d);return CAR_GEO_CACHE[k];}
 function carCyl(rt,rb,h,s){var k='c'+rt+'_'+rb+'_'+h+'_'+s;if(!CAR_GEO_CACHE[k])CAR_GEO_CACHE[k]=new THREE.CylinderGeometry(rt,rb,h,s);return CAR_GEO_CACHE[k];}
 function carMat(col){if(!CAR_MAT_CACHE[col])CAR_MAT_CACHE[col]=new THREE.MeshLambertMaterial({color:col});return CAR_MAT_CACHE[col];}
-var CAR_GLASS=[0x39506b,0x18222e,0x05070a].map(function(c){return new THREE.MeshLambertMaterial({color:c});});
+/* v30.16: car PAINT gets a gloss response (Phong specular from the sun rig) and
+   glass gets a harder specular — the semi-realistic car read. Paint colours
+   themselves are data and are NOT muted (crew/leader colours keep reading);
+   trim/tyres/hubs stay matte Lambert through carMat exactly as shipped. */
+var CAR_PAINT_CACHE={};
+function carPaintMat(col){if(!CAR_PAINT_CACHE[col])CAR_PAINT_CACHE[col]=new THREE.MeshPhongMaterial({color:col,shininess:42,specular:0x9aa4ae});return CAR_PAINT_CACHE[col];}
+var CAR_GLASS=[0x39506b,0x18222e,0x05070a].map(function(c){return new THREE.MeshPhongMaterial({color:c,shininess:110,specular:0xbcc8d4});});
 var CAR_TYRE=carMat(0x17181a),CAR_HUB_L=carMat(0xb9bec6),CAR_HUB_D=carMat(0x232428),
     CAR_CHROME=carMat(0xd7dbe0),CAR_TRIM=carMat(0x14161a),CAR_EXH=carMat(0x6d7278);
 var CAR_HL=new THREE.MeshBasicMaterial({color:0xfff6c9}),CAR_TL=new THREE.MeshBasicMaterial({color:0xd21f26}),
@@ -3653,11 +3690,11 @@ function rollWheels(grp,dist,steerA){
 function makeCarMesh(spec,color,tint,alloyBlack){
  var grp=new THREE.Group();
  var colr=(color===null||color===undefined)?spec.defColor:color;
- var bodyMat=carMat(colr);
+ var bodyMat=carPaintMat(colr); /* v30.16: gloss paint (was flat Lambert carMat) */
  var glassMat=CAR_GLASS[Math.max(0,Math.min(2,tint||0))];
  var w=spec.w,l=spec.l,kind=spec.body;
  var isBattered=(spec===CARS.battered),isHot=(spec===CARS.hot);
- var csh=new THREE.Mesh(new THREE.PlaneGeometry(w+8,l+8),new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:.3,depthWrite:false}));
+ var csh=new THREE.Mesh(new THREE.PlaneGeometry(w+9,l+9),gfxShadowMat(0.55)); /* v30.16: soft-gradient contact shadow under every car (was flat black .3) — same per-car plane, shared material, no new draw calls */
  csh.rotation.x=-Math.PI/2;csh.position.y=.45;grp.add(csh);
  var wheelR=kind==='suv'?4.3:3.4;
  var bodyH=kind==='suv'?10.5:(kind==='coupe'?6.6:7.4);
@@ -3773,7 +3810,7 @@ function figPart(parent,geo,mat,x,y,z){var m=new THREE.Mesh(geo,mat);m.position.
 function makeFigure(jacketColor,legColor,skinColor,opts){
  opts=opts||{};
  var grp=new THREE.Group();
- var fsh=new THREE.Mesh(new THREE.CircleGeometry(6.5,12),new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:.3,depthWrite:false}));
+ var fsh=new THREE.Mesh(new THREE.CircleGeometry(7.2,12),gfxShadowMat(0.5)); /* v30.16: soft-gradient contact shadow under every figure (was flat black .3) — same circle mesh, shared material */
  fsh.rotation.x=-Math.PI/2;fsh.position.y=.4;grp.add(fsh);
  var body=new THREE.Group();grp.add(body);
  var jm=new THREE.MeshLambertMaterial({color:jacketColor});
@@ -4754,7 +4791,7 @@ function newState(){
   outfit:{Head:'none_head',Jacket:'tracksuit',Bottoms:'joggers',Trainers:'worn',Accessories:'none_acc'},
   ownedClothes:{none_head:true,tracksuit:true,joggers:true,worn:true,none_acc:true},
   car:'saloon',ownedCars:{saloon:true},carMods:{saloon:{color:null,tint:0,alloy:false,loud:false}},
-  carDamage:0,balaCd:0,muted:false,phoneOn:true,tracksuitCW:'charcoal',camMode:2,camVer:2,ui:{hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}}}; /* v30.5: append-only — tracksuit colourway (safe default charcoal; older states read via tsCW()) · v30.6: append-only — camMode = camera view index (0 = CLASSIC in the four-view order; older states default via ensureGoods) · v30.7: append-only — ui = UI customization (presentation only; 1 = Standard / Shown = today's look; older states default via ensureGoods) · v30.9: append-only — camMode default is 2 = CLASSIC in the SIX-view order, and camVer = 2 stamps the state as already migrated (ensureGoods remaps pre-v30.9 indices once, guarded by this flag) · v30.10: append-only — ui.pos = movable-UI positions (element key → {x,y} as % of the presented game-root size; empty = every element at its shipped default; older states default via ensureGoods) */
+  carDamage:0,balaCd:0,muted:false,phoneOn:true,tracksuitCW:'charcoal',camMode:2,camVer:2,ui:{hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{},gfx:1}}; /* v30.5: append-only — tracksuit colourway (safe default charcoal; older states read via tsCW()) · v30.6: append-only — camMode = camera view index (0 = CLASSIC in the four-view order; older states default via ensureGoods) · v30.7: append-only — ui = UI customization (presentation only; 1 = Standard / Shown = today's look; older states default via ensureGoods) · v30.9: append-only — camMode default is 2 = CLASSIC in the SIX-view order, and camVer = 2 stamps the state as already migrated (ensureGoods remaps pre-v30.9 indices once, guarded by this flag) · v30.10: append-only — ui.pos = movable-UI positions (element key → {x,y} as % of the presented game-root size; empty = every element at its shipped default; older states default via ensureGoods) */
 }
 AREAS.forEach(function(a){});
 function outfitStats(){
@@ -6859,6 +6896,7 @@ function ensureGoods(){
  if(typeof S.ui.mmShow!=='boolean')S.ui.mmShow=S.ui.mmShow!==false;
  if(!S.ui.pos||typeof S.ui.pos!=='object'||Array.isArray(S.ui.pos))S.ui.pos={}; /* v30.10: append-only — movable-UI positions; old states default to {} = all shipped positions */
  (function(){var LK=['feed','minimap','tasks','topbar','speed','phone','stick','fight','steer','pedals','talk'];Object.keys(S.ui.pos).forEach(function(k){if(LK.indexOf(k)<0){delete S.ui.pos[k];return;}var p=S.ui.pos[k];if(!p||typeof p!=='object'||typeof p.x!=='number'||typeof p.y!=='number'||!isFinite(p.x)||!isFinite(p.y)){delete S.ui.pos[k];return;}p.x=Math.max(0,Math.min(100,p.x));p.y=Math.max(0,Math.min(100,p.y));});})(); /* v30.10: sanitise the positions map — unknown keys and corrupt entries are dropped, never thrown */
+ if(S.ui.gfx===undefined||(S.ui.gfx!==0&&S.ui.gfx!==1))S.ui.gfx=1; /* v30.16: append-only — Graphics quality tier (1 = High, 0 = Balanced); old states default to High, the tier the pass is budgeted for */
  if(!S.seenCams)S.seenCams=[]; /* X-3 (v31): append-only — ANPR cameras the player has discovered (design §7.1 fairness ruling); safe default empty, old saves load clean */
  if(S.missedTotal===undefined)S.missedTotal=0;
  if(!S.carRecords)S.carRecords={};
@@ -9866,30 +9904,39 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
  function streakTex(){var c=document.createElement('canvas');c.width=16;c.height=64;var g=c.getContext('2d');var gr=g.createLinearGradient(0,0,0,64);gr.addColorStop(0,'rgba(190,210,235,0)');gr.addColorStop(.5,'rgba(190,210,235,.9)');gr.addColorStop(1,'rgba(190,210,235,0)');g.fillStyle=gr;g.fillRect(6,0,4,64);return new THREE.CanvasTexture(c);}
  var GTEX=glowTex();
  function glowSprite(color,scale){var m=new THREE.SpriteMaterial({map:GTEX,color:color,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending});var s=new THREE.Sprite(m);s.scale.set(scale,scale,1);return s;}
- /* ---------- day/night keyframes (midday = the v15 look, untouched values) ---------- */
+ /* ---------- day/night keyframes ----------
+    v30.16 NORTHERN LIGHT MODEL (semi-realistic pass): daytime Rochdale is
+    OVERCAST by default — a desaturated grey-blue sky dome, soft warm-neutral
+    sun kept BELOW the old peak (1.25 -> 1.14) with hemisphere fill raised so
+    materials sit in one graded world; dawn/dusk keep a warmer, lower sun;
+    night is a believable dark blue-grey lit by the lamp/window systems
+    below, not a blue wash. `hg` is the hemisphere GROUND bounce tint per
+    key (tarmac/grass bounce), applied in the tick alongside the sky colour.
+    Fog colour tracks the sky per key, as shipped; fog DENSITY and the R1
+    sightlines are untouched by this retune. */
  var KEYS=[
-  {h:0,   sky:0x0b1424,fog:0x0b1424,sun:0x8fb4e8,si:.22,hi:.34,ex:.92,n:1},
-  {h:5,   sky:0x0d1730,fog:0x0f1a2e,sun:0x8fb4e8,si:.20,hi:.34,ex:.92,n:1},
-  {h:6.5, sky:0x77685c,fog:0x7d7468,sun:0xffb45c,si:.75,hi:.55,ex:1.04,n:.45}, /* §5 dawn fog key softened */
-  {h:8.5, sky:0x3d5269,fog:0x3d5269,sun:0xffdfae,si:1.08,hi:.92,ex:1.10,n:.06},
-  {h:13,  sky:0x263341,fog:0x263341,sun:0xffe7bd,si:1.25,hi:1.02,ex:1.12,n:0},
-  {h:16.5,sky:0x2b3c4d,fog:0x2b3c4d,sun:0xffd9a0,si:1.14,hi:.95,ex:1.10,n:.04},
-  {h:18.8,sky:0x54383e,fog:0x64443c,sun:0xff8a4d,si:.68,hi:.58,ex:1.02,n:.5},
-  {h:20.3,sky:0x1a2637,fog:0x1c2838,sun:0xa8bce0,si:.30,hi:.42,ex:.97,n:.85},
-  {h:21.5,sky:0x0b1424,fog:0x0b1424,sun:0x8fb4e8,si:.22,hi:.34,ex:.92,n:1},
-  {h:24,  sky:0x0b1424,fog:0x0b1424,sun:0x8fb4e8,si:.22,hi:.34,ex:.92,n:1}
+  {h:0,   sky:0x0a121e,fog:0x0a121e,sun:0x93aed6,si:.18,hi:.30,ex:.92,n:1,hg:0x1c2026},
+  {h:5,   sky:0x0c1622,fog:0x0e1826,sun:0x93aed6,si:.17,hi:.30,ex:.92,n:1,hg:0x1c2026},
+  {h:6.5, sky:0x7d7268,fog:0x847a6e,sun:0xffa95e,si:.78,hi:.56,ex:1.03,n:.45,hg:0x4a4238}, /* dawn: warm low sun, softened fog key kept */
+  {h:8.5, sky:0x46586a,fog:0x4a5c6e,sun:0xffdfae,si:1.02,hi:.96,ex:1.08,n:.06,hg:0x55534a},
+  {h:13,  sky:0x39434e,fog:0x3d454e,sun:0xfff0d6,si:1.14,hi:1.06,ex:1.09,n:0,hg:0x5a5c52}, /* midday overcast: grey-blue dome, ground bounce up, sun peak down */
+  {h:16.5,sky:0x3d4753,fog:0x414a54,sun:0xffd9a0,si:1.06,hi:1.0,ex:1.08,n:.04,hg:0x585a50},
+  {h:18.8,sky:0x5c4038,fog:0x6b4c3e,sun:0xff8a4d,si:.66,hi:.58,ex:1.01,n:.5,hg:0x453a30}, /* dusk: warm low sun */
+  {h:20.3,sky:0x1a2637,fog:0x1c2838,sun:0xa8bce0,si:.28,hi:.40,ex:.96,n:.85,hg:0x232830},
+  {h:21.5,sky:0x0a121e,fog:0x0a121e,sun:0x93aed6,si:.18,hi:.30,ex:.92,n:1,hg:0x1c2026},
+  {h:24,  sky:0x0a121e,fog:0x0a121e,sun:0x93aed6,si:.18,hi:.30,ex:.92,n:1,hg:0x1c2026}
  ];
- KEYS.forEach(function(k){k.skyC=new THREE.Color(k.sky);k.fogC=new THREE.Color(k.fog);k.sunC=new THREE.Color(k.sun);});
+ KEYS.forEach(function(k){k.skyC=new THREE.Color(k.sky);k.fogC=new THREE.Color(k.fog);k.sunC=new THREE.Color(k.sun);k.hgC=new THREE.Color(k.hg);});
  function sampleGrade(h){
    for(var i=0;i<KEYS.length-1;i++){var a=KEYS[i],b=KEYS[i+1];
      if(h>=a.h&&h<=b.h){var f=(h-a.h)/Math.max(.0001,b.h-a.h);
        return {sky:new THREE.Color().lerpColors(a.skyC,b.skyC,f),fog:new THREE.Color().lerpColors(a.fogC,b.fogC,f),
-         sun:new THREE.Color().lerpColors(a.sunC,b.sunC,f),si:a.si+(b.si-a.si)*f,hi:a.hi+(b.hi-a.hi)*f,
+         sun:new THREE.Color().lerpColors(a.sunC,b.sunC,f),hg:new THREE.Color().lerpColors(a.hgC,b.hgC,f),si:a.si+(b.si-a.si)*f,hi:a.hi+(b.hi-a.hi)*f,
          ex:a.ex+(b.ex-a.ex)*f,n:a.n+(b.n-a.n)*f};}
    }
-   var l=KEYS[KEYS.length-1];return {sky:l.skyC.clone(),fog:l.fogC.clone(),sun:l.sunC.clone(),si:l.si,hi:l.hi,ex:l.ex,n:l.n};
+   var l=KEYS[KEYS.length-1];return {sky:l.skyC.clone(),fog:l.fogC.clone(),sun:l.sunC.clone(),hg:l.hgC.clone(),si:l.si,hi:l.hi,ex:l.ex,n:l.n};
  }
- var cur={sky:new THREE.Color(0x263341),fog:new THREE.Color(0x263341),sun:new THREE.Color(0xffe7bd),si:1.25,hi:1.02,ex:1.12,n:0};
+ var cur={sky:new THREE.Color(0x39434e),fog:new THREE.Color(0x3d454e),sun:new THREE.Color(0xfff0d6),hg:new THREE.Color(0x5a5c52),si:1.14,hi:1.06,ex:1.09,n:0}; /* v30.16: boots at the new overcast midday grade */
  var GREY=new THREE.Color(0x565e66),tmpC=new THREE.Color();
  /* ---------- weather ---------- */
  var WXS={clear:{rain:0,fog:0,cloud:.12,label:'Clear spells'},overcast:{rain:0,fog:.05,cloud:.8,label:'Overcast'},drizzle:{rain:.35,fog:.12,cloud:.85,label:'Drizzle'},rain:{rain:.72,fog:.18,cloud:.95,label:'Rain'},downpour:{rain:1,fog:.3,cloud:1,label:'Downpour'},fog:{rain:0,fog:1,cloud:.6,label:'Fog'}};
@@ -10057,7 +10104,7 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
      /* grade target + smoothing (menu keeps the v15 midday look) */
      var gt=playing?sampleGrade(P5.hour):sampleGrade(13);
      var k=1-Math.exp(-dt*(playing?1.1:2.2));
-     cur.sky.lerp(gt.sky,k);cur.fog.lerp(gt.fog,k);cur.sun.lerp(gt.sun,k);
+     cur.sky.lerp(gt.sky,k);cur.fog.lerp(gt.fog,k);cur.sun.lerp(gt.sun,k);cur.hg.lerp(gt.hg,k); /* v30.16: ground bounce eases with the grade */
      cur.si+=(gt.si-cur.si)*k;cur.hi+=(gt.hi-cur.hi)*k;cur.ex+=(gt.ex-cur.ex)*k;cur.n+=(gt.n-cur.n)*k;
      P5.night=cur.n;
      var cloudDim=1-WX.cloud*(playing?.45:0);
@@ -10065,13 +10112,13 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
      tmpC.copy(cur.fog).lerp(GREY,WX.cloud*(playing?.3:0));scene.fog.color.copy(tmpC);
      var dens=.00016*(0.85+WX.cloud*.25)+WX.fog*.00105+cur.n*.00003;
      scene.fog.density=Math.min(.0015,playing?dens:.00016);
-     var farT=playing?4000-WX.fog*1700:4000;
+     var farT=playing?6500-WX.fog*3200:6500; /* v30.16: far plane honours the R1 raise to 6,500 (the P5 tick previously re-clamped it to 4,000, quietly undoing the R1 sightlines); weather fog still pulls it in — heavy fog ~3,300 */
      if(Math.abs(camera.far-farT)>60){camera.far=farT;camera.updateProjectionMatrix();}
      sun.color.copy(cur.sun);sun.intensity=cur.si*cloudDim;
-     hemi.intensity=cur.hi*(1-WX.cloud*(playing?.25:0));hemi.color.copy(cur.sky).lerp(new THREE.Color(0xffffff),.35);
+     hemi.intensity=cur.hi*(1-WX.cloud*(playing?.25:0));hemi.color.copy(cur.sky).lerp(new THREE.Color(0xffffff),.35);hemi.groundColor.copy(cur.hg); /* v30.16: per-key ground bounce (tarmac/grass) so bases sit in the grade */
      renderer.toneMappingExposure=cur.ex*(1-WX.cloud*(playing?.07:0));
      var ang=(P5.hour/24)*Math.PI*2-Math.PI/2;
-     sun.position.set(camPos.x+Math.cos(ang)*620,Math.max(150,Math.sin(ang)*640+90),camPos.z+300);
+     sun.position.set(camPos.x+Math.cos(ang)*620,Math.max(150,Math.sin(ang)*640+90),camPos.z+190); /* v30.16: sun swings closer to the east-west line (z offset 300 -> 190) so dawn/dusk light rakes across facades instead of flattening them */
      sun.target.position.set(camPos.x,0,camPos.z);sun.target.updateMatrixWorld();
      document.body.classList.toggle('p5night',playing&&cur.n>.6);
      if(!playing)return;
@@ -10093,6 +10140,7 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
      /* wet roads: darker ground (lite tier stays near-matte), puddles fade in/out */
      var sheen=P5.tier==='lite'?.35:1;
      ground.material.color.setScalar(1-.38*wet*sheen);
+     if(typeof ground2!=='undefined'&&ground2&&ground2.material)ground2.material.color.setScalar(1-.38*wet*sheen); /* v30.16: the southern canvas wets with the main ground (it stayed dry before); specular lift rides the existing puddle + lamp-pool opacity, which already scale with wet */
      if(puddleMat)puddleMat.opacity=clamp((wet-.3)*1.5,0,.5)*(P5.tier==='lite'?.4:1);
      /* cars */
      HL_MAT.opacity=nf*.85;
@@ -10128,12 +10176,13 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
        }
      }
    }catch(e){P5.errs++;if(P5.errs>6){/* fail safe: restore dry grip + v15 grade, stop ticking */
-     try{WET_GRIP=1;scene.background.setHex(0x263341);scene.fog.color.setHex(0x263341);scene.fog.density=.00016;sun.intensity=1.25;sun.color.setHex(0xfff1d8);renderer.toneMappingExposure=1.12;}catch(e2){}
+     try{WET_GRIP=1;scene.background.setHex(0x39434e);scene.fog.color.setHex(0x3d454e);scene.fog.density=.00016;sun.intensity=1.14;sun.color.setHex(0xfff0d6);renderer.toneMappingExposure=1.09;}catch(e2){} /* v30.16: fail-safe restores the new overcast midday grade */
      return;}
    }
  }
  requestAnimationFrame(p5tick);
  window.__daleP5={info:function(){return {hour:Math.round(P5.hour*10)/10,night:Math.round(P5.night*100)/100,weather:WX.state,rain:Math.round(WX.rain*100)/100,fog:Math.round(WX.fog*100)/100,wet:Math.round(P5.wet*1000)/1000,wetGrip:WET_GRIP,tier:P5.tier,lamps:lampHeads.length,errs:P5.errs};},
+   gradeAt:function(h){var g=sampleGrade(h);return {sky:'#'+g.sky.getHexString(),fog:'#'+g.fog.getHexString(),sun:'#'+g.sun.getHexString(),hg:'#'+g.hg.getHexString(),si:g.si,hi:g.hi,ex:g.ex,n:g.n};}, /* v30.16: pure grade sampler for the state-matrix harness (dawn/day/dusk/night x dry/rain) */
    forceWeather:function(s){if(WXS[s]){WX.state=s;WX.shiftT=99999;}},
    setClock:function(v){if(S&&typeof v==='number')S.clock=v;}};
  /* preview params (inert without them): #p5wx=rain / #p5clock=40 — same pattern as the menu's #fresh */
@@ -10143,6 +10192,30 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
      if(p5q.p5clock){var cv2=parseFloat(p5q.p5clock);if(cv2>=0&&cv2<=300){S.clock=cv2;lastClockSeen=cv2;}}
    }},400);}
  }catch(e){}
+})();
+
+/* ================= v30.16 — GRAPHICS QUALITY TIER (Settings escape hatch) =================
+   The pass ships at the game's existing performance envelope (0 new draw
+   calls, shared materials, texture memory +~1 MB — see the changelog), so
+   HIGH is the default and simply keeps the shipped pixel-ratio cap (1.5).
+   BALANCED is the escape hatch if a phone objects: pixel-ratio cap 1.15
+   (the single biggest fragment-cost lever, ~40% fewer shaded pixels),
+   contact shadows softened to 62% strength, and canvas anisotropy 4 -> 2.
+   The tier persists in the append-only S.ui.gfx pref (1 = High, 0 =
+   Balanced), sanitised in ensureGoods like every other S.ui field. */
+(function(){
+ function gfxTier(){if(typeof S==='undefined'||!S||!S.ui)return 1;return S.ui.gfx===0?0:1;}
+ function gfxApply(){
+   var t=gfxTier();GFX16.tier=t;
+   try{renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,t===1?1.5:1.15));renderer.setSize(viewW(),viewH());}catch(e){}
+   GFX16.shadowMats.forEach(function(m){m.opacity=m.userData.baseOpacity*(t===1?1:0.62);});
+   var st=$('setGfxState'),btn=$('setGfxBtn');
+   if(st)st.textContent=t===1?'High':'Balanced';
+   if(btn)btn.textContent=t===1?'Switch to Balanced':'Switch to High';
+ }
+ var btn0=$('setGfxBtn');
+ if(btn0)btn0.addEventListener('click',function(){if(typeof S==='undefined'||!S)return;if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}};S.ui.gfx=gfxTier()===1?0:1;gfxApply();}); /* persists exactly like every other S.ui choice: in the run state itself */
+ window.__GFX16={tier:gfxTier,apply:gfxApply,shadowMats:function(){return GFX16.shadowMats.length;},pixelCap:function(){return gfxTier()===1?1.5:1.15;},version:'v30.16'};
 })();
 
 /* ================= INIT ================= */
@@ -10193,6 +10266,7 @@ camPos.x=player.x;camPos.z=player.z;
 camSnapTo(camView());camSyncBtn(); /* v30.6: boot in the saved view (CLASSIC on any fresh/old state) with no transition */
 try{if(window.__daleUi)window.__daleUi.apply();}catch(e){} /* v30.7: UI customization applies at boot, before gameplay */
 try{if(window.__daleLayout)window.__daleLayout.apply();}catch(e){} /* v30.10: saved element positions apply at boot, alongside the v30.7 application (hidden units apply when they next show) */
+try{if(window.__GFX16)window.__GFX16.apply();}catch(e){} /* v30.16: the saved Graphics tier (S.ui.gfx) applies at boot */
 camPlace(player.x,player.z,camViewCur.foot,camViewCur.tilt,camViewCur.hMin,camViewCur.hMax);
 (function(){
  var lg=$('gangLegend');lg.innerHTML=AREAS.filter(function(a,i,arr){return arr.findIndex(function(b){return b.gang===a.gang;})===i;}).map(function(a){return '<div class="li"><span class="chip" style="background:'+a.color+'"></span>'+a.gang+' — '+a.name+'</div>';}).join('')
@@ -10795,7 +10869,7 @@ $('setSfxBtn').addEventListener('click',function(){$('muteBtn').click();syncSfx(
 function syncMusic(){$('setMusicState').textContent=music.muted?'Muted':'On';$('musicMuteBtn').textContent=music.muted?'Unmute Music':'Mute Music';}
 $('musicVol').addEventListener('input',function(){music.vol=this.value/100;$('musicVolVal').textContent=this.value+'%';musicApply();});
 $('musicMuteBtn').addEventListener('click',function(){music.muted=!music.muted;syncMusic();musicApply();});
-function openSettings(){syncSfx();syncMusic();try{window.__daleFsSync&&window.__daleFsSync();}catch(e){}openPanel('settingsPanel');}
+function openSettings(){syncSfx();syncMusic();try{window.__daleFsSync&&window.__daleFsSync();}catch(e){}try{window.__GFX16&&window.__GFX16.apply();}catch(e){}openPanel('settingsPanel');} /* v30.16: Graphics tier label syncs on open */
 $('menuSettingsBtn').addEventListener('click',openSettings);
 $('mbSettings').addEventListener('click',openSettings);
 $('mbCredits').addEventListener('click',function(){openPanel('creditsPanel');});
