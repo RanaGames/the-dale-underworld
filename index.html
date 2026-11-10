@@ -1241,10 +1241,10 @@ var WORLD={w:2600,h:2000};
 
 var AREAS=[
  {id:'norden',   name:'Norden & Bamford',    short:'Norden',     x:-600,z:-740, gang:'Norden Crew',      color:'#7fb069'},
- {id:'spotland', name:'Spotland',            short:'Spotland',   x:-520,z:-390, gang:'Spotland Firm',    color:'#4ea8de'},
+ {id:'spotland', name:'Spotland',            short:'Spotland',   x:-520,z:-390, gang:'Spotland Firm',    color:'#a3aab3'},
  {id:'heywood',  name:'Heywood',             short:'Heywood',    x:-1010,z:60,  gang:'Heywood Firm',      color:'#b088d8'},
  {id:'centre',   name:'Town Centre',         short:'Town Centre',x:0,   z:-70,  gang:'Exchange Crew',     color:'#f4a259'},
- {id:'deeplish', name:'Milkstone & Deeplish',short:'Deeplish',   x:150, z:340,  gang:'Tweedale Crew',     color:'#e5484d'},
+ {id:'deeplish', name:'Milkstone & Deeplish',short:'Deeplish',   x:150, z:340,  gang:'Tweedale Crew',     color:'#2f6df6'},
  {id:'newbold',  name:'Newbold',             short:'Newbold',    x:580, z:215,  gang:'Moss Street Crew',  color:'#ffd23f'},
  {id:'castleton',name:'Castleton',           short:'Castleton',  x:-650,z:570,  gang:'Castleton Crew',    color:'#2ec4b6'},
  {id:'kingsway', name:'Kingsway',            short:'Kingsway',   x:330, z:760,  gang:'Exchange Crew',     color:'#f4a259'},
@@ -3955,7 +3955,7 @@ var CLOTHES=[
  {id:'watch',slot:'Accessories',name:'Watch',price:240,rep:28,flex:11,blend:0,heat:6,color:0xd8d8de,css:'#d8d8de',tag:'neutral',acc:'watch'}
 ];
 function clothById(id){for(var i=0;i<CLOTHES.length;i++)if(CLOTHES[i].id===id)return CLOTHES[i];return CLOTHES[0];}
-var GANG_TAG={norden:'green',spotland:'blue',heywood:'purple',centre:'orange',deeplish:'red',newbold:'yellow',castleton:'teal',kingsway:'orange'};
+var GANG_TAG={norden:'green',spotland:'grey',heywood:'purple',centre:'orange',deeplish:'blue',newbold:'yellow',castleton:'teal',kingsway:'orange'};
 
 /* ================= WEAPONS ================= */
 var WEAPONS={
@@ -4016,7 +4016,7 @@ function buildEntities(){
  var keys=Object.keys(CARS);
  for(var i=0;i<14;i++){ /* X-1 (v31): fleet 9 -> 14 — A_ROADS grew by the corridor A-roads; round-robin assignment unchanged (design §6.5) */
    var road=A_ROADS[i%A_ROADS.length];var key=keys[i%keys.length];
-   var gangCols=[0x7fb069,0x4ea8de,0xb088d8,0xf4a259,0xe5484d,0xffd23f,0x2ec4b6];
+   var gangCols=[0x7fb069,0xa3aab3,0xb088d8,0xf4a259,0x2f6df6,0xffd23f,0x2ec4b6];
    var colr=(i%3===0)?gangCols[i%gangCols.length]:null;
    var mesh=makeCarMesh(CARS[key],colr,1,i%2===0);scene.add(mesh);
    traffic.push({road:road,t:rnd(),dir:i%2?1:-1,speed:85+rnd()*45,mesh:mesh,nearCd:0,x:0,z:0,crashT:0});
@@ -4617,10 +4617,10 @@ function s2ApplyHit(h,w,prof,ci){
    rules do not apply to them; witness/police paths are the standard
    S2 ones (s2Witness on the promoting hit, Heat via combatApplyHit). */
 var LEADER_DEFS=[
- {id:'chico',name:'CHICO',area:'deeplish',gang:'Tweedale Crew',street:'Tweedale Street',x:128,z:392,tier:'boss',arch:'boss',hp:230,dmg:14,jacket:0xe5484d,legs:0x141519,skin:0x8a5a3b,hat:'cap',hatCol:0x17181c},
+ {id:'chico',name:'CHICO',area:'deeplish',gang:'Tweedale Crew',street:'Tweedale Street',x:128,z:392,tier:'boss',arch:'boss',hp:230,dmg:14,jacket:0x1d4fc4,legs:0x1c2f57,skin:0x8a5a3b,hat:'cap',hatCol:0x1d4fc4},
  {id:'sunny',name:'SUNNY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:494,z:238,tier:'boss',arch:'boss',hp:230,dmg:14,brother:'immy',jacket:0xffd23f,legs:0x141519,skin:0xc9a189,hat:'cap',hatCol:0x17181c},
  {id:'immy',name:'IMMY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:468,z:266,tier:'boss',arch:'boss',hp:215,dmg:13,brother:'sunny',jacket:0xcf9f16,legs:0x1c1e22,skin:0xa06a42,hat:'beanie',hatCol:0x23272e},
- {id:'kuzzo',name:'KUZZO',area:'spotland',gang:'Spotland Firm',street:'Ings Lane',x:-498,z:-322,tier:'crew',arch:'crew',hp:120,dmg:12,jacket:0x4ea8de,legs:0x141519,skin:0x6e4530,hat:'cap',hatCol:0x1c2f4a}
+ {id:'kuzzo',name:'KUZZO',area:'spotland',gang:'Spotland Firm',street:'Ings Lane',x:-498,z:-322,tier:'crew',arch:'crew',hp:120,dmg:12,jacket:0xa3aab3,legs:0x141519,skin:0x6e4530,hat:'cap',hatCol:0x2c2f33}
 ];
 /* Per-leader dialogue pools — the mechanism that keeps the four voices
    distinct: leaderInteract ONLY ever draws from LEADER_LINES[def.id].
