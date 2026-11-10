@@ -27,11 +27,11 @@
   .bar{position:absolute;top:0;left:0;right:0;display:flex;gap:6px;align-items:flex-start;padding:calc(6px + var(--sat)) calc(8px + var(--sar)) 0 calc(8px + var(--sal));}
   .pill{background:var(--plate);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:4px 10px;}
   .pill .k{font-family:'Barlow Condensed';font-size:10px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;display:block;line-height:1.15;}
-  .pill .v{font-family:'Barlow Condensed';font-size:20px;font-weight:700;line-height:1.05;font-variant-numeric:tabular-nums;}
+  .pill .v{font-family:'Barlow Condensed';font-size:18px;font-weight:700;line-height:1.05;font-variant-numeric:tabular-nums;}
   .pill .v.gold{color:var(--gold);}
   #cashPill{display:flex;gap:10px;align-items:center;}
   #cashPill .repBox{border-left:1px solid rgba(255,255,255,.12);padding-left:10px;}
-  #heatWrap{flex:1;max-width:230px;margin:3px auto 0;}
+  #heatWrap{flex:1;max-width:170px;margin:3px auto 0;}
   #heatBarOuter{height:6px;background:rgba(255,255,255,.14);border-radius:3px;margin-top:4px;overflow:hidden;}
   #heatBar{height:100%;width:0%;background:linear-gradient(90deg,#e8b33a,#e5484d);transition:width .25s;}
   #dayClock{margin-left:auto;text-align:right;}
@@ -59,7 +59,7 @@
   #callBanner .cm{font-size:12.5px;color:var(--dim);}
   #callBanner .callBtns{margin-top:7px;}
   /* thin health (and car) dock along the bottom edge */
-  #hpDock{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(7px + var(--sab));width:min(400px,52vw);pointer-events:none;}
+  #hpDock{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(7px + var(--sab));width:min(320px,44vw);pointer-events:none;}
   #hpDock .hpRow{display:flex;align-items:center;gap:6px;}
   #hpDock .hpLbl{font-family:'Barlow Condensed';font-size:9.5px;letter-spacing:.14em;color:var(--dim);}
   #hpOuter{flex:1;height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden;}
@@ -404,7 +404,9 @@
   body.onfoot #spdMain{display:none;}
   #spdVal{font-family:'Barlow Condensed';font-size:34px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;}
   #spdUnit{font-size:12px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;}
-  .spdRows{display:flex;flex-direction:column;gap:3px;min-width:104px;}
+  /* v30 declutter: the cluster's HP rows duplicated the hp dock bars right
+     beside it — the cluster is now just the speed readout */
+  .spdRows{display:none;}
   body.driving #spdFootRow{display:none;}
   body.onfoot #spdCarRow{display:none;}
   .spdRow{display:flex;align-items:center;gap:6px;font-size:12px;}
@@ -448,7 +450,7 @@
   @media (prefers-reduced-motion:reduce){ #spdCarBar,#spdFootBar{transition:none;} }
 </style>
 </head>
-<body class="noselect">
+<body class="noselect tasks-collapsed">
 <div id="game"></div>
 
 <!-- CINEMATIC BACKGROUND (shared separated art layer for startup + main menu) -->
@@ -619,7 +621,7 @@
     <button class="btn gold" id="endDayBtn">End Day · Lay Low</button>
   </div>
   <div id="tasksPanel">
-    <button id="tasksHead" aria-label="Tasks panel — collapse or expand"><span>◎ TASKS</span><span id="tasksChev">▾</span></button>
+    <button id="tasksHead" aria-label="Tasks panel — collapse or expand"><span>◎ TASKS</span><span id="tasksChev">▸</span></button>
     <div id="tasksBody">
       <ul id="taskList"></ul>
       <div id="tasksActions"></div>
@@ -2244,10 +2246,29 @@ function makeWheel(r,alloyBlack){
  pivot.userData.spin=spin;
  return pivot;
 }
+/* FACING (v30 fix): the car model's nose is local -Z (headlights at -l/2),
+   and the physics forward is (sin h, -cos h). The ONLY rotation.y that puts
+   the nose along travel for every heading is -h — the same convention
+   dropMark already used. The old value (h + PI) mirrored the body against
+   its own travel: nose pointing backwards at spawn, counter-rotating
+   against the steering in turns, GAS reading as reverse and vice versa.
+   Regression check below runs the real THREE math once at boot and shouts
+   if this mapping is ever broken again. */
+function carMeshRotY(h){return -h;}
+(function(){
+ var q=new THREE.Quaternion(),e=new THREE.Euler(0,0,0,'YXZ'),v=new THREE.Vector3(),bad=0;
+ [0,.7,1.57,3.14,-1.05,2.4].forEach(function(h){
+  e.y=carMeshRotY(h);q.setFromEuler(e);v.set(0,0,-1).applyQuaternion(q);
+  if(Math.abs(v.x-Math.sin(h))>.002||Math.abs(v.z+Math.cos(h))>.002)bad++;
+ });
+ if(bad){try{errBox.style.display='block';errBox.textContent='Car facing check failed — the car nose does not match its travel direction';}catch(_){}}
+})();
 /* rollWheels: advance wheel spin by travel distance; steerA turns front pivots */
 function rollWheels(grp,dist,steerA){
  var u=grp.userData;if(!u.wheels)return;
- u.spinA=(u.spinA||0)+dist/(u.wheelR||3.4);
+ /* spin sign (v30): rolling toward the nose (local -Z) needs spinA to
+    DECREASE — a positive accumulation rolled the tread backwards */
+ u.spinA=(u.spinA||0)-dist/(u.wheelR||3.4);
  for(var i=0;i<u.wheels.length;i++){var wh=u.wheels[i];wh.pivot.userData.spin.rotation.x=u.spinA;if(wh.front)wh.pivot.rotation.y=steerA||0;}
 }
 function makeCarMesh(spec,color,tint,alloyBlack){
@@ -5554,11 +5575,13 @@ function updateGame(dt,realDt){
    var slipAbs=Math.abs(player.slip);
    player.mesh.position.set(player.x,0,player.z);
    player.mesh.rotation.order='YXZ';
-   player.mesh.rotation.y=player.h+Math.PI;
+   player.mesh.rotation.y=carMeshRotY(player.h);
    /* body roll in corners, pitch under braking/acceleration (visual only) */
    var latAcc=player.yawVel*vf;
    var accNow=dt>0?(vf-player.prevVf)/dt:0;player.prevVf=vf;
-   player.rollV+=(clamp(-latAcc*.00042,-.15,.15)*tune.roll-player.rollV)*Math.min(1,dt*7);
+   /* roll sign pairs with the corrected facing (v30): positive latAcc
+      (turning) must lean the body OUT of the turn, away from the centre */
+   player.rollV+=(clamp(latAcc*.00042,-.15,.15)*tune.roll-player.rollV)*Math.min(1,dt*7);
    player.pitchV+=(clamp(accNow*.00016,-.06,.05)-player.pitchV)*Math.min(1,dt*6);
    player.mesh.rotation.z=player.rollV;
    player.mesh.rotation.x=player.pitchV;
@@ -5578,7 +5601,9 @@ function updateGame(dt,realDt){
    if(player.fig.visible){player.fig.position.set(player.x+16,0,player.z+8);animateFigure(player.fig,dt,0,false,false);}
    /* wheels: spin with forward speed; front pivots show the ACTUAL applied
       front-wheel steer angle (steerAng from the physics step) */
-   rollWheels(player.mesh,vf*dt,steerAng);
+   /* front pivots live in the mesh's local frame (nose -Z), so the visual
+      steer angle is the negative of the physics steer angle (v30) */
+   rollWheels(player.mesh,vf*dt,-steerAng);
    /* engine */
    if(engOsc&&!S.muted){engOsc.frequency.value=52+clamp(speedNow()/maxSpd,0,1)*150;engGain.gain.value=S.playing?.028:0;}
    else if(engGain)engGain.gain.value=0;
