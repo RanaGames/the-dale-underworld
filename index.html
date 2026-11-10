@@ -8230,7 +8230,7 @@ var camPos={x:0,z:0};
 /* v21: on-foot building test — same buildings[] footprints the car collision
    uses (the Phase 3 inBuilding helper is IIFE-scoped, so the walker gets its
    own global copy of the identical test). */
-function footBlocked(x,z){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(Math.abs(x-b.x)<b.hw+5&&Math.abs(z-b.z)<b.hd+5)return true;}return false;}
+function footBlocked(x,z){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility — a chunk-hidden building cannot block */ if(Math.abs(x-b.x)<b.hw+5&&Math.abs(z-b.z)<b.hd+5)return true;}return false;}
 function speedNow(){return Math.sqrt(player.vx*player.vx+player.vz*player.vz);}
 function mph(){return speedNow()*.28;}
 function loop(ms){
@@ -8322,9 +8322,9 @@ function updateGame(dt,realDt){
    footMode.vz+=(mz*fspd-footMode.vz)*fb;
    if(ml<=.1&&Math.abs(footMode.vx)<2.5&&Math.abs(footMode.vz)<2.5){footMode.vx=0;footMode.vz=0;}
    var fWasIn=footBlocked(footMode.x,footMode.z);
-   var fnx=clamp(footMode.x+footMode.vx*dt,-1270,1270);
+   var fnx=clamp(footMode.x+footMode.vx*dt,-9480,8480); /* v30.17: was the PRE-R1 rect (±1270/±970) — the invisible wall on foot; now the shared perimeter rectangle (drive clamp matches) */
    if(fWasIn||!footBlocked(fnx,footMode.z))footMode.x=fnx;else footMode.vx=0;
-   var fnz=clamp(footMode.z+footMode.vz*dt,-970,970);
+   var fnz=clamp(footMode.z+footMode.vz*dt,-6480,15480); /* v30.17: see fnx */
    if(fWasIn||!footBlocked(footMode.x,fnz))footMode.z=fnz;else footMode.vz=0;
    player.x=footMode.x;player.z=footMode.z;
    player.fig.position.set(footMode.x,0,footMode.z);
@@ -8463,7 +8463,7 @@ function updateGame(dt,realDt){
      vf=vf2;vr=vr2;
      fx=Math.sin(player.h);fz=-Math.cos(player.h);rx=Math.cos(player.h);rz=Math.sin(player.h);
      player.vx=fx*vf+rx*vr;player.vz=fz*vf+rz*vr;
-     player.x=clamp(player.x+player.vx*hStep,-9600,8600);player.z=clamp(player.z+player.vz*hStep,-6600,15600); /* R1 (v30.14): clamp to R1_BOUNDS (was the X-1 Middleton/Manny rect) */ /* X-1 (v31): z-max extended for the Middleton/Manny world (design §1); x and z-min unchanged */
+     player.x=clamp(player.x+player.vx*hStep,-9480,8480);player.z=clamp(player.z+player.vz*hStep,-6480,15480); /* v30.17: clamp pulled 120u inside the R1 line onto the visible perimeter (wall line 55u beyond) so the clamp is never the thing the player feels */ /* R1 (v30.14): clamp to R1_BOUNDS (was the X-1 Middleton/Manny rect) */ /* X-1 (v31): z-max extended for the Middleton/Manny world (design §1); x and z-min unchanged */
      /* collisions: buildings — forgiving glance-off (unchanged response).
         The crash tier system (onCrash) is untouched; only the physical
         response resolves along the axis of least penetration, kills the
@@ -8471,6 +8471,7 @@ function updateGame(dt,realDt){
         sheds speed by impact, so a head-on tiers as before and a glancing
         scrape registers as a scrape. No bounce-back, no spin, no sticking. */
      for(var bi=0;bi<buildings.length;bi++){var b=buildings[bi];
+       if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility (see footBlocked) */
        var bcm=(b.cm!==undefined?b.cm:13);
        var penX=(b.hw+bcm)-Math.abs(player.x-b.x),penZ=(b.hd+bcm)-Math.abs(player.z-b.z);
        if(penX>0&&penZ>0){
@@ -10235,6 +10236,330 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
    only. Instancing: the shipped construction (shared canvas materials +
    merged dressing helpers) is retained; per-typology InstancedMesh kits
    are R2+ work where the coverage programme rebuilds rows anyway. */
+/* ================= v30.17 — CORRIDOR INFILL + INVISIBLE-WALL FIX =================
+   Answers the user's two verdicts on v30.16: (1) "so much dead space in
+   between because you didn't build anything" — the R1 skeleton's corridors
+   were bare; (2) "I hit an invisible wall trying to walk too far".
+   PART A root causes found in the shipped code (see CHANGELOG v30.17):
+   (a) the ON-FOOT clamp still used the PRE-R1 rectangle (±1270 / ±970)
+       while driving was re-clamped to R1_BOUNDS in v30.14 — on foot the
+       world simply stopped, in mid-air, a few streets from the centre;
+   (b) the R1 chunk pass hides building meshes beyond 3,100u but collision
+       (buildings[]) was never tied to visibility, so a chunk-hidden
+       building still blocked the car and the walker — an invisible wall
+       around every distant building;
+   (c) the R1 world-bounds clamp itself had NO visible geography at it.
+   Fixes shipped here: foot + drive clamps moved to ONE rectangle that sits
+   on the new visible perimeter (below); the chunk interval now rebuilds
+   R1_HIDDEN_BLD and footBlocked / the car building loop skip hidden
+   entries (collision follows visibility, same 2,900/3,100 hysteresis);
+   a continuous visible perimeter (dry-stone wall runs, hedges, fences,
+   tree lines, rising moor embankment on the north/west Pennine fringe)
+   stands 55u OUTSIDE the clamp line, with its own collision entries, so
+   the player always meets a visible edge before any clamp can bite.
+   PART B: corridor infill on the R1 road courses — terraces, semis, shops,
+   pubs, churches, schools and industrial units at the shipped §4 scale,
+   plus dressed countryside (field parcels, hedge rings, tree clusters)
+   where the land is genuinely open. ADDITIONS ONLY: nothing shipped is
+   moved, resized or removed; placement enforces mfClear-style clearance
+   (no carriageway/river/canal/rail/Metrolink, no drop-spot approach, no
+   safe-house plot, no overlap) on a PRIVATE seeded stream, so no shipped
+   RNG consumer is perturbed. Rendering: a handful of world-scale
+   InstancedMesh sets (shared geometries/materials) — the shipped R1 chunk
+   registry skips world-scale objects by its own >3,000u rule (the same
+   rule that keeps ground planes out), so infill/perimeter statics are
+   always visible and their collision can never diverge from what is seen.
+   Perimeter collision entries sit at positions no chunk object occupies,
+   so the hidden-skip can never uncollide the boundary. */
+var R1_HIDDEN_BLD={};
+function r1HiddenBld(b){return !!R1_HIDDEN_BLD[Math.round(b.x)+','+Math.round(b.z)];}
+(function(){
+ var V17={added:{},total:0,fields:0,trees:0,hedges:0,perim:0,barriers:0,sets:0};
+ var seed=20261117; function vrnd(){seed=(seed*48271)%2147483647;return (seed-1)/2147483646;}
+ function vpick(a){return a[Math.floor(vrnd()*a.length)];}
+ /* ---- the one movement rectangle: foot and drive clamps both use it ---- */
+ var CL={x0:-9480,x1:8480,z0:-6480,z1:15480};
+ var WL={x0:CL.x0-55,x1:CL.x1+55,z0:CL.z0-55,z1:CL.z1+55}; /* visible wall line */
+ window.__V3017_CLAMP=CL;
+ function roadByName(n){for(var i=0;i<ROADS.length;i++)if(ROADS[i].name===n)return ROADS[i];return null;}
+ function roadLen(r){var L=0;for(var j=0;j<r.pts.length-1;j++)L+=dist2(r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1]);return L;}
+ /* mfClear-style clearance, additions-only (mirrors the shipped tests:
+    carriageway centre + kerb tests over EVERY road incl. rail/Metrolink
+    courses, river + canal, drop-spot approaches, safe-house plot, and
+    AABB overlap against everything already standing). */
+ function v17Clear(x,z,hw,hd){
+   if(x<WL.x0+90||x>WL.x1-90||z<WL.z0+90||z>WL.z1-90)return false;
+   for(var i=0;i<ROADS.length;i++){var r=ROADS[i];for(var j=0;j<r.pts.length-1;j++){var d=segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1]);if(d<rh(r)+6)return false;if(d-rh(r)<7+Math.min(hw,hd)*0.5)return false;}}
+   var rd=1e9;for(var a=0;a<RIVER.length-1;a++)rd=Math.min(rd,segDist(x,z,RIVER[a][0],RIVER[a][1],RIVER[a+1][0],RIVER[a+1][1]));if(rd<42)return false;
+   if(typeof R1_CANAL!=='undefined'){var cd=1e9;for(var c=0;c<R1_CANAL.length-1;c++)cd=Math.min(cd,segDist(x,z,R1_CANAL[c][0],R1_CANAL[c][1],R1_CANAL[c+1][0],R1_CANAL[c+1][1]));if(cd<48)return false;}
+   for(var s=0;s<SPOTS.length;s++)if(dist2(x,z,SPOTS[s].x,SPOTS[s].z)<72)return false;
+   if(typeof SAFE!=='undefined'&&SAFE&&dist2(x,z,SAFE.x,SAFE.z)<110)return false;
+   if(typeof LEADER_DEFS!=='undefined'){for(var li=0;li<LEADER_DEFS.length;li++){var ld=LEADER_DEFS[li];if(ld&&(ld.x!==undefined)&&dist2(x,z,ld.x,ld.z)<70)return false;}}
+   for(var b=0;b<buildings.length;b++){var bb=buildings[b];if(Math.abs(x-bb.x)<bb.hw+hw+3&&Math.abs(z-bb.z)<bb.hd+hd+3)return false;}
+   return true;
+ }
+ /* ---- shared instanced kits (v30.16 palette: muted brick/render, slate) ---- */
+ function v17Tex(shop){
+   var c=document.createElement('canvas');c.width=256;c.height=256;var g=c.getContext('2d');
+   g.fillStyle='#8a7a68';g.fillRect(0,0,256,256);
+   g.fillStyle='rgba(0,0,0,.06)';for(var y=4;y<256;y+=9)g.fillRect(0,y,256,1);
+   for(var i=0;i<300;i++){g.fillStyle=(i%2?'rgba(255,232,205,':'rgba(12,6,0,')+(0.03+(i%5)*0.01)+')';g.fillRect((i*67)%250,(i*41)%250,13,5);}
+   var ao=g.createLinearGradient(0,182,0,256);ao.addColorStop(0,'rgba(12,9,6,0)');ao.addColorStop(1,'rgba(12,9,6,.34)');g.fillStyle=ao;g.fillRect(0,182,256,74);
+   function win(x,y,w,h){g.fillStyle='#f4f1e9';g.fillRect(x-2,y-2,w+4,h+5);g.fillStyle='#2e3d47';g.fillRect(x,y,w,h);g.fillStyle='rgba(255,255,255,.25)';g.fillRect(x+2,y+2,Math.max(2,w*.36),Math.max(2,h*.4));g.fillStyle='#f4f1e9';g.fillRect(x+w/2-1,y,2,h);}
+   if(shop){win(28,26,44,54);win(108,26,44,54);win(184,26,44,54);
+     g.fillStyle='#3d3833';g.fillRect(0,150,256,14); /* fascia band */
+     g.fillStyle='#22303a';g.fillRect(14,178,104,78);g.fillStyle='rgba(255,255,255,.22)';g.fillRect(20,184,40,30);
+     g.fillStyle='#4a3b2c';g.fillRect(150,178,44,78);g.fillStyle='#d9c26a';g.fillRect(186,214,4,4);
+     g.fillStyle='#22303a';g.fillRect(208,178,36,78);
+   }else{win(30,30,40,56);win(108,30,40,56);win(186,30,40,56);win(30,140,40,56);win(186,140,40,56);
+     g.fillStyle='#4a3b2c';g.fillRect(112,168,34,88);g.fillStyle='#d9c26a';g.fillRect(138,208,4,4);}
+   var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;return t;
+ }
+ var matBody=new THREE.MeshLambertMaterial({map:v17Tex(false)});
+ var matShop=new THREE.MeshLambertMaterial({map:v17Tex(true)});
+ var matRoof=new THREE.MeshLambertMaterial({color:0xffffff});
+ var matStone=new THREE.MeshLambertMaterial({color:0xffffff});
+ var matHedge=new THREE.MeshLambertMaterial({color:0xffffff});
+ var matField=new THREE.MeshLambertMaterial({color:0xffffff});
+ var matTrunk=new THREE.MeshLambertMaterial({color:0x4c3d2f});
+ var matCanopy=new THREE.MeshLambertMaterial({color:0xffffff});
+ var geoBody=new THREE.BoxGeometry(1,1,1);geoBody.translate(0,0.5,0);
+ var geoFlat=new THREE.BoxGeometry(1,1,1);geoFlat.translate(0,0.5,0);
+ /* unit prism: ridge along X at y=1, eaves at z=±0.5,y=0 */
+ var geoPrism=(function(){var P=[],Q=function(a,b,c,d){P.push(a[0],a[1],a[2],b[0],b[1],b[2],c[0],c[1],c[2]);if(d)P.push(a[0],a[1],a[2],c[0],c[1],c[2],d[0],d[1],d[2]);};
+   Q([-0.5,0,0.5],[0.5,0,0.5],[0.5,1,0],[-0.5,1,0]);Q([0.5,0,-0.5],[-0.5,0,-0.5],[-0.5,1,0],[0.5,1,0]);
+   Q([-0.5,0,-0.5],[-0.5,0,0.5],[-0.5,1,0]);Q([0.5,0,0.5],[0.5,0,-0.5],[0.5,1,0]);
+   var g2=new THREE.BufferGeometry();g2.setAttribute('position',new THREE.Float32BufferAttribute(P,3));g2.computeVertexNormals();return g2;})();
+ var geoTrunk=new THREE.CylinderGeometry(0.09,0.13,1,5);geoTrunk.translate(0,0.5,0);
+ var geoCanopy=new THREE.IcosahedronGeometry(0.5,0);geoCanopy.translate(0,0.85,0);
+ var M4=new THREE.Matrix4(),QT=new THREE.Quaternion(),EU=new THREE.Euler(),V3=new THREE.Vector3(),S3=new THREE.Vector3(),C1=new THREE.Color();
+ function kit(geo,mat,list){ /* list: {x,y,z,ry,sx,sy,sz,col} */
+   if(!list.length)return null;
+   var im=new THREE.InstancedMesh(geo,mat,list.length);
+   for(var i=0;i<list.length;i++){var it=list[i];EU.set(0,it.ry||0,0);QT.setFromEuler(EU);V3.set(it.x,it.y||0,it.z);S3.set(it.sx,it.sy,it.sz);M4.compose(V3,QT,S3);im.setMatrixAt(i,M4);if(it.col!==undefined)im.setColorAt(i,C1.set(it.col));}
+   im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true;
+   im.frustumCulled=false;scene.add(im);V17.sets++;return im;
+ }
+ var L={body:[],shop:[],prism:[],flat:[],trunk:[],canopy:[],hedge:[],field:[],wall:[]};
+ var plan={buildings:[],fields:[]};
+ var BRICK=[0x9a7d63,0x8a6f5c,0xa08b74,0x7d6a58,0x97907f,0x8f7f70,0xa5937d,0x87755f];
+ var SLATE=[0x4c5257,0x565a5e,0x454a50,0x5d6066,0x3f464d];
+ var FIELD=[0x66704f,0x707a52,0x5d6a49,0x77805a,0x6b7355,0x5a6547];
+ var LEAF=[0x51663f,0x5d7350,0x49603c,0x667c55,0x42563a];
+ function emit(x,z,w,d,h,ry,type,corridor){
+   var flat=(type==='shop'||type==='ind'||type==='flats'||type==='school');
+   var roofH=flat?0:Math.round(Math.min(13,Math.max(6,Math.min(w,d)*0.34)));
+   var item={x:x,y:0,z:z,ry:ry,sx:w,sy:h,sz:d,col:(type==='pub'?0x6e5741:(type==='ind'?0x8b8d88:(type==='school'?0x9c8a76:vpick(BRICK))))};
+   if(type==='shop')L.shop.push(item);else L.body.push(item);
+   if(flat)L.flat.push({x:x,y:h,z:z,ry:ry,sx:w+2,sy:3,sz:d+2,col:0x55534f});
+   else L.prism.push({x:x,y:h,z:z,ry:ry,sx:w+3,sy:roofH,sz:d+3,col:vpick(SLATE)});
+   if(type==='church'){ /* tower + spire from the same kits */
+     L.body.push({x:x,z:z,ry:ry,sx:14,sy:78,sz:14,col:0x8d8578});
+     L.prism.push({x:x,y:78,z:z,ry:ry,sx:17,sy:26,sz:17,col:0x454a50});
+   }
+   var cc=Math.abs(Math.cos(ry)),ss=Math.abs(Math.sin(ry));
+   var hw=(w*cc+d*ss)/2+1.5,hd=(w*ss+d*cc)/2+1.5;
+   buildings.push({x:x,z:z,hw:hw,hd:hd,cm:2});
+   if(typeof P5_BUILD!=='undefined')P5_BUILD.push({x:x,z:z,w:w,d:d,h:h,rot:ry,type:(type==='school'?'flats':type)});
+   plan.buildings.push({x:Math.round(x),z:Math.round(z),type:type,corridor:corridor});
+   V17.added[corridor]=(V17.added[corridor]||0)+1;V17.total++;
+   /* front hedge / low wall on some residential plots */
+   if((type==='semi'||type==='terrace')&&vrnd()<0.4){
+     var fx=x+Math.sin(ry)*(d/2+3),fz=z+Math.cos(ry)*(d/2+3);
+     L.hedge.push({x:fx,y:0,z:fz,ry:ry,sx:w*0.7,sy:3,sz:1.6,col:0x44543c});V17.hedges++;
+   }
+ }
+ function tree(x,z,s){
+   L.trunk.push({x:x,y:0,z:z,ry:vrnd()*3.14,sx:14*s,sy:22*s,sz:14*s});
+   L.canopy.push({x:x,y:0,z:z,ry:vrnd()*3.14,sx:34*s,sy:40*s,sz:34*s,col:vpick(LEAF)});
+   V17.trees++;
+ }
+ function field(x,z,w,d,ry){
+   L.field.push({x:x,y:0,z:z,ry:ry,sx:w,sy:1.4,sz:d,col:vpick(FIELD)});
+   var hw=w/2,hd=d/2,cx=Math.cos(ry),sx2=Math.sin(ry);
+   [[0,-hd,hw*2,1.6],[0,hd,hw*2,1.6],[-hw,0,1.6,hd*2],[hw,0,1.6,hd*2]].forEach(function(e){
+     L.hedge.push({x:x+e[0]*cx-e[1]*sx2,y:0,z:z+e[0]*sx2+e[1]*cx,ry:ry,sx:e[2],sy:3.2,sz:e[3],col:(vrnd()<0.5?0x44543c:0x8d8578)});
+   });
+   plan.fields.push({x:Math.round(x),z:Math.round(z)});V17.fields++;V17.hedges+=4;
+ }
+ /* ---- corridor programme ---- */
+ var CORR=[
+  {n:'A58 · St Mary’s Gate',k:'A58 Heywood–Centre–East',ind:true},
+  {n:'A680 · Edenfield Road',k:'A680 Edenfield Rd',ind:false},
+  {n:'Spotland Road',k:'Spotland Road',ind:false},
+  {n:'A640 · Milnrow Road',k:'A640 Milnrow Rd',ind:true},
+  {n:'A671 · Oldham Road',k:'A671 Oldham Rd',ind:true},
+  {n:'A664 · Kingsway',k:'A664 Kingsway',ind:true},
+  {n:'Manchester Road',k:'Manchester Rd (Castleton)',ind:false},
+  {n:'A664 · Manchester New Road',k:'A664 Manchester New Rd (Middleton)',ind:true},
+  {n:'B6223 · Milkstone Road',k:'B6223 Milkstone Rd',ind:false},
+  {n:'Queensway',k:'Queensway (Castleton)',ind:false},
+  {n:'A664 · Rochdale Road',k:'A664 Rochdale Rd (Middleton)',ind:false}
+ ];
+ var CAP=1050;
+ CORR.forEach(function(cn){
+   var r=roadByName(cn.n);if(!r)return;
+   var Ltot=roadLen(r);if(!Ltot)return;
+   [-1,1].forEach(function(side){
+     var s=40+vrnd()*30;
+     while(s<Ltot-40&&V17.total<CAP){
+       var roll=vrnd();
+       var type,pitch,w,d,h;
+       if(roll<0.34){type='terrace';w=34;d=46;h=40;pitch=38;}
+       else if(roll<0.56){type='semi';w=48;d=44;h=36;pitch=66;}
+       else if(roll<0.66){type='shop';w=42;d=40;h=34;pitch=48;}
+       else if(roll<0.70){type='pub';w=52;d=44;h=44;pitch=62;}
+       else if(roll<0.73){type='church';w=46;d=52;h=46;pitch=70;}
+       else if(roll<0.76){type='school';w=96;d=54;h=40;pitch=112;}
+       else if(roll<0.82&&cn.ind){type='ind';w=96;d=72;h=46;pitch=116;}
+       else if(roll<0.84){type='flats';w=62;d=50;h=84;pitch=76;}
+       else{ /* a lived-in gap: side street / garden / yard — countryside kit may dress it below */
+         s+=44+vrnd()*70;continue;
+       }
+       var p=pathPoint(r.pts,s/Ltot);if(!p){s+=pitch;continue;}
+       var yard=5+vrnd()*22;
+       var off=rh(r)+d/2+yard;
+       var px=p.dz,pz=-p.dx;
+       var x=p.x+px*side*off,z=p.z+pz*side*off;
+       var ry=Math.atan2(-side*px,-side*pz);
+       var cc=Math.abs(Math.cos(ry)),ss=Math.abs(Math.sin(ry));
+       var hw=(w*cc+d*ss)/2,hd=(w*ss+d*cc)/2;
+       if(v17Clear(x,z,hw,hd))emit(x,z,w,d,h,ry,type,cn.k);
+       s+=pitch*(0.92+vrnd()*0.22);
+     }
+   });
+   /* dressed countryside: sample the course; wherever no frontage stands
+      within view, dress the open land beside the road (fields, hedge
+      rings, tree clusters) so no long bare stretch remains. */
+   for(var s2=75;s2<Ltot-75;s2+=150){
+     var p2=pathPoint(r.pts,s2/Ltot);if(!p2)continue;
+     var covered=false;
+     for(var b2=0;b2<buildings.length;b2++){var dx=buildings[b2].x-p2.x,dz=buildings[b2].z-p2.z;if(dx*dx+dz*dz<750*750){covered=true;break;}}
+     if(!covered)for(var f2=0;f2<plan.fields.length;f2++){var fx2=plan.fields[f2].x-p2.x,fz2=plan.fields[f2].z-p2.z;if(fx2*fx2+fz2*fz2<750*750){covered=true;break;}}
+     if(covered)continue;
+     var side2=vrnd()<0.5?-1:1;
+     var off2=rh(r)+190+vrnd()*260;
+     var fx3=p2.x+p2.dz*side2*off2,fz3=p2.z-p2.dx*side2*off2;
+     if(v17Clear(fx3,fz3,120,90)){
+       field(fx3,fz3,220+vrnd()*180,150+vrnd()*120,vrnd()*0.6-0.3);
+       var nt=3+Math.floor(vrnd()*5);
+       for(var ti=0;ti<nt;ti++){var tx=fx3+(vrnd()-0.5)*300,tz=fz3+(vrnd()-0.5)*220;if(v17Clear(tx,tz,16,16))tree(tx,tz,0.8+vrnd()*0.7);}
+     }
+   }
+ });
+ /* ---- interior countryside: the genuinely open land between corridors
+    (moor-edge pastures, the Roch/canal green stretches, the south-east
+    fields) gets parcels and tree clusters, never flat blank void. Coarse
+    jittered grid; a parcel only lands where it is well clear of every
+    road, building, river and canal reach. */
+ (function(){
+   var placed=0;
+   for(var gx=WL.x0+420;gx<WL.x1-420&&placed<130;gx+=640){
+     for(var gz=WL.z0+420;gz<WL.z1-420&&placed<130;gz+=640){
+       var x=gx+(vrnd()-0.5)*300,z=gz+(vrnd()-0.5)*300;
+       var nearRoad=false;
+       for(var i=0;i<ROADS.length&&!nearRoad;i++){var r=ROADS[i];for(var j=0;j<r.pts.length-1;j++){if(segDist(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])<430){nearRoad=true;break;}}}
+       if(nearRoad)continue;
+       var rd=1e9;for(var a=0;a<RIVER.length-1;a++)rd=Math.min(rd,segDist(x,z,RIVER[a][0],RIVER[a][1],RIVER[a+1][0],RIVER[a+1][1]));if(rd<160)continue;
+       if(typeof R1_CANAL!=='undefined'){var cd=1e9;for(var c=0;c<R1_CANAL.length-1;c++)cd=Math.min(cd,segDist(x,z,R1_CANAL[c][0],R1_CANAL[c][1],R1_CANAL[c+1][0],R1_CANAL[c+1][1]));if(cd<170)continue;}
+       var nearB=false;for(var b=0;b<buildings.length;b++){var dx=buildings[b].x-x,dz=buildings[b].z-z;if(dx*dx+dz*dz<540*540){nearB=true;break;}}
+       if(nearB)continue;
+       if(vrnd()<0.55){ if(v17Clear(x,z,150,110)){ field(x,z,240+vrnd()*160,160+vrnd()*110,vrnd()*0.7-0.35); placed++; } }
+       else{ var nt=5+Math.floor(vrnd()*5),ok=true;
+         for(var ti=0;ti<nt;ti++){var tx=x+(vrnd()-0.5)*260,tz=z+(vrnd()-0.5)*200;if(v17Clear(tx,tz,16,16))tree(tx,tz,0.9+vrnd()*0.8);}
+         placed++; }
+     }
+   }
+   V17.interiorParcels=placed;
+ })();
+ /* ---- perimeter: visible edge INSIDE R1_BOUNDS, OUTSIDE the clamp ---- */
+ (function(){
+   var step=118;
+   function run(x0,z0,x1,z1,moor){
+     var len=dist2(x0,z0,x1,z1),n=Math.max(2,Math.round(len/step));
+     for(var i=0;i<=n;i++){
+       var f=i/n,x=x0+(x1-x0)*f,z=z0+(z1-z0)*f;
+       var ry=Math.atan2(x1-x0,z1-z0)+Math.PI/2;
+       if(moor){ /* rising moor bank: a long low bank + stone wall on top + trees */
+         L.field.push({x:x,y:0,z:z,ry:ry,sx:step+14,sy:16+((i*37)%3)*5,sz:64,col:(i%2?0x5d6a49:0x66704f)});
+         L.wall.push({x:x,y:14,z:z,ry:ry,sx:step+6,sy:9,sz:3.4,col:0x8d8578});
+         if(i%2===0)tree(x+(vrnd()-0.5)*30,z+(vrnd()-0.5)*30,1+vrnd()*0.6);
+       }else if(i%3===2){ /* hedge length */
+         L.hedge.push({x:x,y:0,z:z,ry:ry,sx:step+8,sy:7,sz:5,col:0x44543c});
+         if(vrnd()<0.6)tree(x+(vrnd()-0.5)*36,z+(vrnd()-0.5)*36,0.9+vrnd()*0.6);
+       }else{ /* dry-stone wall length */
+         L.wall.push({x:x,y:0,z:z,ry:ry,sx:step+6,sy:10,sz:3.4,col:0x8d8578});
+         if(vrnd()<0.35)tree(x+(vrnd()-0.5)*36,z+(vrnd()-0.5)*36,0.9+vrnd()*0.5);
+       }
+       /* collision entry ON the wall line (visible stop before the clamp) */
+       var alongX=Math.abs(x1-x0)>Math.abs(z1-z0);
+       buildings.push({x:x,z:z,hw:alongX?step/2+8:26,hd:alongX?26:step/2+8,cm:2,v17perim:1});
+       V17.perim++;
+     }
+   }
+   run(WL.x0,WL.z0,WL.x1,WL.z0,true);  /* north — Norden/Bamford moor fringe */
+   run(WL.x0,WL.z1,WL.x1,WL.z1,false); /* south — toward Manchester, walls/hedges */
+   run(WL.x0,WL.z0,WL.x0,WL.z1,true);  /* west — Heywood/Pennine fringe */
+   run(WL.x1,WL.z0,WL.x1,WL.z1,false); /* east — Milnrow moor side gets walls+trees */
+   /* road-end treatment: any drivable road whose end reaches toward the
+      wall gets barriers + a chevron board across its end. */
+   var barParts=[];
+   ROADS.forEach(function(r){
+     if(r.cls==='R')return;
+     [r.pts[0],r.pts[r.pts.length-1]].forEach(function(e){
+       var dw=Math.min(Math.abs(e[0]-WL.x0),Math.abs(e[0]-WL.x1),Math.abs(e[1]-WL.z0),Math.abs(e[1]-WL.z1));
+       if(dw<900){
+         for(var bi2=-1;bi2<=1;bi2++){
+           L.wall.push({x:e[0]+bi2*22,y:0,z:e[1],ry:0.6,sx:20,sy:8,sz:3,col:0xb8b0a0});
+         }
+         V17.barriers++;
+       }
+     });
+   });
+ })();
+ /* ---- build the kits ---- */
+ kit(geoBody,matBody,L.body);kit(geoBody,matShop,L.shop);
+ kit(geoPrism,matRoof,L.prism);kit(geoFlat,matRoof,L.flat);
+ kit(geoTrunk,matTrunk,L.trunk);kit(geoCanopy,matCanopy,L.canopy);
+ kit(geoBody,matHedge,L.hedge);kit(geoBody,matField,L.field);kit(geoBody,matStone,L.wall);
+ V17.kitCounts={body:L.body.length,shop:L.shop.length,prism:L.prism.length,flat:L.flat.length,trees:L.trunk.length,hedge:L.hedge.length,field:L.field.length,wall:L.wall.length};
+ window.__V3017_PLAN=plan;
+ window.__V3017_AUDIT={
+   version:'v30.17',
+   added:V17.added,totalAdded:V17.total,fields:V17.fields,trees:V17.trees,hedges:V17.hedges,
+   perimeterEntries:V17.perim,barrierEnds:V17.barriers,interiorParcels:V17.interiorParcels||0,instancedSets:V17.sets,kitCounts:V17.kitCounts,
+   clamp:CL,wallLine:WL,
+   gaps:function(viewDist){
+     viewDist=viewDist||750;var out={};
+     CORR.forEach(function(cn){
+       var r=roadByName(cn.n);if(!r)return;var Ltot=roadLen(r),worst=0,run=0;
+       for(var s=50;s<Ltot-50;s+=100){
+         var p=pathPoint(r.pts,s/Ltot),cov=false;
+         for(var i=0;i<buildings.length&&!cov;i++){var dx=buildings[i].x-p.x,dz=buildings[i].z-p.z;if(dx*dx+dz*dz<viewDist*viewDist)cov=true;}
+         for(var j=0;j<plan.fields.length&&!cov;j++){var fx=plan.fields[j].x-p.x,fz=plan.fields[j].z-p.z;if(fx*fx+fz*fz<viewDist*viewDist)cov=true;}
+         if(cov)run=0;else{run+=100;if(run>worst)worst=run;}
+       }
+       out[cn.k]=worst;
+     });
+     return out;
+   },
+   perimeterStops:function(){
+     /* walk the clamp line (the furthest the player can ever get): every
+        stop there must be explained by a visible perimeter entry. */
+     var unexplained=0,samples=0;
+     function probe(x,z){
+       samples++;
+       if(!footBlocked(x,z))return;
+       var ok=false;
+       for(var i=0;i<buildings.length;i++){var b=buildings[i];if(b.v17perim){var dx=b.x-x,dz=b.z-z;if(dx*dx+dz*dz<130*130){ok=true;break;}}}
+       if(!ok)unexplained++;
+     }
+     for(var x=CL.x0;x<=CL.x1;x+=50){probe(x,CL.z0+20);probe(x,CL.z1-20);}
+     for(var z=CL.z0;z<=CL.z1;z+=50){probe(CL.x0+20,z);probe(CL.x1-20,z);}
+     return {samples:samples,unexplainedStops:unexplained};
+   }
+ };
+})();
 var R1_CHUNKS=[],R1_HIDDEN=[];
 (function(){
  try{
@@ -10250,6 +10575,7 @@ var R1_CHUNKS=[],R1_HIDDEN=[];
   if(!S||!S.playing||typeof player==='undefined'||!player)return;
   for(var i=R1_HIDDEN.length-1;i>=0;i--){var c=R1_HIDDEN[i],dx=c.o.position.x-player.x,dz=c.o.position.z-player.z;if(dx*dx+dz*dz<2900*2900){c.o.visible=true;R1_HIDDEN.splice(i,1);}}
   for(var j=0;j<R1_CHUNKS.length;j++){var k=R1_CHUNKS[j];if(k.exempt||!k.o.visible)continue;if(player.mesh&&k.o===player.mesh)continue;var dx2=k.o.position.x-player.x,dz2=k.o.position.z-player.z;if(dx2*dx2+dz2*dz2>3100*3100){k.o.visible=false;R1_HIDDEN.push(k);}}
+  R1_HIDDEN_BLD={};for(var hi=0;hi<R1_HIDDEN.length;hi++){var ho=R1_HIDDEN[hi].o;if(ho.position&&(ho.position.x||ho.position.z))R1_HIDDEN_BLD[Math.round(ho.position.x)+','+Math.round(ho.position.z)]=1;} /* v30.17: collision-follows-visibility key set, rebuilt on the shipped pass cadence */
  },600);
  window.__R1_AUDIT={
   chunks:function(){return{registered:R1_CHUNKS.length,hidden:R1_HIDDEN.length,exempt:R1_CHUNKS.filter(function(c){return c.exempt;}).length};},
