@@ -425,8 +425,16 @@
   #startBtn{position:static !important;transform:none !important;width:100% !important;}
   @media (orientation:landscape) and (max-height:540px){
     #bootScreen .cineLogo svg{width:58px;} #bootScreen .logoTop{font-size:38px;} #bootScreen .logoSub{font-size:34px;}
-    #menuScreen .cineLogo svg{width:44px;} #menuScreen .logoTop{font-size:32px;} #menuScreen .logoSub{font-size:28px;}
-    .mBtn{min-height:48px;padding:7px 14px;} .mBtn.play{min-height:54px;} .mBtn .tt{font-size:20px;} .menuBtns{gap:7px;margin-top:8px;}
+    #menuScreen .cineLogo svg{width:34px;} #menuScreen .logoTop{font-size:26px;} #menuScreen .logoSub{font-size:22px;}
+    /* audit fix (v30.14): at presented heights <= 540px the single column of
+       eight buttons overflowed the screen — the lower four (Stats, Settings,
+       Credits, How to Play) sat below the fold of the scrollable menu and
+       read as clipped off. The compact tier now lays the buttons out in two
+       columns under a full-width Play, so the whole menu fits a ~390px-tall
+       presentation with no scrolling (a visible Continue adds one row and
+       may scroll a few px, as before). */
+    .menuBtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;}
+    .mBtn{min-height:44px;padding:6px 12px;gap:9px;} .mBtn.play{min-height:50px;grid-column:1/-1;} .mBtn .tt{font-size:19px;} .mBtn .ss{font-size:11px;}
   }
   @media (prefers-reduced-motion:reduce){ .fogA,.fogB,.copBlue,.copRed{animation:none;} #menuScreen.on{animation:none;} }
   /* ---------- FIX A: HUD REBUILD (reference layout, dark charcoal + amber) ---------- */
@@ -566,8 +574,13 @@
     html.dale-rot #incidentBox{top:auto !important;bottom:150px;}
     html.dale-rot .panel{max-height:96vw;padding:12px 16px;}
     html.dale-rot #bootScreen .cineLogo svg{width:58px;} html.dale-rot #bootScreen .logoTop{font-size:38px;} html.dale-rot #bootScreen .logoSub{font-size:34px;}
-    html.dale-rot #menuScreen .cineLogo svg{width:44px;} html.dale-rot #menuScreen .logoTop{font-size:32px;} html.dale-rot #menuScreen .logoSub{font-size:28px;}
-    html.dale-rot .mBtn{min-height:48px;padding:7px 14px;} html.dale-rot .mBtn.play{min-height:54px;} html.dale-rot .mBtn .tt{font-size:20px;} html.dale-rot .menuBtns{gap:7px;margin-top:8px;}
+    html.dale-rot #menuScreen .cineLogo svg{width:34px;} html.dale-rot #menuScreen .logoTop{font-size:26px;} html.dale-rot #menuScreen .logoSub{font-size:22px;}
+    /* audit fix (v30.14): rotated twin of the two-column compact menu above —
+       in the rotated presentation the presented height is the raw viewport
+       width (~390px on the target phone), and the single column pushed Stats,
+       Settings, Credits and How to Play off the presented screen. */
+    html.dale-rot .menuBtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;}
+    html.dale-rot .mBtn{min-height:44px;padding:6px 12px;gap:9px;} html.dale-rot .mBtn.play{min-height:50px;grid-column:1/-1;} html.dale-rot .mBtn .tt{font-size:19px;} html.dale-rot .mBtn .ss{font-size:11px;}
     html.dale-rot #objWrap{top:calc(48px + var(--sat));max-width:38vh;}
     html.dale-rot #tasksPanel{top:calc(48px + var(--sat));width:196px;}
     html.dale-rot #tasksHead{min-height:40px;font-size:15px;}
@@ -1102,6 +1115,7 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
   <div class="panel">
     <h2 style="margin:2px 0 6px;">Map — Rochdale · Middleton · Manchester</h2>
     <canvas id="fullMap" width="1000" height="620"></canvas>
+    <div style="display:flex;gap:6px;margin-top:6px;"><button class="btn ghost" id="mapZoomBtn" style="flex:1;">Zoom: Fit all</button></div>
     <div id="mapLegend"><span id="mapLegendHead">LEGEND ▸</span><div id="mapLegendBody">
       📍 Objective / race pin &nbsp;·&nbsp; ➤ You &nbsp;·&nbsp; 🏠 Safe house &nbsp;·&nbsp; 🚗 Used-car lot &nbsp;·&nbsp; 👕 Clothes shop &nbsp;·&nbsp; 🔒 Fence / off-licence &nbsp;·&nbsp; 🚓 Police station (custody release next door) &nbsp;·&nbsp; 📸 Speed camera (always shown) &nbsp;·&nbsp; 👁 ANPR (shown once discovered)
     </div></div>
@@ -1499,6 +1513,138 @@ var SPOTS=[
 ];
 var SAFE={x:100,z:668,area:'deeplish'}; /* MAP REBUILD §10: safe house, Ann Street N side, Deeplish (pin); plot centre z=649 */
 
+/* ================= R1 (v30.14) — REAL ROCHDALE FOUNDATION =================
+   Quarter-real geography (REAL-ROCHDALE-PLAN §2.3/§3): G = 0.6 real metres
+   per unit BETWEEN ANCHORS (1 real km = 1,667 units); object scale untouched
+   (1 unit = 0.15 m — no building, car or person is resized). Every district's
+   shipped building stock rides its ROADS: district streets are translated
+   RIGIDLY by their district's anchor offset (internal layouts byte-identical
+   in relative terms), corridor/A roads are re-laid by hand on the real
+   junction order (plan §3.2), and everything world-anchored that reads
+   AREAS / SPOTS / SAFE / road names follows automatically. Absolute
+   placements that cannot ride a road (downtown towers/landmarks, the Seven
+   Sisters, the X-1/X-2/X-3 dressing helpers, mates/leaders/cameras/LC_SPOT)
+   are offset at their own sites, marked R1 at each one.
+   Anchor offsets: dx/dz translate the shipped cluster centroid (ox,oz) to
+   the plan §3.1 anchor. Two declared decisions: CENTRE stays at the shipped
+   origin (the Town Hall plot (-30,-120) is the layout origin; offset 0, so
+   Look Stage 1 is untouched to the unit) and NORDEN & BAMFORD — shipped as
+   ONE merged cluster — move as one block to the midpoint of their two plan
+   anchors (-4,420,-4,000); splitting the merged cluster is R3 work.
+   MANCHESTER rides MIDDLETON's offset exactly: downtown keeps its shipped
+   relative offset from Middleton (+100 E / +1,780 S of its centre) — the
+   plan §2.4 declared exception; the fast corridor is R5b, NOT built here. */
+var R1_ANCHORS=[
+ {id:'centre',    ox:0,    oz:-70,  dx:0,     dz:0},
+ {id:'collegebank',ox:-560,oz:-205, dx:-20,   dz:-1215},
+ {id:'spotland',  ox:-520, oz:-390, dx:-1310, dz:-2280},
+ {id:'norden',    ox:-600, oz:-740, dx:-3820, dz:-3260},
+ {id:'heywood',   ox:-1010,oz:60,   dx:-5920, dz:4710},
+ {id:'deeplish',  ox:150,  oz:340,  dx:-320,  dz:1160},
+ {id:'newbold',   ox:580,  oz:215,  dx:2590,  dz:1285},
+ {id:'castleton', ox:-650, oz:570,  dx:-3020, dz:3100},
+ {id:'kingsway',  ox:330,  oz:760,  dx:3670,  dz:3240},
+ {id:'middleton', ox:-640, oz:2280, dx:-3810, dz:9600},
+ {id:'manchester',ox:-540, oz:4060, dx:-3810, dz:9600}
+];
+function R1A(id){for(var i=0;i<R1_ANCHORS.length;i++)if(R1_ANCHORS[i].id===id)return R1_ANCHORS[i];return R1_ANCHORS[0];}
+function R1Off(x,z){var bd=1e18,bo=R1_ANCHORS[0];for(var i=0;i<R1_ANCHORS.length;i++){var a=R1_ANCHORS[i],dx=x-a.ox,dz=z-a.oz,dd=dx*dx+dz*dz;if(dd<bd){bd=dd;bo=a;}}return bo;}
+function R1T(x,z){var a=R1Off(x,z);return{x:x+a.dx,z:z+a.dz};}
+function R1Pt(p){var t=R1T(p[0],p[1]);return[t.x,t.z];}
+var R1_BOUNDS={x0:-9800,x1:8800,z0:-6800,z1:15800}; /* ground/player/map bounds shipped with R1 */
+/* District street -> anchor (rigid transplant). Corridors not listed here are
+   re-laid by hand below; the Railway is hand-laid too. */
+var R1_ROAD_DIST={'Yorkshire Street':'centre','Drake Street':'centre','The Esplanade':'centre','Baillie Street':'centre','Cheapside':'centre','Water Street':'centre',
+ 'Deeplish Street':'deeplish','Tweedale Street':'deeplish','Back Tweedale Ginnel':'deeplish','Lower Tweedale Street':'deeplish','Back Ann Ginnel':'deeplish','Ann Street':'deeplish','Boundary Street':'deeplish','Derby Street':'deeplish','Deeplish Road':'deeplish',
+ 'Moss Street':'newbold','Moss Avenue':'newbold','Moss Mill Street':'newbold','Chichester Street':'newbold','Back Chichester Ginnel':'newbold','Stamford Street':'newbold','Belfield Lane':'newbold',
+ 'Ings Lane':'spotland','Spotland Fold':'spotland','Rooley Moor Road':'spotland','College Bank':'collegebank',
+ 'Bamford Road':'norden','Norden Road':'norden','Bamford Crescent':'norden','Norden Avenue':'norden',
+ 'Queensway':'castleton','Back Queensway Lane':'castleton','Station Road':'castleton','Smalley Street':'castleton','Railway Street':'castleton',
+ 'Bridge Street':'heywood','Dawson Street':'heywood','York Street':'heywood','Back Dawson Ginnel':'heywood','Market Street':'heywood',
+ 'Kingsway Service Road':'kingsway','Kingsway Crescent':'kingsway',
+ 'Long Street':'middleton','Townley Street':'middleton','Lodge Street':'middleton','Back Lodge Ginnel':'middleton','Wood Street':'middleton','Spring Gardens':'middleton','Mill Street':'middleton','Grimshaw Lane':'middleton',
+ 'Piccadilly':'manchester','Deansgate':'manchester','Oxford Street':'manchester','Market Street':'manchester','Cross Street':'manchester','Portland Street':'manchester','Mosley Street':'manchester','Whitworth Street':'manchester'};
+ROADS.forEach(function(r){
+ var aid=R1_ROAD_DIST[r.name];
+ if(aid){var a=R1A(aid);r.pts=r.pts.map(function(p){return[p[0]+a.dx,p[1]+a.dz];});}
+ else r.pts=r.pts.map(R1Pt);
+});
+function R1Lay(name,pts){for(var i=0;i<ROADS.length;i++)if(ROADS[i].name===name){ROADS[i].pts=pts;return;}}
+/* Corridor hand-lays on the real junction order (plan §3.2). A58: Heywood's
+   own centre -> Roch valley (Queens Park) -> St Mary's Gate -> NE climb. */
+R1Lay('A58 · St Mary’s Gate',[[-8400,5400],[-6930,4770],[-5600,3600],[-4200,2200],[-2900,900],[-1500,250],[-600,-40],[0,-70],[500,-160],[1100,-320],[1900,-560],[3000,-900],[4400,-1400]]);
+R1Lay('A680 · Edenfield Road',[[-120,-60],[-700,-900],[-1300,-1800],[-1830,-2670],[-2600,-3300],[-3400,-3720],[-4420,-4000],[-5000,-4800],[-5400,-5800]]);
+R1Lay('Spotland Road',[[-58,-84],[-500,-600],[-1000,-1200],[-1500,-2000],[-1830,-2670],[-2600,-3300],[-3400,-3720],[-4420,-4000]]);
+R1Lay('A640 · Milnrow Road',[[128,32],[900,700],[1800,1150],[3170,1500],[4300,1900],[5500,2400],[6670,3170]]);
+R1Lay('A671 · Oldham Road',[[1300,-1400],[800,-700],[300,-250],[92,-8],[600,900],[1200,2100],[1750,3300],[2170,4330],[2670,4900],[3300,5800]]);
+R1Lay('A664 · Kingsway',[[72,112],[500,700],[1100,1500],[1900,2400],[2670,3170],[3400,3600],[4000,4000],[5000,4900],[6000,5670],[7000,6300]]);
+R1Lay('Manchester Road',[[-46,70],[-700,800],[-1500,1600],[-2400,2500],[-3200,3200],[-3610,3610]]);
+R1Lay('A664 · Manchester New Road',[[-3670,3755],[-3750,5200],[-3900,7000],[-4100,9200],[-4300,10800],[-4450,11880]]);
+/* Castleton roundabout arms (audit fix, v30.14): the two Castleton streets
+   that form arms of the real 5-arm junction bend their west ends onto the
+   ring laid below — Queensway meets it at the top, Station Road at the
+   south-west; their east courses and every other Castleton street keep the
+   rigid district translation exactly as shipped. */
+R1Lay('Queensway',[[-3670,3585],[-3665,3570],[-3536,3564]]);
+R1Lay('Station Road',[[-3730,3730],[-3660,3738],[-3560,3752]]);
+R1Lay('A664 · Rochdale Road',[[-4450,11880],[-4420,12600],[-4350,13100]]);
+R1Lay('B6223 · Milkstone Road',[[60,58],[0,600],[-80,1100],[-170,1500],[-100,2200],[200,2600]]);
+R1Lay('Railway',[[-8400,5600],[-6000,4900],[-3670,3900],[-1800,2400],[-200,1300],[920,750],[2600,500],[4800,300],[7000,100],[8800,-100]]);
+/* Skeleton additions (foundation level): the Spotland Bridge pinch on
+   Spotland Road, the M62 as a southern scenery band (cls R — never traffic,
+   never drivable), and the Metrolink on its real route reusing the shipped
+   rail-line dressing (centre streets -> station -> Kingsway -> Newbold ->
+   Milnrow edge). */
+ROADS.push({name:'Spotland Bridge',cls:'B',w:12,pts:[[-182,-228],[-235,-290]]});
+/* Castleton Roundabout (audit fix, v30.14): the real 5-arm junction gets its
+   ring — a closed circulatory polyline (r=85) centred on the Castleton
+   anchor (-3670,3670). Manchester Road, A664 · Manchester New Road,
+   Queensway and Station Road all terminate ON ring vertices (see the trims
+   above), so the road graph stays connected at the junction; the fifth arm
+   is the canal-side Station Road approach as shipped. Foundation geometry:
+   the ring is painted carriageway like any other cls B road. */
+ROADS.push({name:'Castleton Roundabout',cls:'B',w:26,pts:[[-3585,3670],[-3591,3703],[-3610,3730],[-3638,3749],[-3670,3755],[-3703,3749],[-3730,3730],[-3749,3703],[-3755,3670],[-3749,3638],[-3730,3610],[-3703,3591],[-3670,3585],[-3638,3591],[-3610,3610],[-3591,3638],[-3585,3670]]});
+ROADS.push({name:'M62 · Motorway (scenery)',cls:'R',pts:[[-2600,7900],[500,7500],[3000,7100],[5500,6800],[7500,6650],[8800,6550]]});
+ROADS.push({name:'Metrolink · Kingsway',cls:'R',pts:[[0,-100],[500,350],[920,750],[2000,1800],[3200,2900],[4600,3700],[6000,5670]]});
+ROADS.push({name:'Metrolink · Newbold',cls:'R',pts:[[4600,3700],[3900,2400],[3170,1500],[4800,2100],[6670,3170]]});
+/* River Roch on its real line (plan §3.2): an east-west band across the
+   NORTH of the centre — open water east toward Belfield and west past
+   Queens Park to Heywood, culverted under the centre (the wide bridge deck
+   is the centre's street pattern itself, exactly as shipped). The shipped
+   diagonal RIVER is replaced, not transformed: it was a stylisation the
+   programme supersedes. Rochdale Canal: one continuous SW->NE band. */
+RIVER=[[6200,-2600],[4200,-2200],[2400,-1950],[1500,-1830],[700,-900],[250,-260],[-250,-250],[-900,-420],[-1800,-100],[-2900,700],[-4200,1800],[-5600,3000],[-6930,4300],[-8400,5300]];
+var R1_CANAL=[[-4600,4600],[-3950,3600],[-2600,2900],[-1500,2300],[-500,1750],[400,1200],[1400,1050],[2400,1050],[3300,1300],[4600,1900],[5800,2500],[6670,3170]]; /* audit fix (v30.14): the Castleton bend rides ~280 u WEST of the roundabout anchor, as the real canal does — the first lay ran the vertex through the junction centre and painted water across the new ring */
+/* District centres to their plan anchors (the merged Norden & Bamford block
+   centres between its two anchors — see the header note). Manchester keeps
+   its shipped two-centre split, offset exactly with Middleton. */
+AREAS.forEach(function(a){
+ if(a.id==='centre'){a.x=0;a.z=-70;}
+ else if(a.id==='deeplish'){a.x=-170;a.z=1500;}
+ else if(a.id==='newbold'){a.x=3170;a.z=1500;}
+ else if(a.id==='spotland'){a.x=-1830;a.z=-2670;}
+ else if(a.id==='norden'){a.x=-4420;a.z=-4000;}
+ else if(a.id==='heywood'){a.x=-6930;a.z=4770;}
+ else if(a.id==='castleton'){a.x=-3670;a.z=3670;}
+ else if(a.id==='kingsway'){a.x=4000;a.z=4000;}
+ else if(a.id==='middleton'){a.x=-4450;a.z=11880;}
+ else if(a.id==='manchester'){var t=R1T(a.x,a.z);a.x=t.x;a.z=t.z;}
+});
+/* Drop spots ride their DECLARED turf's block — not nearest-anchor, which
+   misfiles edge spots (Ann Street's shipped point sits nearer the Kingsway
+   centroid than Deeplish's, yet Ann Street is a Deeplish street; the same
+   trap the safe house needed its explicit ride for). College Bank spots
+   ride College Bank, not Spotland proper. Then the by-street re-site: the
+   Belfield spot leaves Milnrow Road (which is not in Belfield — the known
+   wrong-area spot) for the A671 Oldham Road AT the Belfield anchor. */
+SPOTS.forEach(function(s){var a=(s.street.indexOf('College Bank')===0)?R1A('collegebank'):R1A(s.area||'centre');s.x+=a.dx;s.z+=a.dz;});
+SPOTS.forEach(function(s){if(s.street==='Milnrow Road, Belfield'){s.street='Oldham Road, Belfield';s.x=2170;s.z=4330;}});
+SPOTS.forEach(function(s){if(s.street==='Manchester Road, Castleton'){s.x=-3405;s.z=3405;}}); /* audit fix (v30.14): the rigid ride put this spot on the roundabout centre itself; re-sited onto the Manchester Road centreline NE of the ring, still Castleton turf */
+(function(){var a=R1A('deeplish');SAFE.x+=a.dx;SAFE.z+=a.dz;})(); /* safe house rides Deeplish explicitly (nearest-anchor would pull it to Kingsway) */
+WORLD.w=R1_BOUNDS.x1-R1_BOUNDS.x0; WORLD.h=R1_BOUNDS.z1-R1_BOUNDS.z0;
+window.__R1={anchors:R1_ANCHORS,bounds:R1_BOUNDS,G:0.6,canal:R1_CANAL}; /* R1 audit hook: geography as shipped */
+/* ================= END R1 FOUNDATION (data) ================= */
+
 /* ================= AUDIO ================= */
 var AC=null;
 function beep(f,t0,d,type,g){ if(!AC)return; try{ var o=AC.createOscillator(),gn=AC.createGain(); o.type=type||'sine'; o.frequency.value=f; gn.gain.setValueAtTime(g||.12,AC.currentTime+t0); gn.gain.exponentialRampToValueAtTime(.001,AC.currentTime+t0+d); o.connect(gn); gn.connect(AC.destination); o.start(AC.currentTime+t0); o.stop(AC.currentTime+t0+d);}catch(e){} }
@@ -1553,8 +1699,8 @@ renderer.toneMappingExposure=1.12;
 $('game').appendChild(renderer.domElement);
 var scene=new THREE.Scene();
 scene.background=new THREE.Color(0x263341);
-scene.fog=new THREE.FogExp2(0x263341,0.00029);
-var camera=new THREE.PerspectiveCamera(55,viewW()/viewH(),5,4000);
+scene.fog=new THREE.FogExp2(0x263341,0.00016) /* R1: thinned so 3,000-unit landmarks read through it */;
+var camera=new THREE.PerspectiveCamera(55,viewW()/viewH(),5,6500) /* R1: far plane past the chunk-cull distance */;
 /* ---- PHASE 1 CAMERA RIG — GTA Chinatown Wars-style fixed angled view ----
    Tilt: 50 degrees down from horizontal (spec range 45-55).
    Yaw: fixed at 0 — the camera always sits due SOUTH of the focus and looks due NORTH,
@@ -1655,8 +1801,8 @@ var sun=new THREE.DirectionalLight(0xfff1d8,1.25); /* §5 */ sun.position.set(30
 
 /* ---- Ground: canvas texture painted from the real-map data ---- */
 function buildGroundTexture(){
- var cw=2048,ch=1576,c=document.createElement('canvas');c.width=cw;c.height=ch;var g=c.getContext('2d');
- function X(x){return (x+1300)/2600*cw;} function Y(z){return (z+1000)/2000*ch;}
+ var cw=1860,ch=2260, /* R1: world canvas at 0.1 px/unit over R1_BOUNDS */c=document.createElement('canvas');c.width=cw;c.height=ch;var g=c.getContext('2d');
+ function X(x){return (x+9800)/18600*cw;} function Y(z){return (z+6800)/22600*ch;} /* R1 mapping */
  g.fillStyle='#4c5548';g.fillRect(0,0,cw,ch); /* MAP REBUILD §5 ground base */
  /* block texture noise — richer two-tone grain; seed saved/restored so the shared rnd() stream (and therefore building layout) is unchanged */
  var _gseed=seed;
@@ -1666,30 +1812,36 @@ function buildGroundTexture(){
  /* MAP REBUILD §5: gang-colour radial washes REMOVED from the ground texture —
     turf identity stays on the minimap and banners only (Stage S6: the painted
     ground area labels are gone too). */
+ /* R1 foundation ground character (plan §2.4, foundation level — simple merged ground colour; dressed versions are R4/R5): Queens Park's green bowl on the Heywood road, the Hopwood golf green on the A664, moor-edge tint on the A680 climb. */
+ g.fillStyle='rgba(84,110,62,.55)';g.beginPath();g.ellipse(X(-2900),Y(700),62,34,0.3,0,7);g.fill();
+ g.fillStyle='rgba(84,110,62,.4)';g.beginPath();g.ellipse(X(-4100),Y(8600),80,55,-0.2,0,7);g.fill();
+ g.fillStyle='rgba(112,116,84,.35)';g.beginPath();g.ellipse(X(-4900),Y(-5200),130,80,0.4,0,7);g.fill();
  /* River Roch — Phase 3: greener banks (muddy grass fringe under the water) */
  g.lineCap='round';g.lineJoin='round';
- g.strokeStyle='#3e5233';g.lineWidth=46;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
- g.strokeStyle='#50663f';g.lineWidth=35;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
- g.strokeStyle='#2b5f8a';g.lineWidth=26;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
- g.strokeStyle='#3d7ab0';g.lineWidth=12;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
- g.fillStyle='#9fc6e8';g.font='700 17px Barlow, sans-serif';g.save();g.translate(X(-190),Y(60));g.rotate(1.15);g.fillText('River Roch',0,0);g.restore();
+ g.strokeStyle='#3e5233';g.lineWidth=6;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+ g.strokeStyle='#50663f';g.lineWidth=4.5;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+ g.strokeStyle='#2b5f8a';g.lineWidth=3.3;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+ g.strokeStyle='#3d7ab0';g.lineWidth=1.5;g.beginPath();RIVER.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+ g.strokeStyle='#2b5f8a';g.lineWidth=3.3;g.beginPath();R1_CANAL.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* R1: Rochdale Canal, one continuous band */
+ g.strokeStyle='#3d7ab0';g.lineWidth=1.5;g.beginPath();R1_CANAL.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+ g.fillStyle='#9fc6e8';g.font='700 5px Barlow, sans-serif';g.save();g.translate(X(-2700),Y(560));g.rotate(0.5);g.fillText('River Roch',0,0);g.restore();
  /* roads — Phase 3: slab-tone pavements (distinct from tarmac) with slab joints,
     grass verges on suburban streets, then a UK markings pass. Painted road-NAME
     labels are GONE (Phase 3 spec): street names now live in the status drawer /
     minimap (streetAt + updateHUD + drawMinimap) and on small physical signs. */
- function roadWpx(r){return r.cls==='R'?10:Math.round(rh(r)*1.53);}
- function pvPx(r){if(r.cls==='A')return 22;if(r.cls==='B')return 19;if(r.w!==undefined&&r.w<=8.5)return 3;if(r.w!==undefined&&r.w>=15)return 17;return 16;} /* §5 pavement widths: A14 B12 main11 terrace/res10 per side */
+ function roadWpx(r){return r.cls==='R'?2:Math.max(1,Math.round(rh(r)*0.2));} /* R1: px widths rescaled (1.53 at 0.788 px/unit -> 0.2 at 0.1 px/unit) */
+ function pvPx(r){if(r.cls==='A')return 2.8;if(r.cls==='B')return 2.4;if(r.w!==undefined&&r.w<=8.5)return 0.5;if(r.w!==undefined&&r.w>=15)return 2.2;return 2;} /* R1: pavement px rescaled with the world canvas */ /* §5 pavement widths: A14 B12 main11 terrace/res10 per side */
  function nearestAreaId(x,z){var bi=null,bd=1e12;for(var ai=0;ai<AREAS.length;ai++){var dx=x-AREAS[ai].x,dz=z-AREAS[ai].z,dd=dx*dx+dz*dz;if(dd<bd){bd=dd;bi=AREAS[ai].id;}}return bi;}
  function drawRoad(r){
    var wpx=roadWpx(r);
    if(r.cls==='R'){
-     g.strokeStyle='#1c2228';g.lineWidth=wpx+8;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+     g.strokeStyle='#1c2228';g.lineWidth=wpx+1;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
      g.strokeStyle='#242a30';g.lineWidth=wpx;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
      g.strokeStyle='#c8ccd2';g.lineWidth=2;g.setLineDash([10,14]);g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();g.setLineDash([]);return;
    }
    var mid=pathPoint(r.pts,.5),naId=mid?nearestAreaId(mid.x,mid.z):'';
    if(r.cls==='S'&&(naId==='norden'||naId==='spotland'||naId==='castleton'||naId==='heywood')){ /* grass verge */
-     g.strokeStyle='#55663f';g.lineWidth=wpx+30;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
+     g.strokeStyle='#55663f';g.lineWidth=wpx+4;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();
    }
    g.strokeStyle='#9aa0a2';g.lineWidth=wpx+pvPx(r);g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* pavement slabs */
    g.strokeStyle='#393f46';g.lineWidth=wpx;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke(); /* tarmac */
@@ -1721,7 +1873,7 @@ function buildGroundTexture(){
  (function(){
    var sl=1234567; function srnd(){sl=(sl*48271)%2147483647;return (sl-1)/2147483646;}
    var SAMP_ROADS=['Deeplish Road','Ann Street','Lower Tweedale Street','Derby Street','Back Ann Ginnel'];
-   function inSamp(x,z){var dx=x-375,dz=z-650;return dx*dx+dz*dz<220*220;}
+   function inSamp(x,z){var dx=x-(-30),dz=z-1800;return dx*dx+dz*dz<220*220;} /* R1: sample gate rides to the transplanted Deeplish Rd x Ann St junction */
    SAMP_ROADS.forEach(function(nm){
      var r=null;for(var i=0;i<ROADS.length;i++)if(ROADS[i].name===nm)r=ROADS[i];
      if(!r||r.cls==='R')return;
@@ -1740,7 +1892,7 @@ function buildGroundTexture(){
        var nx=-dy,ny=dx;
        g.beginPath();
        for(var s=4;s<L;s+=4){ /* 4px ~ 5 units: slab cross-joints */
-         var cxp=ax+dx*s,cyp=ay+dy*s,wx=(cxp/cw)*2600-1300,wz=(cyp/ch)*2000-1000;
+         var cxp=ax+dx*s,cyp=ay+dy*s,wx=(cxp/cw)*18600-9800,wz=(cyp/ch)*22600-6800;
          if(!inSamp(wx,wz))continue;
          g.moveTo(cxp+nx*(wpx/2+1),cyp+ny*(wpx/2+1));g.lineTo(cxp+nx*(wpx/2+pv-1),cyp+ny*(wpx/2+pv-1));
          g.moveTo(cxp-nx*(wpx/2+1),cyp-ny*(wpx/2+1));g.lineTo(cxp-nx*(wpx/2+pv-1),cyp-ny*(wpx/2+pv-1));
@@ -1753,7 +1905,7 @@ function buildGroundTexture(){
        var dx2=bx2-ax2,dy2=by2-ay2,L2=Math.sqrt(dx2*dx2+dy2*dy2);if(!L2)continue;dx2/=L2;dy2/=L2;
        var nx2=-dy2,ny2=dx2;
        for(var s2=10;s2<L2;s2+=28){ /* 28px ~ 36 units */
-         var cx2=ax2+dx2*s2,cy2=ay2+dy2*s2,wx2=(cx2/cw)*2600-1300,wz2=(cy2/ch)*2000-1000;
+         var cx2=ax2+dx2*s2,cy2=ay2+dy2*s2,wx2=(cx2/cw)*18600-9800,wz2=(cy2/ch)*22600-6800;
          if(!inSamp(wx2,wz2))continue;
          var lo=(srnd()-.5)*(wpx-10);
          g.fillStyle=srnd()>.5?'rgba(255,255,255,.045)':'rgba(0,0,0,.07)';
@@ -1938,7 +2090,7 @@ function buildGroundTexture(){
  var tex=new THREE.CanvasTexture(c); tex.anisotropy=4; tex.encoding=THREE.sRGBEncoding; return tex;
 }
 var ground=new THREE.Mesh(new THREE.PlaneGeometry(WORLD.w,WORLD.h),new THREE.MeshLambertMaterial({map:buildGroundTexture()}));
-ground.rotation.x=-Math.PI/2; scene.add(ground);
+ground.position.set(-500,0,4500);ground.rotation.x=-Math.PI/2; scene.add(ground); /* R1: the plane covers R1_BOUNDS exactly */
 
 /* ---- X-1 (v31) WORLD2: the southern extension ground (design §1) ----
    A SECOND ground plane + canvas for the A664 corridor / Middleton. The
@@ -1951,9 +2103,9 @@ ground.rotation.x=-Math.PI/2; scene.add(ground);
    (~0.76 px/unit). Sits at y -0.1 so the ~10-unit seam overlap tucks under
    the old plane. Noise uses a private LCG — the shared rnd() stream (and
    therefore building layout) is untouched. */
-var WORLD2={w:2200,h:3800,cx:-500,cz:2890};
+var WORLD2={w:1600,h:4400,cx:-4300,cz:13400}; /* R1 (v30.14): the southern detail canvas rides the transplant — Middleton + Manchester block */
 function buildGroundTexture2(){
- var cw=1664,ch=2880,c=document.createElement('canvas');c.width=cw;c.height=ch;var g=c.getContext('2d');
+ var cw=1056,ch=2904, /* R1: ~0.66 px/unit, matching the block it now paints */c=document.createElement('canvas');c.width=cw;c.height=ch;var g=c.getContext('2d');
  function X2(x){return (x-(WORLD2.cx-WORLD2.w/2))/WORLD2.w*cw;}
  function Y2(z){return (z-(WORLD2.cz-WORLD2.h/2))/WORLD2.h*ch;}
  var ls=987123; function lrnd(){ls=(ls*48271)%2147483647;return (ls-1)/2147483646;}
@@ -2017,7 +2169,7 @@ function buildGroundTexture2(){
  var tex=new THREE.CanvasTexture(c); tex.anisotropy=4; tex.encoding=THREE.sRGBEncoding; return tex;
 }
 var ground2=new THREE.Mesh(new THREE.PlaneGeometry(WORLD2.w,WORLD2.h),new THREE.MeshLambertMaterial({map:buildGroundTexture2()}));
-ground2.rotation.x=-Math.PI/2; ground2.position.set(WORLD2.cx,-0.1,WORLD2.cz); scene.add(ground2);
+ground2.rotation.x=-Math.PI/2; ground2.position.set(WORLD2.cx,0.15,WORLD2.cz); scene.add(ground2); /* R1 (v30.14): y raised from -0.1 to +0.15 — the detail canvas now sits INSIDE the main ground plane's footprint (it was outside it before the transplant), so it must ride above it to be seen */
 
 /* ---- Buildings: Phase 2 — modular British buildings on the EXACT original footprints ----
    Rochdale reference (real street photography, stylised — no real names/logos/signage):
@@ -2301,9 +2453,9 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
  mfRow('A671 · Oldham Road',.28,.55,1,'semi',48,44,38,38,16,.45,7);
  mfRow('A58 · St Mary’s Gate',.55,.76,-1,'terrace',34,46,39,41,10,.35,6);
  /* The ONLY two council flats (§7) + the fence lock-up, on their assigned plots */
- mfEmit(420,620,90,55,100,-2.36,'flats',10);
- mfEmit(706,498,90,55,92,Math.PI,'flats',10);
- mfEmit(372,600,44,30,24,-2.36,'ind',10);
+ mfEmit(4090,3860,90,55,100,-2.36,'flats',10); /* R1: Kingsway flats ride Kingsway */
+ mfEmit(4376,3738,90,55,92,Math.PI,'flats',10); /* R1 */
+ mfEmit(4042,3840,44,30,24,-2.36,'ind',10); /* R1: the fence lock-up plot rides Kingsway/Deeplish side */
  /* ==== X-1 (v31) — RHODES RIBBON + MIDDLETON DISTRICT (design §2/§3) ====
     Appended AFTER every pre-existing placement in this IIFE (all Rochdale
     rows + the flats + the fence lock-up), so the brnd() stream position when
@@ -2320,14 +2472,14 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
     the shopfront module scaled up. Car park plot behind, W of Wood Street
     (dressed in the X-1 plot pass after the grounding package). */
  (function(){var ry=Math.PI/2,cc=Math.abs(Math.cos(ry)),ss2=Math.abs(Math.sin(ry));
-   if(mfClear(-728,2243,(64*cc+104*ss2)/2+2,(64*ss2+104*cc)/2+2))mfEmit(-728,2243,64,104,52,ry,'shop',9);})();
+   if(mfClear(-4538,11843, /* R1 */(64*cc+104*ss2)/2+2,(64*ss2+104*cc)/2+2))mfEmit(-4538,11843,64,104,52,ry,'shop',9);})();
  /* Pub on the Townley Street / Long Street corner (NE corner plot, set back
     so its box clears the Townley centreline) */
  (function(){var ry=0.12,cc=Math.abs(Math.cos(ry)),ss2=Math.abs(Math.sin(ry));
-   if(mfClear(-612,2158,(36*cc+52*ss2)/2+2,(36*ss2+52*cc)/2+2))mfEmit(-612,2158,36,52,50,ry,'pub',8);})();
+   if(mfClear(-4422,11758, /* R1 */(36*cc+52*ss2)/2+2,(36*ss2+52*cc)/2+2))mfEmit(-4422,11758,36,52,50,ry,'pub',8);})();
  /* Rhodes pub — E side of Manchester New Road, corner-plot typology */
  (function(){var ry=-1.46,cc=Math.abs(Math.cos(ry)),ss2=Math.abs(Math.sin(ry));
-   if(mfClear(-737,1210,(36*cc+52*ss2)/2+2,(36*ss2+52*cc)/2+2))mfEmit(-737,1210,36,52,50,ry,'pub',8);})();
+   if(mfClear(-3757,4310, /* R1: corridor pub rides the Castleton offset onto the A664 */(36*cc+52*ss2)/2+2,(36*ss2+52*cc)/2+2))mfEmit(-3757,4310,36,52,50,ry,'pub',8);})();
  /* Rhodes ribbon (z ~1150-1520): terrace rows E, a small parade of shopfronts
     W, semis behind the terraces. Ribbon only — no area, no spots, no anchors.
     The dense rows use mfRowDirect — the shipped reference-street mechanism
@@ -2428,7 +2580,7 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
   [-960,3650,48,48,300,0,0],[-790,3600,48,48,280,1,0],[-620,3620,46,46,260,0,0],[-180,3650,48,48,300,1,0],
   [-960,4100,50,50,290,0,0],[-180,4100,48,48,270,1,0],[-620,4330,50,50,310,0,0],[-400,3620,46,46,250,1,0],
   [-180,4330,48,48,260,0,0],[-790,3900,46,46,240,1,0],[-540,4100,44,44,295,0,0],[-100,4100,44,44,245,1,0]
- ].forEach(function(t){mfTower(t[0],t[1],t[2],t[3],t[4],t[5],t[6]);});
+ ].forEach(function(t){mfTower(t[0]-3810,t[1]+9600,t[2],t[3],t[4],t[5],t[6]);}); /* R1: downtown towers ride the Manchester offset */
  /* Mid-rise x36 (46-180): palazzo / podium blocks / brick warehouses on the
     retail streets + the N/E Northern Quarter fringe — the existing mfEmit
     types at downtown heights. [x,z,w,d,h,type] */
@@ -2446,7 +2598,7 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
   [-770,4180,34,30,56,'shop'],[-120,4180,34,34,84,'flats'],[-620,3850,36,36,76,'shop'],
   [-1000,3720,36,34,58,'ind'],[-450,4180,36,34,68,'shop'],[-240,3560,36,36,88,'flats']
  ].forEach(function(m){
-   if(mfClear(m[0],m[1],m[2]/2+2,m[3]/2+2))mfEmit(m[0],m[1],m[2],m[3],m[4],0,m[5],2);
+   if(mfClear(m[0]-3810,m[1]+9600,m[2]/2+2,m[3]/2+2))mfEmit(m[0]-3810,m[1]+9600,m[2],m[3],m[4],0,m[5],2); /* R1: downtown mid-rise rides the Manchester offset */
  });
  /* -- Landmarks (design §4) — bespoke builds in the Town Hall pattern:
     one buildings + one P5_BUILD + one bMeshes entry each, cm 2. -- */
@@ -2455,47 +2607,47 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
     the box height so the grounding eaves board lands on the box/cylinder
     junction instead of floating at the apex. */
  (function(){
-   if(!mfClear(30,3650,102,47))return;
-   var grp=new THREE.Group();grp.position.set(30,0,3650);scene.add(grp);var parts=[];
+   if(!mfClear(-3780,13250,102,47) /* R1 */)return;
+   var grp=new THREE.Group();grp.position.set(-3780,0,13250);scene.add(grp);var parts=[];
    addMesh(grp,parts,new THREE.BoxGeometry(200,45,90),MAT.ind[1],0,22.5,0);
    var cyl=new THREE.Mesh(new THREE.CylinderGeometry(45,45,196,14),roofMat);cyl.rotation.z=Math.PI/2;cyl.scale.set(.55,1,1);cyl.position.set(0,45,0);grp.add(cyl);parts.push(cyl);
-   buildings.push({x:30,z:3650,hw:101.5,hd:46.5,cm:2});
-   P5_BUILD.push({x:30,z:3650,w:200,d:90,h:48,rot:0,type:'ind'});
-   bMeshes.push({x:30,z:3650,hw:105,hd:50,top:72,parts:parts,fade:0,occ:false});
+   buildings.push({x:-3780,z:13250,hw:101.5,hd:46.5,cm:2});
+   P5_BUILD.push({x:-3780,z:13250,w:200,d:90,h:48,rot:0,type:'ind'});
+   bMeshes.push({x:-3780,z:13250,hw:105,hd:50,top:72,parts:parts,fade:0,occ:false});
  })();
  /* Arena block — flat slab 190x150, h 90, fronting Whitworth St. */
  (function(){
-   if(!mfClear(-990,4300,97,77))return;
-   var grp=new THREE.Group();grp.position.set(-990,0,4300);scene.add(grp);var parts=[];
+   if(!mfClear(-4800,13900,97,77) /* R1 */)return;
+   var grp=new THREE.Group();grp.position.set(-4800,0,13900);scene.add(grp);var parts=[];
    addMesh(grp,parts,new THREE.BoxGeometry(190,90,150),MAT.ind[2],0,45,0);
    addMesh(grp,parts,geo(194,3,154),roofMat,0,91.5,0);
-   buildings.push({x:-990,z:4300,hw:96.5,hd:76.5,cm:2});
-   P5_BUILD.push({x:-990,z:4300,w:190,d:150,h:90,rot:0,type:'ind'});
-   bMeshes.push({x:-990,z:4300,hw:100,hd:80,top:94,parts:parts,fade:0,occ:false});
+   buildings.push({x:-4800,z:13900,hw:96.5,hd:76.5,cm:2});
+   P5_BUILD.push({x:-4800,z:13900,w:190,d:150,h:90,rot:0,type:'ind'});
+   bMeshes.push({x:-4800,z:13900,hw:100,hd:80,top:94,parts:parts,fade:0,occ:false});
  })();
  /* Multi-storey car park — open-deck block 120x90: 5 deck slabs on corner
     columns. Lay-low ground + the parked-car court in front (dressed in the
     X-2 plot pass; its 3 cars arrive via the parked lists). NOT a safe
     house — no new mechanic (design §4/§6.4). */
  (function(){
-   if(!mfClear(-420,4330,62,47))return;
-   var grp=new THREE.Group();grp.position.set(-420,0,4330);scene.add(grp);var parts=[];
+   if(!mfClear(-4230,13930,62,47) /* R1 */)return;
+   var grp=new THREE.Group();grp.position.set(-4230,0,13930);scene.add(grp);var parts=[];
    for(var di=0;di<5;di++)addMesh(grp,parts,geo(120,3,90),roofMat,0,6+di*12,0); /* the 5 visible decks */
    [[-57,-42],[57,-42],[-57,42],[57,42]].forEach(function(cn){addMesh(grp,parts,geo(3,60,3),darkMat,cn[0],30,cn[1]);}); /* corner columns */
-   buildings.push({x:-420,z:4330,hw:61.5,hd:46.5,cm:2});
-   P5_BUILD.push({x:-420,z:4330,w:120,d:90,h:56,rot:0,type:'ind'});
-   bMeshes.push({x:-420,z:4330,hw:65,hd:50,top:62,parts:parts,fade:0,occ:false});
+   buildings.push({x:-4230,z:13930,hw:61.5,hd:46.5,cm:2});
+   P5_BUILD.push({x:-4230,z:13930,w:120,d:90,h:56,rot:0,type:'ind'});
+   bMeshes.push({x:-4230,z:13930,hw:65,hd:50,top:62,parts:parts,fade:0,occ:false});
  })();
  /* St Peter's Square civic block — library-style box + drum on the square's
     W edge (the square slab + tram stop are dressed in the X-2 plot pass). */
  (function(){
-   if(!mfClear(-565,3900,30,22))return;
-   var grp=new THREE.Group();grp.position.set(-565,0,3900);scene.add(grp);var parts=[];
+   if(!mfClear(-4375,13500,30,22) /* R1 */)return;
+   var grp=new THREE.Group();grp.position.set(-4375,0,13500);scene.add(grp);var parts=[];
    addMesh(grp,parts,new THREE.BoxGeometry(56,55,40),MAT.stone,0,27.5,0);
    addMesh(grp,parts,new THREE.CylinderGeometry(16,16,22,14),MAT.stone,0,66,0); /* the drum */
-   buildings.push({x:-565,z:3900,hw:29.5,hd:21.5,cm:2});
-   P5_BUILD.push({x:-565,z:3900,w:56,d:40,h:55,rot:0,type:'shop'});
-   bMeshes.push({x:-565,z:3900,hw:33,hd:25,top:78,parts:parts,fade:0,occ:false});
+   buildings.push({x:-4375,z:13500,hw:29.5,hd:21.5,cm:2});
+   P5_BUILD.push({x:-4375,z:13500,w:56,d:40,h:55,rot:0,type:'shop'});
+   bMeshes.push({x:-4375,z:13500,hw:33,hd:25,top:78,parts:parts,fade:0,occ:false});
  })();
  /* ==== X-3 (v31) — THE SEVEN SISTERS, COLLEGE BANK, SPOTLAND (design §5) ====
     Seven point blocks, footprint 52x52, council-flat typology at tower
@@ -2516,7 +2668,7 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
  [
   [-650,-215,195],[-555,-215,210],[-460,-215,200],[-368,-215,185],
   [-600,-118,175],[-505,-118,185],[-410,-118,165]
- ].forEach(function(t){mfEmit(t[0],t[1],52,52,t[2],0,'college',2);});
+ ].forEach(function(t){mfEmit(t[0]-20,t[1]-1215,52,52,t[2],0,'college',2);}); /* R1: the Seven Sisters travel as a block to the College Bank anchor (plan §1.4) */
  /* MAP REBUILD §7: SCATTER-FILL ABOLISHED — the 170-item random scatter loop is
     deleted. Every plot is assigned: rows above, the two flats, the fence lock-up,
     and the green pockets / parking courts / yards dressed in the grounding pass
@@ -2661,7 +2813,7 @@ function makeLabel(text,color,icon){
 }
 var placeLabels=[];
 var markerPins=[]; /* bobbing pin cones above the static ground rings */
-var SHOP={x:118,z:-108}, LOT={x:-528,z:442}; /* §10: LOT onto Manchester Rd with forecourt */
+var SHOP={x:118,z:-108}, LOT={x:-3548,z:3542} /* R1: on the transplanted Manchester Road, Castleton side */; /* §10: LOT onto Manchester Rd with forecourt */
 function placeMarker(x,z,color,label,icon){
  var ring=new THREE.Mesh(new THREE.RingGeometry(26,33,28),new THREE.MeshBasicMaterial({color:color,side:THREE.DoubleSide,transparent:true,opacity:.9}));
  ring.rotation.x=-Math.PI/2;ring.position.set(x,1.2,z);scene.add(ring);
@@ -2754,8 +2906,8 @@ bMeshes.push({x:SAFE.x,z:SAFE.z-19,hw:24,hd:18,top:54,parts:[safeHouseMesh,safeR
   var lawnM2=new THREE.MeshLambertMaterial({color:0x5d7346}),courtM2=new THREE.MeshLambertMaterial({color:0x6a7076}),
       hedgeM2=new THREE.MeshLambertMaterial({color:0x39543a}),darkM2=new THREE.MeshLambertMaterial({color:0x2c2f33}),
       bayM2=new THREE.MeshLambertMaterial({color:0xd8d8d2});
-  function slab2(x,z,w,d,mat,ry){var m=new THREE.Mesh(new THREE.BoxGeometry(w,1.2,d),mat);m.position.set(x,0.6,z);if(ry)m.rotation.y=ry;scene.add(m);return m;}
-  function box2(x,y,z,w,h,d,mat,ry){var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);if(ry)m.rotation.y=ry;scene.add(m);return m;}
+  function slab2(x,z,w,d,mat,ry){x-=3810;z+=9600; /* R1: X-1 Middleton dressing rides its block */var m=new THREE.Mesh(new THREE.BoxGeometry(w,1.2,d),mat);m.position.set(x,0.6,z);if(ry)m.rotation.y=ry;scene.add(m);return m;}
+  function box2(x,y,z,w,h,d,mat,ry){x-=3810;z+=9600; /* R1 */var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);if(ry)m.rotation.y=ry;scene.add(m);return m;}
   /* The Middleton Centre car park — behind the Centre, W of Wood Street,
      reached from Townley Street: grey slab + painted bay lines. */
   slab2(-873,2295,134,130,courtM2);
@@ -2787,8 +2939,8 @@ bMeshes.push({x:SAFE.x,z:SAFE.z-19,hw:24,hd:18,top:54,parts:[safeHouseMesh,safeR
  try{
   var stoneM3=new THREE.MeshLambertMaterial({color:0x8a8578}),courtM3=new THREE.MeshLambertMaterial({color:0x6a7076}),
       darkM3=new THREE.MeshLambertMaterial({color:0x2c2f33});
-  function slab3(x,z,w,d,mat){var m=new THREE.Mesh(new THREE.BoxGeometry(w,1.2,d),mat);m.position.set(x,0.6,z);scene.add(m);return m;}
-  function box3(x,y,z,w,h,d,mat){var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);scene.add(m);return m;}
+  function slab3(x,z,w,d,mat){x-=3810;z+=9600; /* R1: X-2 Manchester dressing rides the Manchester offset */var m=new THREE.Mesh(new THREE.BoxGeometry(w,1.2,d),mat);m.position.set(x,0.6,z);scene.add(m);return m;}
+  function box3(x,y,z,w,h,d,mat){x-=3810;z+=9600; /* R1 */var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);scene.add(m);return m;}
   slab3(-520,3900,130,110,stoneM3);        /* St Peter's Square — paved civic plot */
   slab3(-678,3935,24,70,courtM3);          /* the tram stop platform, Mosley St E side */
   slab3(-420,4262,190,46,courtM3);         /* multi-storey car park ground court (its 3 cars arrive via the parked lists) */
@@ -2813,8 +2965,8 @@ bMeshes.push({x:SAFE.x,z:SAFE.z-19,hw:24,hd:18,top:54,parts:[safeHouseMesh,safeR
  try{
   var courtM4=new THREE.MeshLambertMaterial({color:0x6a7076}),stoneM4=new THREE.MeshLambertMaterial({color:0x8a8578}),
       darkM4=new THREE.MeshLambertMaterial({color:0x2c2f33}),brickM4=new THREE.MeshLambertMaterial({color:0x86543e});
-  function slab4(x,z,w,d,mat){var m=new THREE.Mesh(new THREE.BoxGeometry(w,1.2,d),mat);m.position.set(x,0.6,z);scene.add(m);return m;}
-  function box4(x,y,z,w,h,d,mat){var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);scene.add(m);return m;}
+  function slab4(x,z,w,d,mat){x-=20;z-=1215; /* R1: X-3 College Bank dressing rides College Bank */var m=new THREE.Mesh(new THREE.BoxGeometry(w,1.2,d),mat);m.position.set(x,0.6,z);scene.add(m);return m;}
+  function box4(x,y,z,w,h,d,mat){x-=20;z-=1215; /* R1 */var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);scene.add(m);return m;}
   slab4(-570,-168,100,50,courtM4);            /* the parking court, between the rows */
   /* footpaths: spur/court to the tower doors (row 1 doors face S to the
      court; row 2 doors face N to the court) */
@@ -2856,7 +3008,7 @@ window.__X2_CHECK=function(){
    repeats every ~36 units along the carriageway. */
 (function(){
  try{
-  var CX=375,CZ=650,RAD=220; /* frame x 155..595, z 430..870: junction + Ann/Lower Tweedale rows + fence + flats + ginnel + the Ann St parked car */
+  var CX=-30,CZ=1800,RAD=220; /* R1: the illustrated-sample gate rides to the transplanted Deeplish Rd x Ann St junction (was 375,650) */ /* frame x 155..595, z 430..870: junction + Ann/Lower Tweedale rows + fence + flats + ginnel + the Ann St parked car */
   function inSamp(x,z){var dx=x-CX,dz=z-CZ;return dx*dx+dz*dz<RAD*RAD;}
   function sTex(w,h,draw,rep){var c=document.createElement('canvas');c.width=w;c.height=h;var g=c.getContext('2d');draw(g);var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;if(rep){t.wrapS=t.wrapT=THREE.RepeatWrapping;}return t;}
   var _ls=424243; function lrnd(){_ls=(_ls*48271)%2147483647;return (_ls-1)/2147483646;}
@@ -4256,7 +4408,7 @@ var P3COUNT={};
  try{
   var glassTrim=new THREE.MeshLambertMaterial({color:0x11161c}),n=0;
   scene.children.slice().forEach(function(gd){
-    if(gd.userData&&gd.userData.wheels){var dx=gd.position.x-375,dz=gd.position.z-650;
+    if(gd.userData&&gd.userData.wheels){var dx=gd.position.x-(-30),dz=gd.position.z-1800; /* R1: sample-area gate, transplanted */
       if(dx*dx+dz*dz<220*220)gd.traverse(function(mm){if(mm.isMesh&&mm.material===gd.userData.glassMat){mm.material=glassTrim;n++;}});}
   });
   if(window.__SAMPLE23)window.__SAMPLE23.parkedCarGlassSwaps=n;
@@ -4316,7 +4468,7 @@ var WEAPONS={
 /* ================= GAME STATE (in-memory; persists across days within the run) ================= */
 var S=null;
 function newState(){
- return {playing:false,paused:false,day:1,clock:300,cash:120,rep:0,heat:0,
+ return {playing:false,paused:false,day:1,clock:300,mapVer:1,cash:120,rep:0,heat:0, /* R1 (v30.14): mapVer:1 — fresh states are born on the R1 layout; a state WITHOUT the stamp is a pre-programme save and migrates in ensureGoods (plan §5.4) */
   stock:{crack:4,heroin:4},earned:0,drops:0,missed:0,
   tension:{},lastDropArea:null,lastDropTime:-99,
   weapon:'fists',ownedWeapons:{fists:true},atkCd:0,hp:100,
@@ -4363,7 +4515,7 @@ function buildEntities(){
  player.fig=makeFigure(0x8b9096,0x6d7278,0xc9a189,{gear:true,shoe:0x9aa0a6});scene.add(player.fig);tsBuildPlayerBody(player.fig); /* v30.5: GLB tracksuit body rides inside the player figure */
  police.mesh=makePoliceMesh();police.mesh.position.set(police.x,0,police.z);scene.add(police.mesh);
  var keys=Object.keys(CARS);
- for(var i=0;i<14;i++){ /* X-1 (v31): fleet 9 -> 14 — A_ROADS grew by the corridor A-roads; round-robin assignment unchanged (design §6.5) */
+ for(var i=0;i<20;i++){ /* X-1 (v31): fleet 9 -> 14 · R1 (v30.14): 14 -> 20 — the A-road network is ~4x longer at quarter-real; round-robin assignment unchanged, traffic stays A-road-only (density zoning by construction: corridors busy, estates light) */
    var road=A_ROADS[i%A_ROADS.length];var key=keys[i%keys.length];
    var gangCols=[0x7fb069,0xa3aab3,0xb088d8,0xf4a259,0x2f6df6,0xffd23f,0x2ec4b6];
    var colr=(i%3===0)?gangCols[i%gangCols.length]:null;
@@ -4966,10 +5118,10 @@ function s2ApplyHit(h,w,prof,ci){
    rules do not apply to them; witness/police paths are the standard
    S2 ones (s2Witness on the promoting hit, Heat via combatApplyHit). */
 var LEADER_DEFS=[
- {id:'chico',name:'CHICO',area:'deeplish',gang:'Tweedale Crew',street:'Tweedale Street',x:128,z:392,tier:'boss',arch:'boss',hp:230,dmg:14,jacket:0x1d4fc4,legs:0x1c2f57,skin:0x8a5a3b,hat:'cap',hatCol:0x1d4fc4},
- {id:'sunny',name:'SUNNY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:494,z:238,tier:'boss',arch:'boss',hp:230,dmg:14,brother:'immy',jacket:0xffd23f,legs:0x141519,skin:0xc9a189,hat:'cap',hatCol:0x17181c},
- {id:'immy',name:'IMMY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:468,z:266,tier:'boss',arch:'boss',hp:215,dmg:13,brother:'sunny',jacket:0xcf9f16,legs:0x1c1e22,skin:0xa06a42,hat:'beanie',hatCol:0x23272e},
- {id:'kuzzo',name:'KUZZO',area:'spotland',gang:'Spotland Firm',street:'Ings Lane',x:-498,z:-322,tier:'crew',arch:'crew',hp:120,dmg:12,jacket:0xa3aab3,legs:0x141519,skin:0x6e4530,hat:'cap',hatCol:0x2c2f33}
+ {id:'chico',name:'CHICO',area:'deeplish',gang:'Tweedale Crew',street:'Tweedale Street',x:-192,z:1552,tier:'boss' /* R1: Tweedale St */,arch:'boss',hp:230,dmg:14,jacket:0x1d4fc4,legs:0x1c2f57,skin:0x8a5a3b,hat:'cap',hatCol:0x1d4fc4},
+ {id:'sunny',name:'SUNNY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:3084,z:1523,tier:'boss' /* R1: Moss St */,arch:'boss',hp:230,dmg:14,brother:'immy',jacket:0xffd23f,legs:0x141519,skin:0xc9a189,hat:'cap',hatCol:0x17181c},
+ {id:'immy',name:'IMMY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:3058,z:1551,tier:'boss' /* R1: Moss St */,arch:'boss',hp:215,dmg:13,brother:'sunny',jacket:0xcf9f16,legs:0x1c1e22,skin:0xa06a42,hat:'beanie',hatCol:0x23272e},
+ {id:'kuzzo',name:'KUZZO',area:'spotland',gang:'Spotland Firm',street:'Ings Lane',x:-1808,z:-2602,tier:'crew' /* R1: Ings Lane */,arch:'crew',hp:120,dmg:12,jacket:0xa3aab3,legs:0x141519,skin:0x6e4530,hat:'cap',hatCol:0x2c2f33}
 ];
 /* Per-leader dialogue pools — the mechanism that keeps the four voices
    distinct: leaderInteract ONLY ever draws from LEADER_LINES[def.id].
@@ -6293,9 +6445,9 @@ function makeCall(){
  var qty=1+Math.floor(Math.random()*3);
  var d=dist2(player.x,player.z,spot.x,spot.z);
  var base=product==='crack'?22:28;
- var pay=Math.round((base*qty*(1+d/3200)*1.25)/5)*5;
+ var pay=Math.round((base*qty*Math.min(1+d/8500,2.5)*1.25)/5)*5; /* R1 (plan §5.1): distance scale (1+d/8500) hard-capped x2.5 (was 1+d/3200, uncapped — x4.96 on a Middleton run); the x1.25 rival-turf interaction is unchanged */
  pay=Math.round(pay*(1+totalFlex()/300));
- var window=clamp(Math.round(34+d/22),40,95);
+ var window=clamp(Math.round(24+d/120),45,140); /* R1 (plan §5.1): the retuned window — ring window, first call and post-drop gaps untouched */
  ringing={spot:spot,area:area,product:product,qty:qty,payout:pay,window:window};
  ringT=20;sfx('ring');
  $('callBody').textContent='Wants '+qty+'× '+product.toUpperCase()+' — '+spot.street+', '+area.short;
@@ -6343,9 +6495,20 @@ function robbery(){
  clearRival();updateHUD();
 }
 function clearRival(){if(rival){scene.remove(rival.mesh);rival=null;$('rivalHp').style.display='none';$('attackBtn').classList.remove('ready');}}
+function R1InPoly(x,z,pts){var inside=false;for(var i=0,j=pts.length-1;i<pts.length;j=i++){var xi=pts[i][0],zi=pts[i][1],xj=pts[j][0],zj=pts[j][1];if(((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi))inside=!inside;}return inside;}
 function areaOf(x,z){
+ /* R1 (v30.14, plan §5.2): POLYGON lookup replaces the 360-unit radius disc,
+    which cannot survive real district footprints. AREA_POLY (below, redrawn
+    to the true footprints) is the single source: the HUD banner, turf tint,
+    Tension and heat multipliers all read this function, so they follow the
+    polygons. Fallback: nearest centre within 520 (road shoulders and
+    fringes), else null — "Between areas", as shipped for the gaps. The
+    typeof guard covers the eval-time boot audit, which calls areaOf before
+    AREA_POLY's own definition line has run: it gets the fallback, which at
+    the new centres already resolves the two known wrong-area spots. */
+ if(typeof AREA_POLY!=='undefined'&&AREA_POLY){for(var i=0;i<AREA_POLY.length;i++){if(R1InPoly(x,z,AREA_POLY[i].pts))return areaById(AREA_POLY[i].id);}}
  var best=null,bd=1e9;AREAS.forEach(function(a){var d=dist2(x,z,a.x,a.z);if(d<bd){bd=d;best=a;}});
- return bd<360?best:null;
+ return bd<520?best:null;
 }
 
 /* ================= GOODS (second tier of stock) ================= */
@@ -6354,6 +6517,48 @@ var PROD={
  cigs:{label:'Cigarettes',price:6,heat:3},alcohol:{label:'Alcohol',price:14,heat:6},vapes:{label:'Vapes',price:9,heat:2}
 };
 function ensureGoods(){
+ if(S.mapVer===undefined){ /* ================= R1 (v30.14) SAVE MIGRATION — plan §5.4 (ships inside R1; never a wipe) =================
+    A state with no mapVer predates the Real Rochdale layout: every coordinate
+    it holds is meaningless on the new geography, but its PROGRESS is not.
+    Exactly the declared moves happen, once (stamp-gated, idempotent):
+    player re-anchored to the safe house (new Deeplish position, on foot);
+    any in-progress drop / ringing call cancelled WITHOUT penalty; the
+    current stolen ride cleared (own car restored from the ride record's
+    ownKey — the Golf R, if held, resolves the same way and returns to its
+    Moss Street kerb via the shipped LC load rule); Heat set low; the day
+    restarts at day start; S.seenCams remapped BY ID (camera names are the
+    IDs and are unchanged by R1, so the remap keeps every discovered camera
+    and drops only names that no longer exist). Race best-times: the shipped
+    save shape holds NO best-times field (races vs mates are W/L in
+    S.raceRec) — there is nothing to reset, and raceRec is progress, so it
+    is preserved untouched. EVERYTHING ELSE IS UNTOUCHED: cash, stock, Rep,
+    Tension, inventory, wardrobe, owned cars, leader memory (S.leaderMem),
+    S.leaderCar phase (reset to parked by the shipped load rule), tracksuit
+    colourway, UI/camera prefs, phone state.
+    FALLBACK (stated plainly, plan §5.4): the shipped architecture keeps ONE
+    in-memory state object and mutates it in place (the camVer migration is
+    the precedent) — there is no second slot to fall back to an un-migrated
+    copy from. The guard is therefore: every step is individually wrapped,
+    the stamp is written LAST, and a step that throws leaves the state
+    un-stamped and re-runnable rather than half-migrated-and-stamped; the
+    pre-build checkpoint is the file-level restore point. */
+  try{
+   if(typeof job!=='undefined')job=null;
+   if(typeof ringing!=='undefined')ringing=null;
+   if(typeof pinGroup!=='undefined'&&pinGroup)pinGroup.visible=false;
+   if(S.ride){var r1ok=S.ride.ownKey;S.ride=null;if(r1ok&&S.ownedCars&&S.ownedCars[r1ok]){S.car=r1ok;S.carDamage=(S.carDamageBy&&S.carDamageBy[r1ok])||0;}}
+   S.heat=Math.min(S.heat||0,8);
+   S.clock=300;
+   if(S.seenCams&&typeof ANPR_CAMS!=='undefined'){var r1cn={};ANPR_CAMS.forEach(function(c){r1cn[c.name]=1;});S.seenCams=S.seenCams.filter(function(n){return !!r1cn[n];});}
+   if(typeof player!=='undefined'&&player){
+     if(S.playing&&typeof enterFoot==='function'){try{enterFoot(SAFE.x,SAFE.z+30,'migration');}catch(e){player.x=SAFE.x;player.z=SAFE.z+30;}}
+     else{player.x=SAFE.x;player.z=SAFE.z+30;}
+     player.vx=0;player.vz=0;
+   }
+   S.mapVer=1; /* stamp LAST: a failed step above leaves the state un-stamped and the migration re-runnable */
+   if(typeof toast==='function'&&S.playing)toast('The map has changed — you wake up at the safe house. Everything you had is still yours.');
+  }catch(e){/* un-stamped: the next ensureGoods retries; nothing above is destructive to progress fields */}
+ }
  if(!S.goods)S.goods={cigs:0,alcohol:0,vapes:0};
  if(S.pendingHeat===undefined)S.pendingHeat=0;
  if(S.sideDone===undefined)S.sideDone=0;
@@ -6397,13 +6602,13 @@ function makeCall(){
  else if(product==='alcohol')qty=2+Math.floor(Math.random()*3);
  else qty=1+Math.floor(Math.random()*3);
  var d=dist2(player.x,player.z,spot.x,spot.z);
- var pay=Math.round((base*qty*(1+d/3200)*1.25)/5)*5;
+ var pay=Math.round((base*qty*Math.min(1+d/8500,2.5)*1.25)/5)*5; /* R1 (plan §5.1): distance scale (1+d/8500) hard-capped x2.5 (was 1+d/3200, uncapped — x4.96 on a Middleton run); the x1.25 rival-turf interaction is unchanged */
  if(product==='alcohol'&&S.clock<150)pay=Math.round(pay*1.3/5)*5; /* evening bonus */
  pay=Math.round(pay*(1+totalFlex()/300));
  var extra=null;
  if((product==='crack'||product==='heroin')&&Math.random()<.3)extra={product:'vapes',qty:2,pay:15};
  if(extra)pay+=extra.pay;
- var window=clamp(Math.round(34+d/22),40,95);
+ var window=clamp(Math.round(24+d/120),45,140); /* R1 (plan §5.1): the retuned window — ring window, first call and post-drop gaps untouched */
  ringing={spot:spot,area:area,product:product,qty:qty,payout:pay,window:window,extra:extra,caller:pick(CALLERS)};
  ringT=22;ringNokia();
  $('miniText').innerHTML='CALLIN…<br>'+ringing.caller+'<br>wants '+qty+'x '+PROD[product].label.toUpperCase();
@@ -6441,7 +6646,7 @@ function completeJob(){
 }
 
 /* ================= FENCE (off-licence lock-up, Deeplish) ================= */
-var FENCE={x:372,z:618}; /* §10: onto Deeplish Road with yard plot */
+var FENCE={x:52,z:1778}; /* R1: on the transplanted Deeplish Road (was {372,618}) */ /* §10: onto Deeplish Road with yard plot */
 var fenceRing=placeMarker(FENCE.x,FENCE.z,'#ffd23f','FENCE · OFF-LICENCE');
 var fenceBtn=null;
 function fencePrices(){return {cigs:3,alcohol:8,vapes:4};}
@@ -6465,9 +6670,9 @@ function acceptJob(){
  var t=sideOffer.type;sideOffer=null;
  if(t==='courier'){var a=pick(SPOTS),b=pick(SPOTS);sideJob={type:t,phase:'pickup',a:a,b:b,timeLeft:120};setPin(a.x,a.z,0x2ec4b6);}
  if(t==='fraud'){sideJob={type:t,idx:0,stops:FRAUD_STOPS,timeLeft:170,susT:11,prog:-1,burned:0};setPin(FRAUD_STOPS[0].x,FRAUD_STOPS[0].z,0x2ec4b6);}
- if(t==='swipe'){var st=Math.random()<.5?{name:'Off-licence, Deeplish St',x:212,z:246}:{name:'Shop, Moss St Newbold',x:478,z:225};sideJob={type:t,store:st,entered:false,items:[],grabbed:0,secT:26};setPin(st.x,st.z,0x2ec4b6);}
+ if(t==='swipe'){var st=Math.random()<.5?{name:'Off-licence, Deeplish St',x:-108,z:1406} /* R1 */:{name:'Shop, Moss St Newbold',x:3068,z:1510} /* R1 */;sideJob={type:t,store:st,entered:false,items:[],grabbed:0,secT:26};setPin(st.x,st.z,0x2ec4b6);}
  if(t==='debt'){var s=pick(SPOTS.filter(function(x){return x.area==='deeplish'||x.area==='newbold';}));sideJob={type:t,spot:s,arrived:false};setPin(s.x,s.z,0x2ec4b6);}
- if(t==='chop'){sideJob={type:t,phase:'pickup',a:{x:-390,z:-300},b:{x:-560,z:640},timeLeft:150,dmgStart:0};setPin(-390,-300,0x2ec4b6);}
+ if(t==='chop'){sideJob={type:t,phase:'pickup',a:{x:-1700,z:-2580},b:{x:-3580,z:3740} /* R1: Spotland Rd pickup -> Castleton lock-up, transplanted */,timeLeft:150,dmgStart:0};setPin(-1700,-2580,0x2ec4b6);}
  closePhone();updateObjective();toast('Job on: '+JOB_NAMES[t]);
 }
 function setPin(x,z,color){pinGroup.visible=true;pinCone.material.color.setHex(color);pinRing.material.color.setHex(color);pinGroup.position.set(x,0,z);}
@@ -6517,7 +6722,10 @@ function finishSwipe(){
 }
 
 /* ================= ANPR ================= */
-var ANPR_CAMS=[{x:0,z:-165,name:'Town Centre ring'},{x:-620,z:10,name:'A58'},{x:620,z:380,name:'Oldham Road'},{x:820,z:280,name:'Milnrow Road'},{x:330,z:760,name:'Kingsway'},{x:-760,z:1470,name:'Manchester New Road, Rhodes'},{x:-655,z:2330,name:'Long Street, Middleton'},{x:-533,z:3680,name:'Piccadilly, City Centre'},{x:-876,z:4050,name:'Deansgate, City Centre'}]; /* X-1 (v31): +2 corridor ANPR (design §6.2) · X-2 (v31): +2 city-centre ANPR (design §6.2) — total 9 */
+var ANPR_CAMS=[{x:0,z:-165,name:'Town Centre ring'},{x:-620,z:10,name:'A58'},{x:620,z:380,name:'Oldham Road'},{x:820,z:280,name:'Milnrow Road'},{x:330,z:760,name:'Kingsway'},{x:-760,z:1470,name:'Manchester New Road, Rhodes'},{x:-655,z:2330,name:'Long Street, Middleton'},{x:-533,z:3680,name:'Piccadilly, City Centre'},{x:-876,z:4050,name:'Deansgate, City Centre'}];
+/* R1 (v30.14): ANPR re-sited onto the transplanted corridors, then snapped to the nearest road centreline so every camera sits ON its road. Camera identity is its NAME (S.seenCams is keyed by name) — names unchanged, so the migration remap by ID is the identity map. */
+ANPR_CAMS.forEach(function(c){var t=R1T(c.x,c.z);c.x=t.x;c.z=t.z;});
+ANPR_CAMS.forEach(function(c){var bd=1e18,bx=c.x,bz=c.z;ROADS.forEach(function(r){if(r.cls==='R')return;for(var j=0;j<r.pts.length-1;j++){var ax=r.pts[j][0],az=r.pts[j][1],dx=r.pts[j+1][0]-ax,dz=r.pts[j+1][1]-az,L=dx*dx+dz*dz;var tt=L?((c.x-ax)*dx+(c.z-az)*dz)/L:0;tt=tt<0?0:(tt>1?1:tt);var px=ax+dx*tt,pz=az+dz*tt,dd=(c.x-px)*(c.x-px)+(c.z-pz)*(c.z-pz);if(dd<bd){bd=dd;bx=px;bz=pz;}}});c.x=Math.round(bx);c.z=Math.round(bz);}); /* X-1 (v31): +2 corridor ANPR (design §6.2) · X-2 (v31): +2 city-centre ANPR (design §6.2) — total 9 */
 (function(){ANPR_CAMS.forEach(function(c){var pole=new THREE.Mesh(new THREE.CylinderGeometry(1.6,1.6,26,6),new THREE.MeshLambertMaterial({color:0x555c66}));pole.position.set(c.x+16,13,c.z);scene.add(pole);var box=new THREE.Mesh(new THREE.BoxGeometry(7,5,5),new THREE.MeshLambertMaterial({color:0xd8b93a}));box.position.set(c.x+16,27,c.z);scene.add(box);c.cd=0;});})();
 function genPlate(){var L='ABCDEFGHJKLMNPRSTUVWXYZ';function r(s){return s[Math.floor(Math.random()*s.length)];}return r(L)+r(L)+(10+Math.floor(Math.random()*89))+' '+r(L)+r(L)+r(L);}
 var KEEPERS=['D. WHITTAKER','S. PATEL','K. DOYLE','R. AHMED','J. MURPHY','T. KOWALSKI'];
@@ -6922,9 +7130,9 @@ renderScreens=function(w){_rs(w);if(w==='shop'){$('shopList').querySelectorAll('
 
 /* ================= FRIENDLIES (mates) ================= */
 var MATES=[
- {id:'daz',name:'Daz',role:'MUSCLE',area:'deeplish',home:{x:190,z:388} /* §10: Tweedale St */,repReq:0,cut:.12,loyalty:70,color:0xb02020},
- {id:'kyle',name:'Kyle',role:'WHEELMAN',area:'newbold',home:{x:520,z:302} /* §10: Chichester St */,repReq:12,cut:.10,loyalty:60,color:0x2a4a8f},
- {id:'mo',name:'Mo',role:'TALKER',area:'spotland',home:{x:-468,z:-306} /* §10: Ings Lane */,repReq:22,cut:.10,loyalty:60,color:0x3f7a4e}
+ {id:'daz',name:'Daz',role:'MUSCLE',area:'deeplish',home:{x:-130,z:1548} /* R1: Tweedale St, transplanted */ /* §10: Tweedale St */,repReq:0,cut:.12,loyalty:70,color:0xb02020},
+ {id:'kyle',name:'Kyle',role:'WHEELMAN',area:'newbold',home:{x:3110,z:1587} /* R1: Chichester St, transplanted */ /* §10: Chichester St */,repReq:12,cut:.10,loyalty:60,color:0x2a4a8f},
+ {id:'mo',name:'Mo',role:'TALKER',area:'spotland',home:{x:-1778,z:-2586} /* R1: Ings Lane, transplanted */ /* §10: Ings Lane */,repReq:22,cut:.10,loyalty:60,color:0x3f7a4e}
 ];
 var crew=[]; /* active mate objects {def,fig,withYou,mode:'follow'|'car'|'stay',hp,injuredDays} */
 var mateState={};
@@ -7202,7 +7410,10 @@ function enterFoot(x,z,reason){
 
 /* ================= DRIVING STYLE / LICENCE ================= */
 var style={reckless:0,legit:0,events:[],runReckless:0,cleanRun:true};
-var SPEED_CAMS=[{x:-620,z:10,name:'A58, Spotland Rd jct'},{x:620,z:380,name:'Oldham Road'},{x:330,z:760,name:'Kingsway'},{x:-300,z:-260,name:'Edenfield Road (hidden)'},{x:-740,z:1750,name:'Manchester New Road'},{x:-575,z:3050,name:'Rochdale Road, Blackley'},{x:-875,z:4250,name:'Deansgate'}]; /* X-1 (v31): +2 corridor speed cameras (design §6.2) · X-2 (v31): +1 Deansgate (design §6.2) — total 7 */
+var SPEED_CAMS=[{x:-620,z:10,name:'A58, Spotland Rd jct'},{x:620,z:380,name:'Oldham Road'},{x:330,z:760,name:'Kingsway'},{x:-300,z:-260,name:'Edenfield Road (hidden)'},{x:-740,z:1750,name:'Manchester New Road'},{x:-575,z:3050,name:'Rochdale Road, Blackley'},{x:-875,z:4250,name:'Deansgate'}];
+/* R1 (v30.14): speed cameras follow the same transform + road snap (A664 Castleton stretch, Kingsway, Milnrow Rd, centre gyratory corridors as shipped). */
+SPEED_CAMS.forEach(function(c){var t=R1T(c.x,c.z);c.x=t.x;c.z=t.z;});
+SPEED_CAMS.forEach(function(c){var bd=1e18,bx=c.x,bz=c.z;ROADS.forEach(function(r){if(r.cls==='R')return;for(var j=0;j<r.pts.length-1;j++){var ax=r.pts[j][0],az=r.pts[j][1],dx=r.pts[j+1][0]-ax,dz=r.pts[j+1][1]-az,L=dx*dx+dz*dz;var tt=L?((c.x-ax)*dx+(c.z-az)*dz)/L:0;tt=tt<0?0:(tt>1?1:tt);var px=ax+dx*tt,pz=az+dz*tt,dd=(c.x-px)*(c.x-px)+(c.z-pz)*(c.z-pz);if(dd<bd){bd=dd;bx=px;bz=pz;}}});c.x=Math.round(bx);c.z=Math.round(bz);}); /* X-1 (v31): +2 corridor speed cameras (design §6.2) · X-2 (v31): +1 Deansgate (design §6.2) — total 7 */
 SPEED_CAMS.forEach(function(c){c.cd=0;});
 var LIGHTS=[{x:0,z:-70},{x:330,z:180},{x:-280,z:-220},{x:160,z:420}];
 var lightMeshes=[];
@@ -7231,18 +7442,18 @@ function ensureRecord2(){if(!S.record)S.record={arrests:0,offences:[],pending:[]
 var WATCH_STREETS=['Tweedale Street','Moss Street','Chichester Street','Ann Street, Deeplish'];
 var aunties=[];
 (function(){
- var spots=[{x:112,z:290,s:'Tweedale Street'},{x:205,z:327,s:'Tweedale Street'},{x:492,z:190,s:'Moss Street'},{x:472,z:253,s:'Chichester Street'},{x:122,z:400,s:'Ann Street, Deeplish'},{x:-498,z:-275,s:'Ings Lane, Spotland'},{x:-618,z:-700,s:'Bamford Road, Norden'},
+ var spots=[{x:-208,z:1450,s:'Tweedale Street'},{x:-115,z:1487,s:'Tweedale Street'},{x:3082,z:1475,s:'Moss Street'},{x:3062,z:1538,s:'Chichester Street'},{x:-198,z:1560,s:'Ann Street, Deeplish'},{x:-1808,z:-2555,s:'Ings Lane, Spotland'},{x:-618,z:-700,s:'Bamford Road, Norden'},
   /* X-3 (v31): +4 static aunties at College Bank tower entrances (design
      §5) — the densest witness placement in Spotland: the Sisters are
      watched. Same figure language, same updateAunties machinery. */
-  {x:-650,z:-184,s:'College Bank, Spotland'},{x:-555,z:-184,s:'College Bank, Spotland'},{x:-586,z:-142,s:'College Bank, Spotland'},{x:-491,z:-142,s:'College Bank, Spotland'}];
+  {x:-670,z:-1399,s:'College Bank, Spotland'},{x:-575,z:-1399,s:'College Bank, Spotland'},{x:-606,z:-1357,s:'College Bank, Spotland'},{x:-511,z:-1357,s:'College Bank, Spotland'}];
  spots.forEach(function(sp){
    var fig=makeFigure(0x7a4a6b,0x3a3f4a,[0xd8b090,0xa06a42,0x8a5a3b][spots.indexOf(sp)%3],{coat:0x7a4a6b,scarf:[0x8c2b3a,0x2e4a6b,0x5b2d4d][spots.indexOf(sp)%3],shoe:0x2c2f36});fig.position.set(sp.x,0,sp.z);fig.visible=false;scene.add(fig);
    var lb=makeLabel('!','rgba(255,90,90,1)');lb.scale.set(26,5,1);lb.position.set(sp.x,34,sp.z);lb.visible=false;scene.add(lb);
    aunties.push({x:sp.x,z:sp.z,street:sp.s,fig:fig,label:lb,stage:0,callT:0,cd:0,watch:WATCH_STREETS.indexOf(sp.s)>=0});
  });
  /* Neighbourhood Watch signs */
- [{x:40,z:292},{x:462,z:138},{x:44,z:400}].forEach(function(p){var lb=makeLabel('NW','rgba(255,210,63,1)');lb.scale.set(30,6,1);lb.position.set(p.x,16,p.z);scene.add(lb);});
+ [{x:-280,z:1452},{x:3052,z:1423},{x:-276,z:1560}].forEach(function(p){var lb=makeLabel('NW','rgba(255,210,63,1)');lb.scale.set(30,6,1);lb.position.set(p.x,16,p.z);scene.add(lb);});
 })();
 function updateAunties(dt,speed){
  aunties.forEach(function(a){
@@ -7287,17 +7498,17 @@ function complain(street,q){
 /* ================= STREET RACES ================= */
 var ROUTES=[
  {name:'Town Centre Ring',pts:[[80,-80],[16,-62],[-120,-148],[40,-158],[80,-80]],stake:50},
- {name:'Deeplish Grid Sprint',pts:[[170,388],[212,246],[262,548],[160,706],[170,388]],stake:50}, /* §10 snapped to new centrelines */
- {name:'Kingsway Run',pts:[[168,470],[245,640],[332,762],[392,890]],stake:80},
- {name:'Spotland Climb',pts:[[-300,-228],[-505,-440],[-585,-650]],stake:60},
- {name:'Newbold Run',pts:[[365,122],[580,215],[812,220],[618,302],[482,154]],stake:60}, /* §10 snapped */
+ {name:'Deeplish Grid Sprint',pts:[[-150,1546],[10,1418],[-145,1706],[-150,1866],[-150,1546]],stake:50}, /* R1 (v30.14): re-plotted on the transplanted grid centrelines (Tweedale -> Deeplish St -> Lower Tweedale -> Ann St) */
+ {name:'Kingsway Run',pts:[[1100,1500],[1900,2400],[2670,3170],[4000,4000]],stake:80}, /* R1: on the real Kingsway (Queensway -> Edinburgh Way -> Sandbrook -> Retail Park) */
+ {name:'Spotland Climb',pts:[[-500,-600],[-1000,-1200],[-1500,-2000],[-1830,-2670]],stake:60}, /* R1: up the hand-laid Spotland Road to the stadium anchor */
+ {name:'Newbold Run',pts:[[900,700],[1800,1150],[3170,1500],[3202,1745],[3170,1589]],stake:60}, /* R1: A640 in -> Moss Avenue -> Moss Mill Street -> Chichester Street */
  /* X-3 (v31): MANNY RUN (design §6.6) — the premium point-to-point, £120
     stake, 15 checkpoints all on centrelines: Tweedale -> Milkstone ->
     Manchester Rd -> the A664 junction -> Rhodes -> Middleton -> Rochdale
     Rd -> Piccadilly -> Cross St -> Deansgate -> finish. Route data +
     registration only; RACE_SKILL, the stakes plumbing and the Nokia
     race flow are the shipped ones. */
- {name:'MANNY RUN',pts:[[170,388],[118,262],[60,58],[-200,205],[-500,452],[-810,692],[-790,1180],[-712,1830],[-655,2300],[-600,2790],[-540,3440],[-532,3700],[-700,3770],[-876,3980],[-875,4250]],stake:120}
+ {name:'MANNY RUN',pts:[[-150,1546],[60,58],[-700,800],[-2400,2500],[-3200,3200],[-3610,3610],[-3750,5200],[-4100,9200],[-4450,11880],[-4420,12600],[-4350,13100],[-4510,13368],[-4682,14040]],stake:120} /* R1 (v30.14): re-plotted at the true Middleton anchor — Tweedale -> Milkstone -> Manchester Rd -> Castleton -> the A664 corridor -> Middleton -> Rochdale Rd -> Piccadilly -> Cross St -> Deansgate. 13 checkpoints on the new centrelines (the shipped 15-point count included two corridor vertices the hand-laid skeleton merges); opponent pace is RACE_SKILL-relative, so no par field exists to re-derive */
 ];
 var race=null;
 var RACE_SKILL={daz:{speed:.86,err:.5},kyle:{speed:.97,err:.08},mo:{speed:.9,err:.2}};
@@ -7932,7 +8143,7 @@ function updateGame(dt,realDt){
      vf=vf2;vr=vr2;
      fx=Math.sin(player.h);fz=-Math.cos(player.h);rx=Math.cos(player.h);rz=Math.sin(player.h);
      player.vx=fx*vf+rx*vr;player.vz=fz*vf+rz*vr;
-     player.x=clamp(player.x+player.vx*hStep,-1280,1280);player.z=clamp(player.z+player.vz*hStep,-980,4760); /* X-1 (v31): z-max extended for the Middleton/Manny world (design §1); x and z-min unchanged */
+     player.x=clamp(player.x+player.vx*hStep,-9600,8600);player.z=clamp(player.z+player.vz*hStep,-6600,15600); /* R1 (v30.14): clamp to R1_BOUNDS (was the X-1 Middleton/Manny rect) */ /* X-1 (v31): z-max extended for the Middleton/Manny world (design §1); x and z-min unchanged */
      /* collisions: buildings — forgiving glance-off (unchanged response).
         The crash tier system (onCrash) is untouched; only the physical
         response resolves along the axis of least penetration, kills the
@@ -8300,6 +8511,7 @@ var police2={x:-655,z:2300,h:0,mode:'park',scanT:0,mesh:null,px:0,pz:0};
 police2.mesh=makePoliceMesh();police2.mesh.position.set(police2.x,0,police2.z);scene.add(police2.mesh);
 window.__POLICE2=police2;
 var POLICE2_ANCHORS=[[-655,2300],[-600,2790],[-540,3440],[-533,3680],[-876,3980],[-660,3988],[-296,3980],[-875,4250]]; /* Middleton centre, the corridor, Piccadilly, then the downtown A-grid */
+POLICE2_ANCHORS=POLICE2_ANCHORS.map(R1Pt); /* R1 (v30.14): the city unit's wander anchors ride the transplant (Middleton/Manchester share one offset, so the set stays coherent) — Police Stage 1 re-pointing, with the Rochdale unit's zones in the R1 block: Centre (its shipped base), Heywood and Middleton anchors + A664/A58 corridor coverage via police2's anchor cycle */
 function updatePolice2(dt){
  var south=player.z>=1500;
  var tgt;
@@ -8858,7 +9070,7 @@ function drawMinimap(){
     (shipped declutter — names live on the full map + the area banner);
     the turf tint dots keep working through the same transform. */
  var WW=1150,WH=880;
- var mcx=clamp(player.x,-1300+WW/2,1300-WW/2),mcz=clamp(player.z,-1000+WH/2,4800-WH/2);
+ var mcx=clamp(player.x,-9800+WW/2,8800-WW/2),mcz=clamp(player.z,-6800+WH/2,15800-WH/2); /* R1: follow window clamps at R1_BOUNDS */
  var mx0=mcx-WW/2,mz0=mcz-WH/2;
  function X(x){return (x-mx0)/WW*172;}function Y(z){return (z-mz0)/WH*132;}
  g.fillStyle='#0a0e13';g.fillRect(0,0,172,132);
@@ -8903,13 +9115,29 @@ var AREA_POLY=[
  {id:'middleton',pts:[[-920,1980],[-360,1980],[-360,2680],[-920,2680]]},
  {id:'manchester',pts:[[-1120,3440],[80,3440],[80,4560],[-1120,4560]]}
 ];
+/* R1 (v30.14): the shipped polygons are district-local, so each rides its
+   district's anchor offset rigidly; the true footprints the radius map
+   never had are then added — College Bank + Lower Falinge (Spotland turf),
+   Bamford (Norden turf), Darnhill (Heywood turf), Langley + Alkrington
+   (Middleton turf), Sandbrook Park + Kingsway Business Park + Belfield +
+   Kirkholt (Kingsway / Exchange turf, the unclaimed A664/A671 ground). */
+(function(){var off={norden:'norden',spotland:'spotland',heywood:'heywood',centre:'centre',deeplish:'deeplish',newbold:'newbold',castleton:'castleton',kingsway:'kingsway',middleton:'middleton',manchester:'manchester'};
+ AREA_POLY.forEach(function(ap){var a=R1A(off[ap.id]||'centre');ap.pts=ap.pts.map(function(p){return[p[0]+a.dx,p[1]+a.dz];});});
+ function rect(id,cx,cz,hw,hd){AREA_POLY.push({id:id,pts:[[cx-hw,cz-hd],[cx+hw,cz-hd],[cx+hw,cz+hd],[cx-hw,cz+hd]]});}
+ rect('spotland',-580,-1420,430,430);rect('spotland',1500,-1830,520,470);
+ rect('norden',-5170,-3170,560,520);rect('heywood',-7670,6500,620,560);
+ rect('middleton',-7170,12670,700,620);rect('middleton',-3670,14330,640,560);
+ rect('kingsway',2670,3170,560,480);rect('kingsway',6000,5670,700,560);
+ rect('kingsway',2170,4330,520,470);rect('kingsway',2670,3830,560,500);
+})();
 var mapTimer=null,mapFromPause=false;
 function drawFullMap(){
  var cv=$('fullMap');if(!cv)return;var g=cv.getContext('2d');
- var W=1000,H=620,s=Math.min(W/2600,H/5800),ox=(W-2600*s)/2;
- function X(x){return ox+(x+1300)*s;}function Y(z){return (z+1000)*s;}
+ var W=1000,H=620,s=Math.min(W/18600,H/22600),ox=(W-18600*s)/2,oy=0; /* R1 (plan §5.3): fit-all overview over R1_BOUNDS… */
+ if(window.__mapZoom&&window.__mapZoom>1){s*=window.__mapZoom;ox=W/2-(player.x+9800)*s;oy=H/2-(player.z+6800)*s;} /* …plus zoom levels centred on the player */
+ function X(x){return ox+(x+9800)*s;}function Y(z){return oy+(z+6800)*s;}
  g.fillStyle='#20262b';g.fillRect(0,0,W,H);
- g.fillStyle='#171c20';g.fillRect(X(-1300),Y(-1000),2600*s,5800*s);
+ g.fillStyle='#171c20';g.fillRect(X(-9800),Y(-6800),18600*s,22600*s);
  /* districts: turf tint + NAME + gang (names live here, not in-world) */
  AREA_POLY.forEach(function(ap){
    var a=areaById(ap.id);
@@ -8918,7 +9146,7 @@ function drawFullMap(){
    if(a.contested){ /* hatched fill + dashed outline for contested ground */
      g.save();g.clip();
      g.strokeStyle='rgba(232,227,217,.28)';g.lineWidth=1;g.beginPath();
-     for(var hx=-40;hx<130;hx+=9){g.moveTo(X(-1120)+hx*1.4,Y(3440));g.lineTo(X(-1120)+hx*1.4-70,Y(4560));}
+     for(var hx=-40;hx<130;hx+=9){g.moveTo(X(-4930)+hx*1.4,Y(13040));g.lineTo(X(-4930)+hx*1.4-70,Y(14160));} /* R1: hatch follows the transplanted downtown polygon */
      g.stroke();g.restore();
      g.setLineDash([5,4]);
    }
@@ -8988,6 +9216,7 @@ function closeMap(){
 }
 $('mapBtn').onclick=function(){openMap(true);};
 $('mapCloseBtn').onclick=function(){closeMap();};
+$('mapZoomBtn').onclick=function(){var z=window.__mapZoom||1;z=z>=4?1:z*2;window.__mapZoom=z;$('mapZoomBtn').textContent='Zoom: '+(z===1?'Fit all':'×'+z+' — centred on you');drawFullMap();}; /* R1 (plan §5.3): fit-all plus zoom levels on the full map */
 $('mmWrap').addEventListener('click',function(){openMap(false);}); /* tapping the minimap opens the full map — and nothing else opens it */
 $('mapLegendHead').addEventListener('click',function(){
  var b=$('mapLegendBody'),open=b.style.display==='block';
@@ -9552,8 +9781,8 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
      var cloudDim=1-WX.cloud*(playing?.45:0);
      tmpC.copy(cur.sky).lerp(GREY,WX.cloud*(playing?.3:0));scene.background.copy(tmpC);
      tmpC.copy(cur.fog).lerp(GREY,WX.cloud*(playing?.3:0));scene.fog.color.copy(tmpC);
-     var dens=.00029*(0.85+WX.cloud*.25)+WX.fog*.00105+cur.n*.00003;
-     scene.fog.density=Math.min(.0015,playing?dens:.00029);
+     var dens=.00016*(0.85+WX.cloud*.25)+WX.fog*.00105+cur.n*.00003;
+     scene.fog.density=Math.min(.0015,playing?dens:.00016);
      var farT=playing?4000-WX.fog*1700:4000;
      if(Math.abs(camera.far-farT)>60){camera.far=farT;camera.updateProjectionMatrix();}
      sun.color.copy(cur.sun);sun.intensity=cur.si*cloudDim;
@@ -9617,7 +9846,7 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
        }
      }
    }catch(e){P5.errs++;if(P5.errs>6){/* fail safe: restore dry grip + v15 grade, stop ticking */
-     try{WET_GRIP=1;scene.background.setHex(0x263341);scene.fog.color.setHex(0x263341);scene.fog.density=.00029;sun.intensity=1.25;sun.color.setHex(0xfff1d8);renderer.toneMappingExposure=1.12;}catch(e2){}
+     try{WET_GRIP=1;scene.background.setHex(0x263341);scene.fog.color.setHex(0x263341);scene.fog.density=.00016;sun.intensity=1.25;sun.color.setHex(0xfff1d8);renderer.toneMappingExposure=1.12;}catch(e2){}
      return;}
    }
  }
@@ -9635,6 +9864,44 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
 })();
 
 /* ================= INIT ================= */
+/* ================= R1 (v30.14) — CHUNKED ACTIVATION (plan §5.5) =================
+   The world is now ~9x the shipped area; per-frame cost near the player is
+   what matters. Everything built during script eval (buildings, dressing,
+   furniture, parked spares) is registered ONCE here — before buildEntities
+   adds the dynamic cast — and a 0.6 s pass toggles visibility by LIVE
+   position: fully live within 2,500 u, hidden only beyond 3,100 u with
+   hysteresis, landmarks exempt (bounding height >= 100: Town Hall spire,
+   St Chad's, the Seven Sisters, mill chimneys, downtown towers stay as
+   silhouettes). Ground planes are exempt by size. The pass only ever hides
+   a visible object and restores exactly what it hid; positions are read
+   live each pass, so anything that moves (a stolen spare, the Golf R, the
+   objective pin) can never be hidden out from under the player. Collision
+   (buildings[]), NPC logic and entity updates are untouched — render cost
+   only. Instancing: the shipped construction (shared canvas materials +
+   merged dressing helpers) is retained; per-typology InstancedMesh kits
+   are R2+ work where the coverage programme rebuilds rows anyway. */
+var R1_CHUNKS=[],R1_HIDDEN=[];
+(function(){
+ try{
+  scene.children.forEach(function(o){
+   if(!o||o.isLight||o.isCamera||o===pinGroup||o===sparkPts)return;
+   var bb=new THREE.Box3().setFromObject(o);if(!isFinite(bb.min.x))return;
+   var h=bb.max.y-bb.min.y,w=bb.max.x-bb.min.x,d=bb.max.z-bb.min.z;
+   if(w>3000||d>3000)return; /* ground planes / world-scale objects */
+   R1_CHUNKS.push({o:o,exempt:h>=100});
+  });
+ }catch(e){}
+ setInterval(function(){
+  if(!S||!S.playing||typeof player==='undefined'||!player)return;
+  for(var i=R1_HIDDEN.length-1;i>=0;i--){var c=R1_HIDDEN[i],dx=c.o.position.x-player.x,dz=c.o.position.z-player.z;if(dx*dx+dz*dz<2900*2900){c.o.visible=true;R1_HIDDEN.splice(i,1);}}
+  for(var j=0;j<R1_CHUNKS.length;j++){var k=R1_CHUNKS[j];if(k.exempt||!k.o.visible)continue;if(player.mesh&&k.o===player.mesh)continue;var dx2=k.o.position.x-player.x,dz2=k.o.position.z-player.z;if(dx2*dx2+dz2*dz2>3100*3100){k.o.visible=false;R1_HIDDEN.push(k);}}
+ },600);
+ window.__R1_AUDIT={
+  chunks:function(){return{registered:R1_CHUNKS.length,hidden:R1_HIDDEN.length,exempt:R1_CHUNKS.filter(function(c){return c.exempt;}).length};},
+  activeNear:function(px,pz){var n=0;for(var i=0;i<R1_CHUNKS.length;i++){var c=R1_CHUNKS[i],dx=c.o.position.x-px,dz=c.o.position.z-pz;if(dx*dx+dz*dz<2500*2500)n++;}return n;},
+  matrix:function(){var worst=null,unreach=0,pairs=0;for(var i=0;i<SPOTS.length;i++)for(var j=0;j<SPOTS.length;j++){if(i===j)continue;pairs++;var d=dist2(SPOTS[i].x,SPOTS[i].z,SPOTS[j].x,SPOTS[j].z);var w=clamp(Math.round(24+d/120),45,140);var need=d/190;var m=w/need;if(need>w)unreach++;if(!worst||m<worst.m)worst={from:SPOTS[i].street,to:SPOTS[j].street,d:Math.round(d),window:w,need:Math.round(need*10)/10,m:Math.round(m*100)/100};}return{pairs:pairs,unreachable:unreach,worst:worst};}
+ };
+})();
 S=newState();ensureGoods();ensureRecord2();
 AREAS.forEach(function(a){S.tension[a.id]=14+Math.floor(Math.random()*22);});
 buildEntities();buildLeaders();applyOutfitToFigure();ensureRecord(S.car); /* S5: the ANPR record created at boot belongs to the start car */
@@ -9967,7 +10234,7 @@ CARS.golfr={name:'German Hot Hatch — Golf R class',desc:'Golf R class — sava
 CAR_TUNE.golfr={align:1.24,steer:1.10,roll:.62,tau:1.52,brake:330,revF:.28};
 SEATS.golfr=3;
 var LC_PARK_T=150,LC_CRUISE_T=100,LC_TENSION=18,LC_KEEPER='MOSS STREET CREW';
-var LC_SPOT={x:495,z:211}; /* the east kerb of Moss Street, ~27 units north of Sunny's spot — the brothers' car sits on their street, beside them */
+var LC_SPOT={x:3085,z:1496}; /* R1: the east kerb of the transplanted Moss Street (was {495,211}) */ /* the east kerb of Moss Street, ~27 units north of Sunny's spot — the brothers' car sits on their street, beside them */
 var LC={mode:'boot',mesh:null,spare:null,traf:null,retT:0,lastTs:0};
 function lcEnsureState(){if(!S.leaderCar||typeof S.leaderCar!=='object')S.leaderCar={phase:'parked',t:LC_PARK_T};if(S.leaderCar.phase!=='parked'&&S.leaderCar.phase!=='cruise')S.leaderCar.phase='parked';if(typeof S.leaderCar.t!=='number'||!isFinite(S.leaderCar.t)||S.leaderCar.t<0)S.leaderCar.t=LC_PARK_T;}
 function lcRoad(){for(var i=0;i<ROADS.length;i++)if(ROADS[i].name==='Moss Street')return ROADS[i];return null;}
