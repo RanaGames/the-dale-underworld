@@ -12733,6 +12733,279 @@ lcParkAtSpot();
 requestAnimationFrame(lcTick);
 window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.leaderCar.phase:null,t:S.leaderCar?Math.round(S.leaderCar.t):null,inTraffic:!!LC.traf,isSpare:!!LC.spare};},car:function(){return LC;},pose:LC_POSE,spot:LC_SPOT,depart:lcDepart,arrive:lcArrive,resetDay:lcResetDay,canCruise:lcCanCruise,carjack:lcCarjack,TENSION:LC_TENSION,PARK_T:LC_PARK_T,CRUISE_T:LC_CRUISE_T};
 
+/* ================= v30.22 — METROLINK TRAM · STAGE 1 (moving trams) =================
+   Ambient, stateless (no new S.* keys): two kinematic trams on the EXISTING
+   drawn Metrolink course — the guideway below is derived at boot from the
+   same ROADS polylines the v30.19/v30.20 ribbon/slab/rails were built from
+   ('Metrolink · Kingsway' + 'Metrolink · Newbold'), so the trams run exactly
+   on the drawn rails. Route as drawn: Rochdale Town Centre -> Rochdale
+   Station -> Kingsway junction -> Newbold -> Milnrow Edge (the drawn line
+   heads south-east; it does NOT reach the Middleton / Manchester districts,
+   which have no track — see CHANGELOG v30.22). The Kingsway stub south-east
+   of the junction (to [6000,5670]) carries no Stage 1 service.
+   Built at the very end of the main script, AFTER the R1 chunk registry's
+   scene.children snapshot, so tram + stop objects are never registered and
+   can never be distance-hidden; every mesh also gets frustumCulled=false.
+   Collision reuses the shipped vehicle language: onCrash(impact,'traffic')
+   (SCRAPE/MODERATE/HEAVY/WRITE-OFF tiers + persistent S.carDamage) as a
+   heavy hit, with the parked-car style positional push-out. The tram is
+   kinematic: it never derails, takes no damage and does not stop for
+   traffic. Driving physics (v24 force model) is untouched — nothing here
+   reads or writes any car-physics state except through onCrash itself. */
+(function(){
+ try{
+  var kRoad=null,nRoad=null,i,j;
+  for(i=0;i<ROADS.length;i++){
+   if(ROADS[i].name==='Metrolink · Kingsway')kRoad=ROADS[i];
+   if(ROADS[i].name==='Metrolink · Newbold')nRoad=ROADS[i];
+  }
+  if(!kRoad||!nRoad)return;
+  /* through path: Kingsway pts 0..5 (centre -> junction), then the Newbold
+     branch from the junction (its pts[0] is the shared junction point) */
+  var RP=kRoad.pts.slice(0,6).concat(nRoad.pts.slice(1));
+  var SEG=[],TRAM_L=0;
+  for(i=0;i<RP.length-1;i++){
+   var sl=dist2(RP[i][0],RP[i][1],RP[i+1][0],RP[i+1][1]);
+   SEG.push({x:RP[i][0],z:RP[i][1],dx:(RP[i+1][0]-RP[i][0])/(sl||1),dz:(RP[i+1][1]-RP[i][1])/(sl||1),s0:TRAM_L,len:sl});
+   TRAM_L+=sl;
+  }
+  var _pp={x:0,z:0,dx:1,dz:0};
+  function tramPosAt(s){ /* arc-length position + tangent, no allocation */
+   if(s<0)s=0;if(s>TRAM_L)s=TRAM_L;
+   for(var k=0;k<SEG.length;k++){var g=SEG[k];
+    if(s<=g.s0+g.len||k===SEG.length-1){var f=g.len?(s-g.s0)/g.len:0;if(f<0)f=0;if(f>1)f=1;
+     _pp.x=g.x+g.dx*g.len*f;_pp.z=g.z+g.dz*g.len*f;_pp.dx=g.dx;_pp.dz=g.dz;return _pp;}}
+   return _pp;
+  }
+  function tramSAt(x,z){ /* nearest arc position of a world point on the path */
+   var best=1e18,bs=0;
+   for(var k=0;k<SEG.length;k++){var g=SEG[k];
+    var px=x-g.x,pz=z-g.z,t=px*g.dx+pz*g.dz;if(t<0)t=0;if(t>g.len)t=g.len;
+    var ex=g.x+g.dx*t-x,ez=g.z+g.dz*t-z,d=ex*ex+ez*ez;
+    if(d<best){best=d;bs=g.s0+t;}}
+   return bs;
+  }
+  var TRAM_LEN=96;
+  /* ---------- stops ---------- */
+  var TRAM_STOPDEF=[
+   {name:'Rochdale Town Centre',ax:RP[0][0],az:RP[0][1],term:1},
+   {name:'Rochdale Station',ax:920,az:750},
+   {name:'Kingsway',ax:4000,az:4000},
+   {name:'Newbold',ax:3170,az:1500},
+   {name:'Milnrow Edge',ax:RP[RP.length-1][0],az:RP[RP.length-1][1],term:1}
+  ];
+  var platMat=new THREE.MeshLambertMaterial({color:0x8f918a});
+  var postMat=new THREE.MeshLambertMaterial({color:0x2c2f33});
+  function tramSignTex(name){
+   var c=document.createElement('canvas');c.width=256;c.height=128;var g=c.getContext('2d');
+   g.fillStyle='#f2b705';g.fillRect(0,0,256,128);
+   g.fillStyle='#141414';g.font='bold 34px Arial';g.textAlign='center';g.fillText('TRAM STOP',128,46);
+   g.font='bold 25px Arial';
+   if(g.measureText(name).width>236)g.font='bold 19px Arial';
+   g.fillText(name,128,88);
+   g.font='16px Arial';g.fillText('Metrolink',128,114);
+   return new THREE.CanvasTexture(c);
+  }
+  var TRAM_STOPS=[];
+  for(i=0;i<TRAM_STOPDEF.length;i++){
+   var sd=TRAM_STOPDEF[i],ss=tramSAt(sd.ax,sd.az);
+   /* the tram CENTRE stops half a tram-length inside a terminus, so the
+      whole tram stays on the drawn track; the platform is centred there */
+   var stopS=sd.term?(ss<TRAM_L/2?TRAM_LEN/2:TRAM_L-TRAM_LEN/2):ss;
+   var sp=tramPosAt(stopS);
+   var px=sp.x,pz=sp.z,pdx=sp.dx,pdz=sp.dz;
+   var ox=pdz*17.5,oz=-pdx*17.5; /* platform on the + path-frame side, clear of both running lines (trams reach |lat| 11) */
+   var grp=new THREE.Group();grp.position.set(px+ox,0,pz+oz);grp.rotation.y=Math.atan2(pdx,pdz);
+   var slab=new THREE.Mesh(new THREE.BoxGeometry(13,1,120),platMat);slab.position.y=0.55;grp.add(slab);
+   var post=new THREE.Mesh(new THREE.BoxGeometry(1.2,17,1.2),postMat);post.position.set(0,8.5,44);grp.add(post);
+   var board=new THREE.Mesh(new THREE.BoxGeometry(1,11,30),new THREE.MeshLambertMaterial({map:tramSignTex(sd.name)}));
+   board.position.set(0,19,44);grp.add(board);
+   grp.traverse(function(m){if(m.isMesh)m.frustumCulled=false;});
+   scene.add(grp);
+   TRAM_STOPS.push({name:sd.name,s:stopS,anchorS:ss,x:px,z:pz,term:!!sd.term,group:grp});
+  }
+  TRAM_STOPS.sort(function(a,b){return a.s-b.s;});
+  /* ---------- tram vehicles ---------- */
+  var TRAM_CRUISE=300,TRAM_ACCEL=95,TRAM_BRAKE=115;
+  var yelMat=new THREE.MeshLambertMaterial({color:0xf2b705});
+  var silMat=new THREE.MeshLambertMaterial({color:0xb9bdc2});
+  var darkMat=new THREE.MeshLambertMaterial({color:0x23262a});
+  function tramDestCanvas(){
+   var c=document.createElement('canvas');c.width=256;c.height=48;
+   return {c:c,tx:new THREE.CanvasTexture(c)};
+  }
+  function tramDrawDest(dc,name){
+   var g=dc.c.getContext('2d');
+   g.fillStyle='#0a0a0a';g.fillRect(0,0,256,48);
+   if(name){
+    g.fillStyle='#ffb000';g.font='bold 26px Arial';g.textAlign='center';
+    if(g.measureText(name).width>244)g.font='bold 19px Arial';
+    g.fillText(name,128,33);
+   }
+   dc.tx.needsUpdate=true;
+  }
+  function tramMake(){
+   var bandMat=new THREE.MeshLambertMaterial({color:0x1d2836,emissive:0xffca7a,emissiveIntensity:0});
+   var liteMat=new THREE.MeshLambertMaterial({color:0xfff2c0,emissive:0xffedb5,emissiveIntensity:1.4});
+   var secs=[],ends={};
+   for(var k=0;k<2;k++){
+    var sec=new THREE.Group();
+    var sgn=k===0?-1:1; /* sec 0 sits at the path-minus end, sec 1 at path-plus */
+    var body=new THREE.Mesh(new THREE.BoxGeometry(11,13,46),silMat);body.position.y=9.5;sec.add(body);
+    var band=new THREE.Mesh(new THREE.BoxGeometry(11.3,5,44),bandMat);band.position.y=12;sec.add(band);
+    var cap=new THREE.Mesh(new THREE.BoxGeometry(11.2,13,3),yelMat);cap.position.set(0,9.5,sgn*21.5);sec.add(cap);
+    var bog=new THREE.Mesh(new THREE.BoxGeometry(8,3,20),darkMat);bog.position.y=1.5;sec.add(bog);
+    var lite=new THREE.Mesh(new THREE.BoxGeometry(3,2,0.8),liteMat);lite.position.set(0,6,sgn*23.4);sec.add(lite);
+    var dc=tramDestCanvas();
+    var dest=new THREE.Mesh(new THREE.PlaneGeometry(9,2.2),new THREE.MeshBasicMaterial({map:dc.tx}));
+    dest.position.set(0,14.5,sgn*23.5);if(sgn<0)dest.rotation.y=Math.PI;sec.add(dest);
+    sec.traverse(function(m){if(m.isMesh)m.frustumCulled=false;});
+    scene.add(sec);
+    secs.push(sec);
+    if(k===0)ends.minus={sec:sec,lite:lite,dest:dest,dc:dc};else ends.plus={sec:sec,lite:lite,dest:dest,dc:dc};
+   }
+   var joint=new THREE.Mesh(new THREE.BoxGeometry(9,10,5),darkMat);joint.position.y=9;
+   joint.frustumCulled=false;scene.add(joint);
+   return {secs:secs,ends:ends,joint:joint,bandMat:bandMat,
+    s:0,dir:1,v:0,mode:'dwell',dwellT:0,hitCd:0,x:0,z:0,tx:1,tz:0,atTerm:1};
+  }
+  function tramSetEnds(tr){
+   var lead=tr.dir>0?tr.ends.plus:tr.ends.minus,trail=tr.dir>0?tr.ends.minus:tr.ends.plus;
+   lead.lite.visible=true;trail.lite.visible=false;
+   lead.dest.visible=true;trail.dest.visible=false;
+   tramDrawDest(lead.dc,tr.dir>0?'Milnrow Edge':'Rochdale Town Centre');
+   tramDrawDest(trail.dc,'');
+  }
+  var TRAMS=[tramMake(),tramMake()];
+  TRAMS[0].s=TRAM_STOPS[0].s;TRAMS[0].dir=1;TRAMS[0].dwellT=4;TRAMS[0].atTerm=1;
+  TRAMS[1].s=TRAM_STOPS[TRAM_STOPS.length-1].s;TRAMS[1].dir=-1;TRAMS[1].dwellT=18;TRAMS[1].atTerm=1;
+  tramSetEnds(TRAMS[0]);tramSetEnds(TRAMS[1]);
+  function tramPlace(tr){
+   var off=tr.dir>0?5.5:-5.5; /* path-frame running line; opposing trams are always on opposite lines */
+   for(var k=0;k<2;k++){
+    var p=tramPosAt(tr.s+(k===0?-25:25));
+    var sec=tr.secs[k];
+    sec.position.set(p.x+p.dz*off,0,p.z-p.dx*off);
+    sec.rotation.y=Math.atan2(p.dx,p.dz);
+   }
+   var pc=tramPosAt(tr.s);
+   tr.x=pc.x+pc.dz*off;tr.z=pc.z-pc.dx*off;tr.tx=pc.dx*tr.dir;tr.tz=pc.dz*tr.dir;
+   tr.joint.position.set(pc.x+pc.dz*off,9,pc.z-pc.dx*off);
+   tr.joint.rotation.y=Math.atan2(pc.dx,pc.dz);
+  }
+  function tramNextStop(tr){
+   var best=null,bd=1e18;
+   for(var k=0;k<TRAM_STOPS.length;k++){var st=TRAM_STOPS[k];
+    var d=(st.s-tr.s)*tr.dir;
+    if(d>1&&d<bd){bd=d;best=st;}}
+   return best; /* stops include both termini, so this is never null in service */
+  }
+  function tramStep(tr,dt){
+   if(tr.hitCd>0)tr.hitCd-=dt;
+   if(tr.mode==='dwell'){
+    tr.dwellT-=dt;tr.v=0;
+    if(tr.dwellT<=0){
+     if(tr.atTerm){ /* reverse only if facing out of the route */
+      if(tr.s<=TRAM_LEN/2+1&&tr.dir<0){tr.dir=1;tramSetEnds(tr);}
+      else if(tr.s>=TRAM_L-TRAM_LEN/2-1&&tr.dir>0){tr.dir=-1;tramSetEnds(tr);}
+     }
+     tr.atTerm=0;tr.mode='run';
+    }
+    tramPlace(tr);return;
+   }
+   var tgt=tramNextStop(tr);
+   if(!tgt){ /* backstop only — stops include both termini */
+    tr.atTerm=(tr.s<=TRAM_LEN/2+1||tr.s>=TRAM_L-TRAM_LEN/2-1)?1:0;
+    tr.mode='dwell';tr.dwellT=tr.atTerm?14:2;tramPlace(tr);return;}
+   var distT=Math.abs(tgt.s-tr.s);
+   var vAllow=Math.sqrt(2*TRAM_BRAKE*Math.max(0,distT-2));
+   if(vAllow>TRAM_CRUISE)vAllow=TRAM_CRUISE;
+   /* cornering: the drawn polyline has hairpin vertices (the Kingsway /
+      Newbold junction and Newbold itself) — slow for them with the same
+      heading-dot rule the shipped traffic uses, so the tram rounds them
+      instead of snapping around at cruise */
+   var cp1=tramPosAt(tr.s),cdx=cp1.dx,cdz=cp1.dz;
+   var cp2=tramPosAt(tr.s+tr.dir*Math.min(280,60+tr.v*0.9));
+   var cDot=cdx*cp2.dx+cdz*cp2.dz;if(cDot<-1)cDot=-1;if(cDot>1)cDot=1;
+   var cornerAllow=TRAM_CRUISE*clamp(1-Math.acos(cDot)*1.15,.30,1);
+   if(cornerAllow<vAllow)vAllow=cornerAllow;
+   if(tr.v<vAllow)tr.v=Math.min(vAllow,tr.v+TRAM_ACCEL*dt);
+   else tr.v=Math.max(vAllow,tr.v-160*dt); /* brake harder than the profile slope when above it, so v can always rejoin the profile */
+   var step=tr.v*dt;
+   if(distT>2&&step>distT-2)step=distT-2; /* never step past the stop point */
+   tr.s+=tr.dir*step;
+   if(tr.s<TRAM_LEN/2)tr.s=TRAM_LEN/2;
+   if(tr.s>TRAM_L-TRAM_LEN/2)tr.s=TRAM_L-TRAM_LEN/2;
+   if(distT<=2.05){
+    tr.s=tgt.s;tr.v=0;tr.mode='dwell';
+    tr.atTerm=tgt.term?1:0;
+    tr.dwellT=tgt.term?14:6;
+   }
+   tramPlace(tr);
+  }
+  function tramCollide(tr){
+   if(!S||!S.playing||S.paused)return;
+   var dx=player.x-tr.x,dz=player.z-tr.z;
+   if(dx*dx+dz*dz>150*150)return;
+   var along=dx*tr.tx+dz*tr.tz;
+   var lat=dx*tr.tz-dz*tr.tx;
+   if(Math.abs(along)>TRAM_LEN/2+16||Math.abs(lat)>19)return;
+   var push=(19-Math.abs(lat))*(lat>=0?1:-1);
+   var px=tr.tz*push,pz=-tr.tx*push;
+   if(footMode){
+    footMode.x+=px;footMode.z+=pz;player.x+=px;player.z+=pz;
+    if(tr.hitCd<=0){
+     tr.hitCd=1.5;
+     crashFeed('Tram clipped you on foot!');
+     toast('Clipped by the tram — mind the line!');
+     if(tr.v>120)S.injured=true;
+    }
+    return;
+   }
+   player.x+=px;player.z+=pz;
+   if(tr.hitCd<=0&&(speedNow()>25||tr.v>40)){
+    var imp=speedNow()*.85+tr.v*.35;
+    if(tr.v>40&&imp<175)imp=175; /* a moving tram is a heavy-vehicle hit */
+    if(imp>240)imp=240;
+    player.vx*=.35;player.vz*=.35;
+    onCrash(imp,'traffic');
+    tr.hitCd=1.5;
+   }
+  }
+  var tramLastMs=0;
+  function tramTick(ms){
+   requestAnimationFrame(tramTick);
+   try{
+    var dt=Math.min(.05,(ms-tramLastMs)/1000||0);tramLastMs=ms;
+    if(!S||!S.playing||S.paused)return;
+    var night=(typeof P5!=='undefined'&&P5)?P5.night:0;
+    for(var k=0;k<TRAMS.length;k++){
+     TRAMS[k].bandMat.emissiveIntensity=night*0.85;
+     tramStep(TRAMS[k],dt);
+     tramCollide(TRAMS[k]);
+    }
+   }catch(e){if(window.console)console.log('[v30.22 tram] tick failed: '+(e&&e.message));}
+  }
+  tramPlace(TRAMS[0]);tramPlace(TRAMS[1]);
+  requestAnimationFrame(tramTick);
+  window.__V3022_TRAM={
+   route:function(){return {len:Math.round(TRAM_L),pts:RP.map(function(p){return [p[0],p[1]];}),
+    stops:TRAM_STOPS.map(function(st){return {name:st.name,s:Math.round(st.s),anchorS:Math.round(st.anchorS),x:Math.round(st.x),z:Math.round(st.z),term:st.term};}),
+    cruise:TRAM_CRUISE};},
+   state:function(){return TRAMS.map(function(tr){return {s:Math.round(tr.s),v:Math.round(tr.v),dir:tr.dir,mode:tr.mode,
+    dwellT:Math.round(tr.dwellT*10)/10,x:Math.round(tr.x),z:Math.round(tr.z)};});},
+   place:function(i,s,dir){var tr=TRAMS[i];if(!tr)return 'no tram';tr.s=s;if(dir)tr.dir=dir;tr.v=0;tr.mode='run';tr.atTerm=0;tramSetEnds(tr);tramPlace(tr);return 'placed';},
+   dwell:function(i,t){var tr=TRAMS[i];if(!tr)return 'no tram';tr.mode='dwell';tr.dwellT=t||6;tr.v=0;tramPlace(tr);return 'dwelling';},
+   objects:function(){var o=[];TRAMS.forEach(function(tr){o.push(tr.secs[0],tr.secs[1],tr.joint);});
+    TRAM_STOPS.forEach(function(st){o.push(st.group);});return o;},
+   registered:function(){var n=0,q;
+    for(var k=0;k<R1_CHUNKS.length;k++){var o=R1_CHUNKS[k].o;
+     if(o===TRAMS[0].secs[0]||o===TRAMS[0].secs[1]||o===TRAMS[0].joint||o===TRAMS[1].secs[0]||o===TRAMS[1].secs[1]||o===TRAMS[1].joint)n++;}
+    for(var m=0;m<TRAM_STOPS.length;m++)for(q=0;q<R1_CHUNKS.length;q++)if(R1_CHUNKS[q].o===TRAM_STOPS[m].group)n++;
+    return n;}
+  };
+ }catch(e){if(window.console)console.log('[v30.22 tram] build failed: '+(e&&e.message));}
+})();
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
