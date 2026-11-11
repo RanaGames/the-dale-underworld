@@ -14057,6 +14057,174 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
  setInterval(f30Tick,700); /* staggered decision tick — NOT a per-frame loop;
     LS + the shipped walker keep sole ownership of ped movement */
 })();
+/* ================= v30.31 — TRAM STOP DRESSING (Metrolink stop kit) =================
+   Pure dressing pass over the shipped v30.23 tram system: the eight stops
+   were a bare platform slab + one wide sign. This block adds the same kit
+   to every stop, built as children of the SHIPPED platform groups (found
+   through window.__V3023_TRAM.objects()), so nothing about the tram
+   system changes: motion, path, dwell, collision, the stops list and the
+   platform positions are all untouched, and no platform is moved.
+   Kit per stop (platform-group local frame: +x away from the track, -x
+   the track side, +z along the path; slab is 13 wide x 120 long, top
+   y=1.1, track-side edge at local x=-6.5; the shipped wide sign stays at
+   z=+44):
+     - white platform edge line + buff tactile-paving strip along the
+       track edge (both 0.08 tall on the slab top; the tram body passes
+       at y>=3 and its bogies stay at local x<=-8, so both strips are
+       clear of the swept path);
+     - a shelter on the back edge: 4 slim steel posts, dark roof with a
+       Metrolink-yellow fascia facing the track, glass-look rear + end
+       panels (the game's Lambert transparency);
+     - a slatted timber bench under the shelter, facing the track;
+     - a yellow Metrolink totem at the far platform end (z=-50) with the
+       stop name in the tram sign's canvas-texture style (shrink-to-fit,
+       same discipline as tramSignTex / makeLabel);
+     - a lamp post (head overhanging the platform) whose head emissive
+       and additive halo sprite are driven by P5.night — the same night
+       source and the same halo pattern the shipped lamp system uses.
+   Chunk guardrail: the platform groups are unregistered (built after
+   the R1 snapshot) and every added mesh/sprite gets frustumCulled=false,
+   so nothing here can be distance-hidden. Geometries and materials are
+   shared across all eight stops (one kit, eight fits). The whole block
+   is failure-isolated like the tram block it dresses: a failure leaves
+   the shipped stops exactly as they were. Debug surface: window.__T31. */
+(function(){
+ try{
+  var T31={stops:[],meshesBefore:0,meshesAfter:0,lampLevel:0,errs:[]};
+  window.__T31={state:function(){return T31;}};
+  var T=window.__V3023_TRAM;
+  if(!T||!T.route||!T.objects){T31.errs.push('tram hook missing');return;}
+  function countMeshes(){var n=0;scene.traverse(function(m){if(m.isMesh)n++;});return n;}
+  T31.meshesBefore=countMeshes();
+  /* ---- shared materials ---- */
+  var matSteel=new THREE.MeshLambertMaterial({color:0x2e3134});
+  var matRoof=new THREE.MeshLambertMaterial({color:0x3a4046});
+  var matYellow=new THREE.MeshLambertMaterial({color:0xf2b705});
+  var matEdge=new THREE.MeshLambertMaterial({color:0xdcdcd2});
+  var matBench=new THREE.MeshLambertMaterial({color:0x6e4a2f});
+  var matGlass=new THREE.MeshLambertMaterial({color:0xaebfc4,transparent:true,opacity:0.32,side:THREE.DoubleSide});
+  var matLampHead=new THREE.MeshLambertMaterial({color:0xffe9b0,emissive:0xffc37a,emissiveIntensity:0});
+  /* tactile paving texture: buff tile with a raised-dot grid */
+  function tactileTex(){
+   var c=document.createElement('canvas');c.width=128;c.height=128;var g=c.getContext('2d');
+   g.fillStyle='#c7a44c';g.fillRect(0,0,128,128);
+   for(var r=0;r<4;r++)for(var q=0;q<4;q++){
+    var x=16+q*32,y=16+r*32;
+    g.fillStyle='#a8873a';g.beginPath();g.arc(x,y,9,0,6.2832);g.fill();
+    g.fillStyle='#dec06a';g.beginPath();g.arc(x-2.5,y-2.5,3.4,0,6.2832);g.fill();
+   }
+   var t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(1,44);return t;
+  }
+  var matTactile=new THREE.MeshLambertMaterial({map:tactileTex()});
+  /* lamp halo texture: soft radial disc (same role as the shipped lamp
+     glow sprites; drawn here so the block stays self-contained) */
+  function glowTex(){
+   var c=document.createElement('canvas');c.width=64;c.height=64;var g=c.getContext('2d');
+   var gr=g.createRadialGradient(32,32,2,32,32,31);
+   gr.addColorStop(0,'rgba(255,255,255,0.9)');gr.addColorStop(0.4,'rgba(255,255,255,0.35)');gr.addColorStop(1,'rgba(255,255,255,0)');
+   g.fillStyle=gr;g.fillRect(0,0,64,64);
+   return new THREE.CanvasTexture(c);
+  }
+  var glowMat=new THREE.SpriteMaterial({map:glowTex(),color:0xffb45c,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending});
+  /* ---- shared geometries: one BoxGeometry per distinct size ---- */
+  var geoCache={};
+  function box(w,h,d,mat,x,y,z){
+   var k=w+'|'+h+'|'+d,geo=geoCache[k];
+   if(!geo){geo=new THREE.BoxGeometry(w,h,d);geoCache[k]=geo;}
+   var m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);m.frustumCulled=false;return m;
+  }
+  /* totem face texture: Metrolink yellow, black bands, stop name fitted
+     with the same shrink-to-fit loop discipline as makeLabel */
+  function totemTex(name){
+   var c=document.createElement('canvas');c.width=256;c.height=352;var g=c.getContext('2d');
+   g.fillStyle='#f2b705';g.fillRect(0,0,256,352);
+   g.fillStyle='#141414';g.fillRect(0,0,256,58);
+   g.fillStyle='#ffffff';g.font='bold 29px Arial';g.textAlign='center';g.fillText('Metrolink',128,40);
+   g.fillStyle='#141414';g.font='bold 23px Arial';g.fillText('TRAM STOP',128,102);
+   var fs=44;g.font='bold '+fs+'px Arial';
+   while(fs>18&&g.measureText(name).width>230){fs-=2;g.font='bold '+fs+'px Arial';}
+   g.fillText(name,128,168);
+   g.fillRect(24,196,208,4);
+   g.font='17px Arial';g.fillText('Trams towards',128,238);
+   g.font='bold 20px Arial';g.fillText('Rochdale · Manchester',128,268);
+   g.fillStyle='#141414';g.fillRect(0,306,256,46);
+   g.fillStyle='#ffffff';g.font='bold 16px Arial';g.fillText('metrolink',128,335);
+   return new THREE.CanvasTexture(c);
+  }
+  function dressStop(grp,name){
+   var added=[];
+   function add(m){grp.add(m);added.push(m);return m;}
+   /* platform edge: white line + tactile strip on the slab top */
+   add(box(0.8,0.08,118,matEdge,-5.95,1.14,0));
+   add(box(1.7,0.08,118,matTactile,-4.6,1.14,0));
+   /* shelter on the back edge: posts x +2.3/+5.8, spanning z -28..+12 */
+   add(box(0.7,13.6,0.7,matSteel,2.3,7.9,-28));
+   add(box(0.7,13.6,0.7,matSteel,2.3,7.9,12));
+   add(box(0.7,13.6,0.7,matSteel,5.8,7.9,-28));
+   add(box(0.7,13.6,0.7,matSteel,5.8,7.9,12));
+   add(box(5.1,0.55,44.5,matRoof,3.95,15.0,-8));
+   add(box(0.22,1.15,44.5,matYellow,1.42,14.35,-8));
+   add(box(0.16,11.6,40.5,matGlass,5.74,7.3,-8));
+   add(box(3.3,11.6,0.16,matGlass,4.05,7.3,-27.9));
+   add(box(3.3,11.6,0.16,matGlass,4.05,7.3,11.9));
+   /* slatted bench under the shelter, facing the track */
+   add(box(0.82,0.35,26,matBench,3.15,4.7,-8));
+   add(box(0.82,0.35,26,matBench,4.05,4.7,-8));
+   add(box(0.82,0.35,26,matBench,4.95,4.7,-8));
+   add(box(0.32,0.95,26,matBench,5.42,6.7,-8));
+   add(box(0.32,0.95,26,matBench,5.42,8.35,-8));
+   add(box(2.9,3.55,0.55,matSteel,4.05,2.88,-19));
+   add(box(2.9,3.55,0.55,matSteel,4.05,2.88,3));
+   /* totem at the far platform end (the shipped wide sign stays at z=+44);
+      the post is thinner (0.4) than the panel box (0.55) so it stays
+      embedded inside the panel and never stripes across the name faces */
+   add(box(0.9,17,0.4,matSteel,0,9.6,-50));
+   add(box(7.6,10.6,0.55,matYellow,0,12.4,-50));
+   var tm=new THREE.MeshLambertMaterial({map:totemTex(name)});
+   var f1=new THREE.Mesh(new THREE.PlaneGeometry(7.0,10.0),tm);
+   f1.position.set(0,12.4,-49.71);f1.frustumCulled=false;add(f1);
+   var f2=new THREE.Mesh(new THREE.PlaneGeometry(7.0,10.0),tm);
+   f2.position.set(0,12.4,-50.29);f2.rotation.y=Math.PI;f2.frustumCulled=false;add(f2);
+   /* lamp post between shelter and sign; head overhangs the platform */
+   add(box(0.55,18.6,0.55,matSteel,5.3,10.4,26));
+   add(box(3.4,0.45,0.45,matSteel,3.9,19.55,26));
+   add(box(2.3,0.65,1.15,matLampHead,2.45,19.2,26));
+   var sp=new THREE.Sprite(glowMat);sp.position.set(2.45,18.8,26);sp.scale.set(13,13,1);sp.frustumCulled=false;add(sp);
+   return added.length;
+  }
+  /* Match each route stop to its shipped platform group: the group sits
+     exactly 17.5u perpendicular from the stop's path point and has
+     exactly 3 children (slab, sign post, sign board). Tram sections are
+     also groups but have 6 children and ride ON the path, so they can
+     never match. */
+  var route=T.route(),objs=T.objects(),used={};
+  for(var i=0;i<route.stops.length;i++){
+   var st=route.stops[i],best=null,bi=-1,bd=1e9;
+   for(var j=0;j<objs.length;j++){
+    var o=objs[j];
+    if(used[j]||!o.isGroup||o.children.length!==3)continue;
+    var dx=o.position.x-st.x,dz=o.position.z-st.z,d=Math.sqrt(dx*dx+dz*dz);
+    if(d<bd){bd=d;best=o;bi=j;}
+   }
+   if(best&&bd>14&&bd<22){
+    used[bi]=1;
+    try{var n=dressStop(best,st.name);T31.stops.push({name:st.name,dist:Math.round(bd*10)/10,added:n});}
+    catch(e){T31.errs.push(st.name+': '+(e&&e.message));}
+   }else T31.errs.push(st.name+': no platform group matched (d='+(Math.round(bd*10)/10)+')');
+  }
+  T31.meshesAfter=countMeshes();
+  /* lamp night drive — the same P5.night grade the tram block reads */
+  function lampTick(){
+   try{
+    var n=(typeof P5!=='undefined'&&P5)?P5.night:0;
+    T31.lampLevel=n;
+    matLampHead.emissiveIntensity=n*1.5;
+    glowMat.opacity=n*0.55;
+   }catch(e){}
+  }
+  lampTick();setInterval(lampTick,700);
+ }catch(e){if(window.console)console.log('[v30.31 tramstops] build failed: '+(e&&e.message));}
+})();
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
