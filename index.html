@@ -1111,6 +1111,15 @@ body:not(.drawer-open) #mmWrap{display:block !important;}
  html.dale-rot #tasksBody{max-height:150px;overflow-y:auto;}
  html.dale-rot body:not(.tasks-collapsed) #sideBtns{max-height:calc(100vw - 286px);overflow:hidden;}
 }
+/* ---------- v30.26 HOTFIX: contextual side buttons above the tasks card ----------
+   In the default tasks-collapsed state #sideBtns sits at top:100-112px, squarely
+   inside the collapsed #tasksPanel box (top 58-64px, ~93px tall), and with both
+   z-index:auto the later-in-DOM panel painted over the stack — the Fence Goods
+   button measured on-screen yet was topmost at 0/110 sampled hit-test points and
+   refused clicks (elementFromPoint returned #h24ObjLine). z-index 19 lifts the
+   stack above the panel and the z-18 chips, still below .screen (20) and the
+   full-screen map (26), so no screen or modal is ever covered by these buttons. */
+#sideBtns{z-index:19;}
 </style>
 
 <!-- HUD -->
@@ -3089,6 +3098,7 @@ function makeLabel(text,color,icon){
  g.fillStyle=color;g.beginPath();g.arc(112,64,30,0,7);g.fill();
  g.font='30px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(icon||'📍',112,66);
  g.font='700 42px "Barlow Condensed", sans-serif';g.textAlign='left';g.fillStyle='#eef1f4';
+ var _fs=42;while(g.measureText(text).width>284&&_fs>18){_fs--;g.font='700 '+_fs+'px "Barlow Condensed", sans-serif';}
  g.fillText(text,156,66);
  var t=new THREE.CanvasTexture(c);var s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,depthTest:false,transparent:true}));
  s.scale.set(96,24,1);s.userData.baseW=96;s.userData.baseH=24;return s;
