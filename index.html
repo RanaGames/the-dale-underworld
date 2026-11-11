@@ -8849,10 +8849,34 @@ function updateGame(dt,realDt){
  }
  /* ---------- TRAFFIC ---------- */
  traffic.forEach(function(t){
-   if(t.chaseT>0){t.chaseT-=dt;var a2=Math.atan2(player.x-t.x,player.z-t.z);t.x+=Math.sin(a2)*190*dt;t.z+=Math.cos(a2)*190*dt;t.spd=190;}
+   if(t.chaseT>0){t.turn=null; /* v30.34: a rage chase abandons any turnaround in progress */ t.chaseT-=dt;var a2=Math.atan2(player.x-t.x,player.z-t.z);t.x+=Math.sin(a2)*190*dt;t.z+=Math.cos(a2)*190*dt;t.spd=190;}
    else{
      if(t.rlen===undefined){t.rlen=0;for(var li=0;li<t.road.pts.length-1;li++)t.rlen+=dist2(t.road.pts[li][0],t.road.pts[li][1],t.road.pts[li+1][0],t.road.pts[li+1][1]);if(t.spd===undefined)t.spd=t.speed;}
-     if(t.crashT>0){t.crashT-=dt;t.spd=Math.max(0,t.spd-420*dt);}
+     if(t.turn){
+       /* v30.34 TURNAROUND (triggered at a road end in the cruise branch
+          below): the car arcs around the road-end point (t.turn.cx/cz)
+          from its old lane into the opposite lane on a semicircle of
+          radius 11. Angle a runs 0..PI; the lane-offset vector and the
+          heading both rotate by -a about Y, so the car stays tangent to
+          the arc and moves forward throughout — no lateral jump, no
+          180-degree heading snap. A crash freeze (v30.33 sets crashT on
+          player contact) holds the arc where it is until it clears. */
+       if(t.crashT>0){t.crashT-=dt;t.spd=Math.max(0,t.spd-420*dt);}
+       else{
+         t.spd+=clamp(42-t.spd,-300*dt,95*dt);if(t.spd<0)t.spd=0;
+         t.turn.a+=(t.spd*dt)/11;
+         if(t.turn.a>=Math.PI){t.dir=-t.dir;t.turn=null;}
+       }
+       if(t.turn){
+         var ca34=Math.cos(t.turn.a),sa34=Math.sin(t.turn.a);
+         t.x=t.turn.cx+(t.turn.lx*ca34-t.turn.lz*sa34)*11;
+         t.z=t.turn.cz+(t.turn.lx*sa34+t.turn.lz*ca34)*11;
+         t.hdx=t.turn.dx*ca34-t.turn.dz*sa34;
+         t.hdz=t.turn.dx*sa34+t.turn.dz*ca34;
+         t.mesh.rotation.y=Math.atan2(t.hdx,t.hdz)+Math.PI;
+       }
+     }
+     else if(t.crashT>0){t.crashT-=dt;t.spd=Math.max(0,t.spd-420*dt);}
      else{
        /* v21 TRAFFIC: t.spd is a real speed (world units/s along the road's
           own length — the old fixed /2600 divisor made short A-roads crawl).
@@ -8876,17 +8900,38 @@ function updateGame(dt,realDt){
           braked for, so two cars can never deadlock nose-to-nose at a
           crossing — queues only form behind same-direction cars, a crashed
           car (3 s) or the player, all of which clear. */
-       for(var oi=0;oi<traffic.length;oi++){var o=traffic[oi];if(o===t)continue;if(o.hdx!==undefined&&ffx*o.hdx+ffz*o.hdz<.5)continue;var rox=o.x-t.x,roz=o.z-t.z,oa=rox*ffx+roz*ffz;if(oa>0&&oa<ahead&&Math.abs(rox-ffx*oa)<17&&Math.abs(roz-ffz*oa)<17)ahead=oa;}
+       for(var oi=0;oi<traffic.length;oi++){var o=traffic[oi];if(o===t)continue;if(!o.turn&&o.hdx!==undefined&&ffx*o.hdx+ffz*o.hdz<.5)continue; /* v30.34: a car mid-turnaround is a blocker whatever its heading — it is crossing the carriageway */var rox=o.x-t.x,roz=o.z-t.z,oa=rox*ffx+roz*ffz;if(oa>0&&oa<ahead&&Math.abs(rox-ffx*oa)<17&&Math.abs(roz-ffz*oa)<17)ahead=oa;}
        if(ahead<110)want=Math.min(want,cruise*clamp((ahead-44)/66,0,1));
+       /* v30.34: ease off on the approach to a road end, so the
+          turnaround below is entered at turning speed, not cruise */
+       var rem34=(t.dir>0?(1-t.t):t.t)*t.rlen;
+       if(rem34<130)want=Math.min(want,42+rem34*1.4);
        var tRate=want<t.spd?300:95;
        t.spd+=clamp(want-t.spd,-tRate*dt,tRate*dt);if(t.spd<0)t.spd=0;
-       t.t+=t.dir*t.spd*dt/t.rlen;if(t.t>1){t.t=1;t.dir=-1;}if(t.t<0){t.t=0;t.dir=1;}
+       t.t+=t.dir*t.spd*dt/t.rlen;
+       if(t.t>=1||t.t<=0){
+         var atEnd34=t.t>=1?1:0;t.t=atEnd34;
+         /* v30.34 GRACEFUL TURNAROUND replaces the shipped instant flip
+            (t clamped + dir reversed in one frame = a ~22u lateral
+            teleport through the opposing lane and a 180-degree heading
+            snap — the car that 'appears' in the oncoming lane). Near
+            the player the car now U-turns (the t.turn branch above);
+            the old flip survives only as an out-of-sight fallback. */
+         if(dist2(player.x,player.z,t.x,t.z)<=700){
+           var ep34=pathPoint(t.road.pts,atEnd34);
+           var edx34=ep34.dx*t.dir,edz34=ep34.dz*t.dir;
+           t.turn={a:0,cx:ep34.x,cz:ep34.z,dx:edx34,dz:edz34,lx:edz34,lz:-edx34};
+           if(t.spd>52)t.spd=52;
+         }else t.dir=-t.dir;
+       }
      }
+     if(!t.turn){ /* v30.34: while a turnaround runs, the turn branch above owns position/heading */
      var pp=pathPoint(t.road.pts,t.t);
      var ln={x:pp.dz*t.dir,z:-pp.dx*t.dir};
      t.x=pp.x+ln.x*11;t.z=pp.z+ln.z*11;
      t.hdx=pp.dx*t.dir;t.hdz=pp.dz*t.dir; /* stored heading for other cars' blocker test */
      t.mesh.rotation.y=Math.atan2(pp.dx*t.dir,pp.dz*t.dir)+Math.PI;
+     }
    }
    t.mesh.position.set(t.x,0,t.z);
    rollWheels(t.mesh,(t.chaseT>0?190:(t.spd||0))*dt,0);
@@ -9039,7 +9084,13 @@ function updatePolice(dt){
      var sa=Math.atan2(player.x-police.x,player.z-police.z);aiW.hdg=sa;police.mesh.rotation.y=sa+Math.PI;aiW.nav='watching the player';
    } else {
      var wp=pathPoint(A_ROADS[0].pts,(gameT*.008)%1);
-     var a=Math.atan2(wp.x-police.x,wp.z-police.z);police.x+=Math.sin(a)*120*dt;police.z+=Math.cos(a)*120*dt;
+     /* v30.34: patrol keeps left like traffic — aim at the centreline
+        waypoint shifted 11u to the LEFT of the unit's heading toward it
+        (the same lane offset traffic uses) instead of driving down the
+        middle of the road. Heading-relative, so it stays on the correct
+        side on both legs of the patrol. */
+     var a0=Math.atan2(wp.x-police.x,wp.z-police.z);
+     var a=Math.atan2(wp.x+Math.cos(a0)*11-police.x,wp.z-Math.sin(a0)*11-police.z);police.x+=Math.sin(a)*120*dt;police.z+=Math.cos(a)*120*dt;
      police.mesh.rotation.y=Math.atan2(Math.sin(a),Math.cos(a))+Math.PI;
      if(aiW){aiW.hdg=a;aiW.nav='patrolling';}
    }
