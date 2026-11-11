@@ -13280,6 +13280,266 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
 })();
 
 
+/* ================= v30.27 — LIVING STREETS · STAGE 1 (NPC daily routines & neighbourhood life) =================
+   Additive module layered on the SHIPPED pedestrian system — no second NPC
+   manager, no second clock, no competing update loop. The 22 shipped peds
+   keep their own walker (the peds.forEach in update(): dive / S2 flee /
+   wander at 22 u/s with animateFigure); this module only STEERS it, by
+   writing the same fields the shipped wander writes (p.tx / p.tz / p.waitT)
+   on a staggered decision tick. Shipped systems stay authoritative: a ped
+   that is downed, fleeing, diving, promoted into fighters[] (S2 combat) or
+   otherwise taken over is SUSPENDED here and never driven until it is a
+   plain wandering ped again; while suspended the module writes nothing.
+   ADAPTATION 1 — CLOCK (spec S15 declaration): the spec's four schedule
+   periods compress onto the game's real clock. A day is 300 s, S.clock
+   counts 300 -> 0, hour = 7 + (300 - S.clock) / 300 * 17 (07:00 -> 24:00);
+   there are NO overnight hours. Periods: morning 07:00-10:00, daytime
+   10:00-17:00, evening 17:00-22:00, late 22:00-24:00 (the spec's "night"
+   template at reduced density). No second clock is created.
+   ADAPTATION 2 — SAVES (spec S15 declaration): the game persists NOTHING
+   (forensic-proven: zero localStorage/IndexedDB for gameplay; the only key
+   in the file is the HUD's dale.hudPrefs.v1). Routine state therefore
+   lives in ONE append-only optional in-memory key, S.livingStreets
+   {version:1, enabled, profiles} with safe-default initialisation; nothing
+   is written to storage and a state without the key behaves exactly as
+   before. Profiles are re-derivable deterministically per ped index.
+   Feature flag: livingStreetsEnabled (default ON). When OFF the module
+   writes nothing at all and the shipped wander is the whole behaviour —
+   verified against the v30.26 baseline. Failure isolation: the whole
+   module runs inside try/catch; any throw disables ONLY this module.
+   Randomness uses Math.random ONLY — the seeded rnd() stream that world
+   generation and gameplay draw from is never consumed here.
+   Anchors are the shipped SPOTS (street/drop locations the game itself
+   validates for the Line), each re-validated at init with the game's own
+   footBlocked(): a spot inside a footprint is nudged through fixed
+   offsets or dropped and counted — never used floating in dead ground.
+   Built at the very end of the main script, after the chunk registry's
+   snapshot, and creates NO scene objects at all (chunk guardrail moot).
+   Debug: window.__LS27 (overlay OFF by default). */
+(function(){
+ 'use strict';
+ var livingStreetsEnabled=true;
+ var LS=null; /* module state; null until first successful init */
+ function lsHour(){var c=clamp((S&&typeof S.clock==='number')?S.clock:300,0,300);return 7+(300-c)/300*17;}
+ function lsPeriod(h){return h<10?'morning':(h<17?'day':(h<22?'evening':'late'));}
+ var LS_PROFILES=['resident','worker','customer','social','nightowl','wanderer'];
+ /* deterministic per-ped profile (same spirit as s2PedKind): cycle of 22
+    gives resident x5, worker x4, customer x4, social x4, nightowl x2, wanderer x3 */
+ var LS_PROF_CYCLE=['resident','worker','customer','social','resident','wanderer','worker','customer','nightowl','resident','social','worker','customer','resident','wanderer','social','worker','nightowl','customer','resident','social','wanderer'];
+ /* schedule templates: per profile, per period — a weighted pick of
+    activity kinds. Kinds: home / work / shop / gather / roam / idle.
+    'late' carries the night template: most profiles home+idle (reduced
+    density), night owls and a few wanderers still out. */
+ var LS_TPL={
+  resident:{morning:[['home',3],['shop',2],['roam',2],['idle',1]],day:[['shop',3],['roam',2],['home',2],['gather',1]],evening:[['home',3],['gather',2],['shop',1],['roam',1]],late:[['home',5],['idle',3],['roam',1]]},
+  worker:{morning:[['work',6],['shop',1],['home',1]],day:[['work',6],['shop',1],['roam',1]],evening:[['home',5],['gather',1],['shop',1]],late:[['home',6],['idle',2]]},
+  customer:{morning:[['shop',4],['home',2],['roam',1]],day:[['shop',6],['gather',1],['roam',1]],evening:[['shop',3],['gather',2],['home',2]],late:[['home',5],['idle',2],['gather',1]]},
+  social:{morning:[['home',3],['roam',2],['gather',1]],day:[['gather',4],['shop',2],['roam',1]],evening:[['gather',6],['home',1],['shop',1]],late:[['home',4],['gather',2],['idle',2]]},
+  nightowl:{morning:[['home',5],['idle',3]],day:[['home',3],['roam',2],['shop',1]],evening:[['gather',4],['roam',3],['shop',1]],late:[['gather',4],['roam',3],['home',1]]},
+  wanderer:{morning:[['roam',5],['home',1],['shop',1]],day:[['roam',6],['shop',1],['gather',1]],evening:[['roam',5],['gather',2],['home',1]],late:[['roam',3],['home',3],['idle',2]]}
+ };
+ var LS_WAIT={ /* activity dwell ranges, game-seconds */
+  home:[14,40],work:[25,60],shop:[10,30],gather:[20,55],roam:[6,20],idle:[18,45]
+ };
+ function lsPick(rows){var tot=0,i;for(i=0;i<rows.length;i++)tot+=rows[i][1];var r=Math.random()*tot;for(i=0;i<rows.length;i++){r-=rows[i][1];if(r<=0)return rows[i][0];}return rows[rows.length-1][0];}
+ function lsRange(a){return a[0]+Math.random()*(a[1]-a[0]);}
+ function lsBuildAnchors(){
+  var out=[],dropped=0,i,j;
+  var OFFS=[[0,0],[18,10],[34,0],[0,34],[-34,0],[0,-34],[52,20],[-52,-20]];
+  for(i=0;i<SPOTS.length;i++){
+   var sp=SPOTS[i],pt=null;
+   for(j=0;j<OFFS.length;j++){var cx=sp.x+OFFS[j][0],cz=sp.z+OFFS[j][1];if(!footBlocked(cx,cz)){pt={x:cx,z:cz};break;}}
+   if(!pt){dropped++;continue;}
+   var commercial=(sp.area==='centre'||sp.area==='kingsway'||sp.area==='manchester'||sp.area==='middleton');
+   var gather=(sp.street.indexOf('Esplanade')>=0||sp.street.indexOf('Moss Street')>=0||sp.street==='Tweedale Street'||sp.street.indexOf('Piccadilly')>=0||sp.street.indexOf('Yorkshire')>=0);
+   out.push({id:'sp'+i,area:sp.area,street:sp.street,x:pt.x,z:pt.z,commercial:commercial,gather:gather,occ:0});
+  }
+  return {list:out,dropped:dropped};
+ }
+ function lsNearest(list,x,z,maxD,filter){
+  var best=null,bd=maxD*maxD,i,a,d;
+  for(i=0;i<list.length;i++){a=list[i];if(filter&&!filter(a))continue;d=dist2(x,z,a.x,a.z);if(d<bd){bd=d;best=a;}}
+  return best;
+ }
+ function lsNearList(list,x,z,maxD,filter){
+  var out=[],i,a;for(i=0;i<list.length;i++){a=list[i];if(filter&&!filter(a))continue;if(dist2(x,z,a.x,a.z)<maxD*maxD)out.push(a);}return out;
+ }
+ function lsInit(){
+  var anchors=lsBuildAnchors();
+  LS={anchors:anchors.list,anchorsDropped:anchors.dropped,recs:[],period:lsPeriod(lsHour()),
+      decisions:0,failedDest:0,suspensions:0,lastTickMs:0,avgTickMs:0,tickN:0,overlay:null};
+  if(S&&!S.livingStreets)S.livingStreets={version:1,enabled:true,profiles:{}};
+ }
+ function lsHomeFor(p){
+  var a=lsNearest(LS.anchors,p.x,p.z,1e9,null);
+  return a;
+ }
+ function lsReconcile(){
+  /* add records for peds we have not seen; drop records whose ped left
+     peds[] (promoted to a fighter, or a respawn) — identity-keyed, so no
+     duplicate controllers can ever attach to one ped */
+  var i,p,r;
+  for(i=0;i<peds.length;i++){p=peds[i];if(!p.__ls27){
+   var prof=LS_PROF_CYCLE[i%LS_PROF_CYCLE.length];
+   r={p:p,ix:i,profile:prof,home:lsHomeFor(p),work:null,state:'IDLE',act:'idle',
+      anchor:null,until:0,decideAt:gameT+(i%22)*0.7+Math.random()*3,travelStart:0,
+      period:LS.period,suspended:false}; /* first decisions staggered ~0.7s apart */
+   r.work=lsNearest(LS.anchors,p.x,p.z,2600,function(a){return a.commercial;})||r.home;
+   p.__ls27=r;LS.recs.push(r);
+   if(S&&S.livingStreets)S.livingStreets.profiles['ped'+i]=prof;
+  }}
+  for(i=LS.recs.length-1;i>=0;i--){if(peds.indexOf(LS.recs[i].p)<0){LS.recs[i].p.__ls27=null;LS.recs.splice(i,1);}}
+ }
+ function lsSuspended(r){
+  var p=r.p;
+  return !!(p.down||(p.s2DownT&&p.s2DownT>0)||(p.s2FleeT&&p.s2FleeT>0)||(p.diveT&&p.diveT>0));
+ }
+ function lsDestFor(r,kind){
+  var H=r.home,list=LS.anchors;
+  if(kind==='home')return H;
+  if(kind==='work')return r.work||H;
+  if(kind==='idle')return null; /* stay exactly where we are */
+  if(kind==='shop'){var s=lsNearList(list,H.x,H.z,2600,function(a){return a.commercial;});
+   if(s.length)return s[Math.floor(Math.random()*s.length)];
+   return H; /* no shops within reach of home: potter locally instead */}
+  if(kind==='gather'){var g=lsNearList(list,H.x,H.z,2600,function(a){return a.gather&&a.occ<3;});
+   if(g.length)return g[Math.floor(Math.random()*g.length)];
+   var g2=lsNearList(list,H.x,H.z,2600,function(a){return a.occ<3;});
+   return g2.length?g2[Math.floor(Math.random()*g2.length)]:H;}
+  /* roam: any anchor within 700u of HOME (neighbourhood-bound) */
+  var rm=lsNearList(list,H.x,H.z,700,null);
+  if(rm.length)return rm[Math.floor(Math.random()*rm.length)];
+  return H;
+ }
+ function lsDecide(r,now){
+  var per=LS.period,kind=lsPick(LS_TPL[r.profile][per]),dest=lsDestFor(r,kind);
+  LS.decisions++;
+  r.period=per;r.act=kind;
+  /* occupancy is reserved HERE, once, and released exactly once — by the
+     next decide, by suspension, by timeout, or by setEnabled(false) */
+  if(r.anchor){r.anchor.occ=Math.max(0,r.anchor.occ-1);r.anchor=null;}
+  if(dest&&dest!==r.home&&dist2(r.p.x,r.p.z,dest.x,dest.z)>3200)dest=r.home; /* sanity cap: no cross-map hikes at 22 u/s */
+  if(!dest){ /* idle in place */
+   r.state='WAITING';r.until=now+lsRange(LS_WAIT.idle);
+   r.p.tx=r.p.x;r.p.tz=r.p.z;return;
+  }
+  r.anchor=dest;dest.occ++;
+  var d=dist2(r.p.x,r.p.z,dest.x,dest.z);
+  if(d<28){ /* already there: settle straight into the activity */
+   r.state=(kind==='gather')?'SOCIALISING':'WAITING';
+   r.until=now+lsRange(LS_WAIT[kind]||LS_WAIT.roam);
+   r.p.tx=r.p.x;r.p.tz=r.p.z;
+  }else{
+   r.state='TRAVELLING';r.travelStart=now;
+   r.travelBudget=d/22*2.5+25; /* shipped walker speed is 22 u/s */
+   r.p.tx=dest.x;r.p.tz=dest.z;
+  }
+ }
+ function lsTick(){
+  var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  try{
+   if(!livingStreetsEnabled)return;
+   if(typeof S==='undefined'||!S||!S.playing||S.paused)return;
+   if(typeof peds==='undefined'||!peds.length)return;
+   if(!LS)lsInit();
+   if(S&&!S.livingStreets)S.livingStreets={version:1,enabled:true,profiles:{}};
+   var per=lsPeriod(lsHour());
+   if(per!==LS.period)LS.period=per;
+   lsReconcile();
+   var now=gameT,i,r,p;
+   for(i=0;i<LS.recs.length;i++){
+    r=LS.recs[i];p=r.p;
+    if(lsSuspended(r)){
+     if(!r.suspended){r.suspended=true;LS.suspensions++;
+      if(r.anchor){r.anchor.occ=Math.max(0,r.anchor.occ-1);r.anchor=null;}
+      r.state='SUSPENDED';}
+     continue; /* write NOTHING while a shipped system owns this ped */
+    }
+    if(r.suspended){r.suspended=false;r.state='IDLE';r.until=0;r.decideAt=0;}
+    /* distance tiers: decisions cheapen with distance from the player */
+    var dp=dist2(player.x,player.z,p.x,p.z);
+    var tier=dp<810000?0:(dp<6250000?1:2); /* 900u / 2500u */
+    if(r.state==='TRAVELLING'){
+     p.waitT=Math.max(p.waitT,4); /* hold the shipped wander off our route */
+     p.tx=r.anchor.x;p.tz=r.anchor.z;
+     var dd=dist2(p.x,p.z,r.anchor.x,r.anchor.z);
+     if(dd<28){
+      r.state=(r.act==='gather')?'SOCIALISING':'WAITING';
+      r.until=now+lsRange(LS_WAIT[r.act]||LS_WAIT.roam);
+      p.tx=p.x;p.tz=p.z;
+     }else if(now-r.travelStart>r.travelBudget){
+      LS.failedDest++; /* blocked / unreachable: abandon, never loop on it */
+      if(r.anchor){r.anchor.occ=Math.max(0,r.anchor.occ-1);r.anchor=null;}
+      r.state='IDLE';r.decideAt=now+1+Math.random()*3;
+     }
+     continue;
+    }
+    if(r.state==='WAITING'||r.state==='SOCIALISING'){
+     p.waitT=Math.max(p.waitT,4); /* stay parked at the anchor */
+     p.tx=p.x;p.tz=p.z;
+     if(now>=r.until){r.state='IDLE';r.decideAt=now+(tier===2?6:0.5)+Math.random()*(tier===0?2:5);}
+     continue;
+    }
+    /* IDLE: decide when due — staggered per ped, forced on period change */
+    if(r.period!==per||now>=r.decideAt)lsDecide(r,now);
+   }
+   if(LS.overlay)lsOverlayDraw();
+  }catch(e){
+   livingStreetsEnabled=false; /* failure isolation: only this module dies */
+   if(window.console)console.log('[v30.27 living-streets] disabled after error: '+(e&&e.message));
+  }
+  if(t0&&LS){var dtms=((performance.now()-t0));LS.avgTickMs=LS.tickN?LS.avgTickMs*0.9+dtms*0.1:dtms;LS.tickN++;}
+ }
+ function lsCounts(){
+  var c={IDLE:0,TRAVELLING:0,WAITING:0,SOCIALISING:0,SUSPENDED:0,total:0};
+  if(LS){for(var i=0;i<LS.recs.length;i++){c[LS.recs[i].state]++;c.total++;}}
+  return c;
+ }
+ function lsOverlayDraw(){
+  if(!LS||!LS.overlay)return;
+  var c=lsCounts();
+  LS.overlay.textContent='LIVING STREETS · '+LS.period+' · peds '+c.total+
+   ' · travelling '+c.TRAVELLING+' · waiting '+c.WAITING+' · social '+c.SOCIALISING+
+   ' · suspended '+c.SUSPENDED+' · decisions '+LS.decisions+' · failedDest '+LS.failedDest+
+   ' · tick '+LS.avgTickMs.toFixed(2)+'ms';
+ }
+ window.__LS27={
+  enabled:function(){return livingStreetsEnabled;},
+  setEnabled:function(on){
+   livingStreetsEnabled=!!on;
+   if(S){if(!S.livingStreets)S.livingStreets={version:1,enabled:livingStreetsEnabled,profiles:{}};S.livingStreets.enabled=livingStreetsEnabled;}
+   if(!on&&LS){ /* hand every ped straight back to the shipped wander */
+    for(var i=0;i<LS.recs.length;i++){var r=LS.recs[i];
+     if(r.anchor){r.anchor.occ=Math.max(0,r.anchor.occ-1);r.anchor=null;}
+     r.state='IDLE';if(r.p.waitT>2)r.p.waitT=2;}
+   }
+   return livingStreetsEnabled;
+  },
+  state:function(){
+   if(!LS)return {initialised:false,enabled:livingStreetsEnabled};
+   var c=lsCounts();
+   return {initialised:true,enabled:livingStreetsEnabled,period:LS.period,hour:Math.round(lsHour()*10)/10,
+    counts:c,anchors:LS.anchors.length,anchorsDropped:LS.anchorsDropped,decisions:LS.decisions,
+    failedDest:LS.failedDest,suspensions:LS.suspensions,avgTickMs:Math.round(LS.avgTickMs*100)/100,
+    sKey:(S&&S.livingStreets)?{version:S.livingStreets.version,enabled:S.livingStreets.enabled,profiles:Object.keys(S.livingStreets.profiles).length}:null,
+    peds:LS.recs.map(function(r){return {ix:r.ix,profile:r.profile,state:r.state,act:r.act,period:r.period,
+     x:Math.round(r.p.x),z:Math.round(r.p.z),tx:Math.round(r.p.tx),tz:Math.round(r.p.tz),
+     anchor:r.anchor?r.anchor.id:null,home:r.home?r.home.id:null};})};
+  },
+  tick:function(){lsTick();return !!(LS&&LS.recs);},
+  anchors:function(){return LS?LS.anchors.map(function(a){return {id:a.id,area:a.area,street:a.street,x:Math.round(a.x),z:Math.round(a.z),commercial:a.commercial,gather:a.gather,occ:a.occ};}):[];},
+  debug:function(on){
+   if(!LS)lsInit();
+   if(on&&!LS.overlay){var d=document.createElement('div');
+    d.style.cssText='position:fixed;left:8px;bottom:8px;z-index:99;background:rgba(10,10,14,.82);color:#ffd23f;font:11px monospace;padding:6px 8px;border-radius:6px;pointer-events:none;max-width:70vw';
+    document.body.appendChild(d);LS.overlay=d;lsOverlayDraw();}
+   if(!on&&LS.overlay){LS.overlay.remove();LS.overlay=null;}
+   return !!LS.overlay;
+  }
+ };
+ setInterval(lsTick,250); /* staggered decision tick — NOT a per-frame loop;
+    the shipped walker still moves every ped inside update() */
+})();
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
