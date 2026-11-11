@@ -5099,7 +5099,7 @@ function buildEntities(){
    var gangCols=[0x7fb069,0xa3aab3,0xb088d8,0xf4a259,0x2f6df6,0xffd23f,0x2ec4b6];
    var colr=(i%3===0)?gangCols[i%gangCols.length]:null;
    var mesh=makeCarMesh(CARS[key],colr,1,i%2===0);scene.add(mesh);
-   traffic.push({road:road,t:rnd(),dir:i%2?1:-1,speed:85+rnd()*45,mesh:mesh,nearCd:0,x:0,z:0,crashT:0});
+   traffic.push({road:road,t:rnd(),dir:i%2?1:-1,speed:85+rnd()*45,mesh:mesh,nearCd:0,x:0,z:0,crashT:0,hitCd:0});
  }
  for(var j=0;j<22;j++){ /* X-1 (v31): peds 12 -> 22, spread round-robin across ALL spots so Middleton gets witnesses too (design §6.5) */
    var sp=SPOTS[Math.floor(j*SPOTS.length/22)%SPOTS.length];var fig=makeFigure([0x707880,0x5a4a3a,0x3a4a5c,0x74584a,0x51606b,0x6b5a44][j%6],[0x2c2f36,0x3a3f4a,0x23272e,0x4c4438][j%4],[0xc9a189,0x8a5a3b,0x6e4530,0xe0b490,0x54382a][j%5],{shoe:[0x24262a,0xd8d8de,0x4a3826][j%3]});
@@ -8890,11 +8890,59 @@ function updateGame(dt,realDt){
    }
    t.mesh.position.set(t.x,0,t.z);
    rollWheels(t.mesh,(t.chaseT>0?190:(t.spd||0))*dt,0);
-   t.nearCd-=dt;
+   t.nearCd-=dt;if(t.hitCd>0)t.hitCd-=dt;
    if(!footMode){
      var d=dist2(player.x,player.z,t.x,t.z);
-     if(d<30&&speedNow()>30){t.crashT=3;t.spd=0;var imp=speedNow();player.vx*=.35;player.vz*=.35;onCrash(imp*.85,'traffic');onCrashRef(t);}
-     else if(d<58&&d>=30&&speedNow()>205&&t.nearCd<0){t.nearCd=6;S.rep+=1;toast('NEAR MISS +1 Rep');styleEvent('reckless','near miss');}
+     var hit33=false;
+     if(d<64){
+       /* v30.33: player <-> traffic SOLID — OBB vs OBB (SAT, the same test
+          shape as PARKED_SOLIDS) at both cars' real footprints, resolved
+          along the minimum-translation axis: the player is pushed out of
+          overlap, the closing velocity is killed/shed, and a closing
+          impact over the shipped 40 threshold fires the existing crash
+          path at closing-speed impact (*.85, as before). Both ways: a
+          traffic car that reaches a stationary player stops (crashT)
+          instead of ghosting through him. t.hitCd is the tram's 1.5 s
+          per-pair cooldown so a resting contact cannot re-fire crashes. */
+       var sp33=carSpec();
+       var pfx33=Math.sin(player.h),pfz33=-Math.cos(player.h),prx33=Math.cos(player.h),prz33=Math.sin(player.h);
+       var tfx33,tfz33;
+       if(t.chaseT>0){var ca33=Math.atan2(player.x-t.x,player.z-t.z);tfx33=Math.sin(ca33);tfz33=Math.cos(ca33);}
+       else if(t.hdx!==undefined){tfx33=t.hdx;tfz33=t.hdz;}
+       else{tfx33=-Math.sin(t.mesh.rotation.y);tfz33=-Math.cos(t.mesh.rotation.y);}
+       var trx33=-tfz33,trz33=tfx33;
+       var thw33=8,thl33=17;
+       var sh33=t.mesh&&t.mesh.children&&t.mesh.children[0]&&t.mesh.children[0].geometry&&t.mesh.children[0].geometry.parameters;
+       if(sh33&&sh33.width&&sh33.height){thw33=Math.max(5,(sh33.width-9)/2);thl33=Math.max(10,(sh33.height-9)/2);}
+       var relx33=player.x-t.x,relz33=player.z-t.z;
+       var ax33=[[pfx33,pfz33],[prx33,prz33],[tfx33,tfz33],[trx33,trz33]];
+       var minOv33=1e9,minAx33=0,minAz33=0,coll33=true;
+       for(var ai33=0;ai33<4;ai33++){var axx33=ax33[ai33][0],azz33=ax33[ai33][1];
+         var dd33=relx33*axx33+relz33*azz33;
+         var rr33=(sp33.w/2)*Math.abs(prx33*axx33+prz33*azz33)+(sp33.l/2)*Math.abs(pfx33*axx33+pfz33*azz33)
+                +thw33*Math.abs(trx33*axx33+trz33*azz33)+thl33*Math.abs(tfx33*axx33+tfz33*azz33);
+         var ov33=rr33-Math.abs(dd33);
+         if(ov33<0){coll33=false;break;}
+         if(ov33<minOv33){minOv33=ov33;var sg33=dd33<0?-1:1;minAx33=axx33*sg33;minAz33=azz33*sg33;}
+       }
+       if(coll33){
+         hit33=true;
+         player.x+=minAx33*(minOv33+.5);player.z+=minAz33*(minOv33+.5);
+         var tvx33=tfx33*(t.chaseT>0?190:(t.spd||0)),tvz33=tfz33*(t.chaseT>0?190:(t.spd||0));
+         var vn33=(player.vx-tvx33)*minAx33+(player.vz-tvz33)*minAz33;
+         var imp33=Math.max(0,-vn33);
+         if(imp33>40&&t.hitCd<=0){
+           t.hitCd=1.5;
+           if(t.chaseT<=0){t.crashT=3;t.spd=0;}
+           player.vx*=.35;player.vz*=.35;
+           onCrash(imp33*.85,'traffic');onCrashRef(t);
+         } else {
+           if(vn33<0){player.vx-=minAx33*vn33;player.vz-=minAz33*vn33;player.vx*=.78;player.vz*=.78;}
+           if(t.chaseT<=0){t.crashT=Math.max(t.crashT||0,1.2);t.spd=0;}
+         }
+       }
+     }
+     if(!hit33&&d<58&&d>=30&&speedNow()>205&&t.nearCd<0){t.nearCd=6;S.rep+=1;toast('NEAR MISS +1 Rep');styleEvent('reckless','near miss');}
    }
  });
  /* ---------- POLICE ---------- */
@@ -12806,7 +12854,7 @@ function lcDepart(){
  if(LC.spare){s3ConsumeSpare(LC.spare);LC.spare=null;}
  lcBrothersIn();
  lcBrothers().forEach(function(L){L.x=LC_POSE.x;L.z=LC_POSE.z;L.proxy.x=LC_POSE.x;L.proxy.z=LC_POSE.z;}); /* dots ride the car from the first frame of the cruise */
- var t={road:road,t:LC_POSE.t,dir:1,speed:80,spd:0,mesh:LC.mesh,nearCd:0,x:LC_POSE.x,z:LC_POSE.z,crashT:0,chaseT:0,key:LC_KEY,leaderCar:true};
+ var t={road:road,t:LC_POSE.t,dir:1,speed:80,spd:0,mesh:LC.mesh,nearCd:0,x:LC_POSE.x,z:LC_POSE.z,crashT:0,hitCd:0,chaseT:0,key:LC_KEY,leaderCar:true};
  traffic.push(t);LC.traf=t;LC.mode='cruise';LC.retT=0;
  lcEnsureState();S.leaderCar.phase='cruise';S.leaderCar.t=LC_CRUISE_T;
  toast('SUNNY & IMMY are cruising Newbold in the Golf R');
