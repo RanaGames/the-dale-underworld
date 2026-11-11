@@ -14225,6 +14225,204 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
   lampTick();setInterval(lampTick,700);
  }catch(e){if(window.console)console.log('[v30.31 tramstops] build failed: '+(e&&e.message));}
 })();
+/* ================= v30.32 — WEST / SW GROUND PATTERN + ACCESS LANE DRESSING =================
+   Design pass answering the forensic verdict on v30.20 (evidence:
+   hidden_files/forensic-v3021): the west ground and the SW house lane DO
+   render, but are invisible by design margins — parcel palettes sit within
+   ~±13 luminance of the ground beneath, parcels are untextured flat slabs,
+   and the access lanes are 16u of carriageway-tone asphalt at y=0.40,
+   0.02-0.04 BELOW the road surfaces they join (0.42/0.44).
+
+   This block is an ADDITIVE overlay in the v30.27-v30.31 layering pattern:
+   it touches no shipped builder, road, building, collision table or
+   gameplay system, and it runs after the R1 chunk registry, so its meshes
+   are never registered and cannot be culled (every mesh is also
+   frustumCulled=false and world-spanning or instanced, per the guardrail).
+
+   (1) PARCELS — west disc (the __V3020_AUDIT.westMeasure disc: centre
+       SAFE-4200x, r 2600) + the SW sector (r 1500 around the safe-house-
+       south house at (-714,1985)). Every open (non-urban) cover cell gets
+       a textured quad at y=0.30 (above the v30.20 parcel tops 0.285,
+       below water 0.31) coloured from a 5-level luminance pattern:
+       level = (pi + 2*pj) mod 5 over the v30.20 parcel hash (pi,pj), so
+       EVERY orthogonally adjacent parcel pair differs in level (west
+       neighbour +1, north +2 mod 5) and every pair of levels in each
+       palette is >=36 Rec.601 luminance apart at source — wide enough to
+       survive the grade, unlike the shipped palettes whose neighbours
+       could sit 3-20 apart. Hues stay in the v30.16 northern discipline:
+       grass / scrub / bracken / heather / dry pale grass / woodland floor.
+   (2) LANES — every shipped access lane (LANES19 + LANES20) gets a
+       dressing overlay ON ITS OWN PATH (route set unchanged, walkable
+       geometry unchanged): a dark shoulder ribbon (14.8u, y 0.425), a
+       light gravel centre (13u clear width, y 0.46 — meeting the 0.44
+       carriageway without the shipped step DOWN) and pale stone edge
+       lines at +-6.5..7.3 (y 0.468).
+   (3) WEST FRINGE DRESSING — economical, instanced, on the v30.20 kit
+       pattern: extra tree clusters on west/SW open parcels (hash 0.30
+       vs the shipped 0.16) and hedge / dry-stone strips subdividing some
+       west parcels. No new buildings, no new collision solids.
+   Failure isolation: any throw disables ONLY this layer (alive=false).
+   Debug surface: window.__WL32 (overlay OFF by default — counts only). */
+(function(){
+ var WL={version:'v30.32',alive:false,enabled:true,parcels:0,lanePaths:0,laneLen:0,trees:0,hedges:0,meshes:0,sectors:{west:0,sw:0},err:null};
+ window.__WL32=WL;
+ try{
+  if(typeof THREE==='undefined'||typeof scene==='undefined')throw new Error('no THREE/scene');
+  if(!window.__V3019_AUDIT||!__V3019_AUDIT.coverList)throw new Error('no cover list');
+  if(!window.__V3020_AUDIT||!__V3020_AUDIT.parcelAt)throw new Error('no parcel audit');
+  var T=THREE;
+  function segD32(x,z,ax,az,bx,bz){var dx=bx-ax,dz=bz-az,L=dx*dx+dz*dz;var t=L?((x-ax)*dx+(z-az)*dz)/L:0;t=t<0?0:(t>1?1:t);var cx=ax+dx*t,cz=az+dz*t;return Math.sqrt((x-cx)*(x-cx)+(z-cz)*(z-cz));}
+  var segDist32=(typeof segDist==='function')?segDist:segD32;
+  function hash32(a,b){var h=(a*374761393+b*668265263)^20261132;h=(h^(h>>13))*1274126177;return ((h^(h>>16))>>>0)/4294967295;}
+  function waterDist32(x,z){var d=1e9,i;if(typeof RIVER!=='undefined')for(i=0;i<RIVER.length-1;i++)d=Math.min(d,segDist32(x,z,RIVER[i][0],RIVER[i][1],RIVER[i+1][0],RIVER[i+1][1]));if(typeof R1_CANAL!=='undefined')for(i=0;i<R1_CANAL.length-1;i++)d=Math.min(d,segDist32(x,z,R1_CANAL[i][0],R1_CANAL[i][1],R1_CANAL[i+1][0],R1_CANAL[i+1][1]));return d;}
+  var RAILSEG32=[];
+  if(typeof ROADS!=='undefined')ROADS.forEach(function(r){if(r.cls==='R')for(var j=0;j<r.pts.length-1;j++)RAILSEG32.push({ax:r.pts[j][0],az:r.pts[j][1],bx:r.pts[j+1][0],bz:r.pts[j+1][1]});});
+  function railDist32(x,z){var d=1e9;for(var i=0;i<RAILSEG32.length;i++)d=Math.min(d,segD32(x,z,RAILSEG32[i].ax,RAILSEG32[i].az,RAILSEG32[i].bx,RAILSEG32[i].bz));return d;}
+  function roadClear32(x,z,pad){
+    if(typeof ROADS!=='undefined'){for(var ri=0;ri<ROADS.length;ri++){var r=ROADS[ri];if(r.cls==='R')continue;var h=(typeof rh==='function')?rh(r):(r.w||14);for(var j=0;j<r.pts.length-1;j++){if(segD32(x,z,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])<h+pad)return false;}}}
+    var lists=[(__V3019_AUDIT.streets||[]),(__V3019_AUDIT.lanes||[]),(__V3020_AUDIT.lanes||[])];
+    for(var li=0;li<lists.length;li++){var L=lists[li];for(var si=0;si<L.length;si++){var sp=L[si];for(var sj=0;sj<sp.pts.length-1;sj++){if(segD32(x,z,sp.pts[sj][0],sp.pts[sj][1],sp.pts[sj+1][0],sp.pts[sj+1][1])<(sp.w||8)+pad)return false;}}}
+    return true;
+  }
+  function overlaps32(x,z,hw,hd){
+    if(typeof buildings==='undefined')return false;
+    for(var i=0;i<buildings.length;i++){var b=buildings[i];if(Math.abs(x-b.x)<b.hw+hw+3&&Math.abs(z-b.z)<b.hd+hd+3)return true;}
+    return false;
+  }
+  /* ---------- shared instanced kit (v30.20 pattern) ---------- */
+  var M4=new T.Matrix4(),QT=new T.Quaternion(),EU=new T.Euler(),V3=new T.Vector3(),S3v=new T.Vector3(),C1=new T.Color();
+  function kit32(geo,mat,list){
+    if(!list.length)return null;
+    var im=new T.InstancedMesh(geo,mat,list.length);
+    for(var i=0;i<list.length;i++){var it=list[i];EU.set(0,it.ry||0,0);QT.setFromEuler(EU);V3.set(it.x,it.y||0,it.z);S3v.set(it.sx,it.sy,it.sz);M4.compose(V3,QT,S3v);im.setMatrixAt(i,M4);if(it.col!==undefined)im.setColorAt(i,C1.set(it.col));}
+    im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true;
+    im.frustumCulled=false;scene.add(im);WL.meshes++;return im;
+  }
+  /* ---------- (1) parcel overlay ---------- */
+  var PAL32={
+    field:[0x24331d,0x4c5f36,0x7d9360,0xb7c98c,0xe6ebc0],
+    moor: [0x222e20,0x65543f,0x957c8a,0xbcc98e,0xeae7ba],
+    wood: [0x1f2d1a,0x46543a,0x7d8f5c,0xb3c184,0xe6ebc0]
+  };
+  function parcelTex32(){
+    var c=document.createElement('canvas');c.width=c.height=256;var g=c.getContext('2d');var ts=320320;function tr(){ts=(ts*48271)%2147483647;return (ts-1)/2147483646;}
+    g.fillStyle='#f2f0eb';g.fillRect(0,0,256,256);
+    for(var b=0;b<26;b++){g.fillStyle=(b%2?'rgba(70,80,55,':'rgba(255,255,250,')+(0.05+tr()*0.06)+')';g.beginPath();g.ellipse(tr()*256,tr()*256,24+tr()*46,16+tr()*34,tr()*3,0,7);g.fill();}
+    for(var s=0;s<380;s++){g.strokeStyle='rgba(60,70,45,'+(0.05+tr()*0.06)+')';g.lineWidth=1.4;var sx=tr()*256,sy=tr()*256;g.beginPath();g.moveTo(sx,sy);g.lineTo(sx+(tr()-0.5)*26,sy+(tr()-0.5)*26);g.stroke();}
+    for(var i=0;i<1500;i++){g.fillStyle=(i%2?'rgba(40,45,30,':'rgba(255,255,255,')+(0.03+tr()*0.05)+')';g.fillRect(tr()*256,tr()*256,1.8,1.8);}
+    var t=new T.CanvasTexture(c);t.encoding=T.sRGBEncoding;t.anisotropy=4;return t;
+  }
+  var CELL32=620,HALF32=(CELL32-6)/2;
+  var westCx=SAFE.x-4200,westCz=SAFE.z;
+  var pos32=[],col32=[],uv32=[],idx32=[],nv32=0;
+  var trunk32=[],canopy32=[],hedge32=[];
+  var LEAF32=[0x51663f,0x5d7350,0x49603c,0x667c55,0x42563a];
+  var HEDGE32=[0x3f4f33,0x46543a,0x3a4630],WALL32=[0x6b675c,0x5f5b52];
+  var CC=new T.Color();
+  __V3019_AUDIT.coverList.forEach(function(cv){
+    if(cv.t==='urban')return;
+    var dxW=cv.x-westCx,dzW=cv.z-westCz,inWest=(dxW*dxW+dzW*dzW<2650*2650);
+    var dxH=cv.x+714,dzH=cv.z-1985,inSW=(dxH*dxH+dzH*dzH<1500*1500);
+    if(!inWest&&!inSW)return;
+    if(waterDist32(cv.x,cv.z)<95)return;
+    if(railDist32(cv.x,cv.z)<60)return;
+    var pa=__V3020_AUDIT.parcelAt(cv.x,cv.z);if(!pa)return;
+    var pal=PAL32[pa.t]||PAL32.field;
+    var level=((pa.pi+2*pa.pj)%5+5)%5;
+    CC.set(pal[level]);
+    var x0=cv.x-HALF32,x1=cv.x+HALF32,z0=cv.z-HALF32,z1=cv.z+HALF32,y=0.30;
+    pos32.push(x0,y,z0, x1,y,z0, x1,y,z1, x0,y,z1);
+    for(var k=0;k<4;k++)col32.push(CC.r,CC.g,CC.b);
+    uv32.push(0,0, 1,0, 1,1, 0,1);
+    idx32.push(nv32,nv32+2,nv32+1, nv32,nv32+3,nv32+2);
+    nv32+=4;WL.parcels++;if(inWest)WL.sectors.west++;if(inSW)WL.sectors.sw++;
+    var ci=Math.round((cv.x+9480)/CELL32),cj=Math.round((cv.z+6480)/CELL32);
+    /* (3a) denser tree clusters on west/SW parcels */
+    if(hash32(ci*17,cj*23)<0.30){
+      var n=2+Math.floor(hash32(cj,ci)*4);
+      for(var tt=0;tt<n;tt++){
+        var tx=cv.x+(hash32(ci+tt*31,cj)-0.5)*440,tz=cv.z+(hash32(cj+tt*47,ci)-0.5)*440;
+        if(waterDist32(tx,tz)<60)continue;
+        if(!roadClear32(tx,tz,24))continue;
+        if(overlaps32(tx,tz,10,10))continue;
+        var sc=0.85+hash32(Math.round(tx),Math.round(tz))*0.7;
+        trunk32.push({x:tx,y:0,z:tz,ry:hash32(Math.round(tx),tt)*3.14,sx:14*sc,sy:22*sc,sz:14*sc});
+        canopy32.push({x:tx,y:0,z:tz,ry:hash32(Math.round(tz),tt)*3.14,sx:34*sc,sy:40*sc,sz:34*sc,col:LEAF32[Math.floor(hash32(Math.round(tx*3),Math.round(tz))*LEAF32.length)%LEAF32.length]});
+        WL.trees++;
+      }
+    }
+    /* (3b) hedge / dry-stone strips subdividing west parcels */
+    if(hash32(ci*7+3,cj*11)<0.5){
+      var horiz=hash32(ci*13,cj*7)<0.5;
+      var ex=horiz?cv.x:cv.x+CELL32/2,ez=horiz?cv.z+CELL32/2:cv.z;
+      if(roadClear32(ex,ez,16)&&waterDist32(ex,ez)>=42){
+        var wall=(cv.t==='moor'&&hash32(ci*3,cj*5)<0.45);
+        var hcol=wall?WALL32[Math.floor(hash32(ci,cj)*2)%2]:HEDGE32[Math.floor(hash32(cj,ci)*3)%3];
+        hedge32.push({x:ex,y:0.30,z:ez,ry:0,sx:horiz?(CELL32-40):8,sy:wall?4.2:5.5,sz:horiz?8:(CELL32-40),col:hcol});
+        WL.hedges++;
+      }
+    }
+  });
+  if(nv32){
+    var pg=new T.BufferGeometry();
+    pg.setAttribute('position',new T.Float32BufferAttribute(pos32,3));
+    pg.setAttribute('color',new T.Float32BufferAttribute(col32,3));
+    pg.setAttribute('uv',new T.Float32BufferAttribute(uv32,2));
+    pg.setIndex(idx32);pg.computeVertexNormals();
+    var pm=new T.Mesh(pg,new T.MeshLambertMaterial({map:parcelTex32(),vertexColors:true,side:T.DoubleSide}));
+    pm.frustumCulled=false;scene.add(pm);WL.meshes++;
+  }
+  var geoBox32=new T.BoxGeometry(1,1,1);geoBox32.translate(0,0.5,0);
+  kit32(geoBox32,new T.MeshLambertMaterial({color:0xffffff}),hedge32);
+  var geoTrunk32=new T.CylinderGeometry(0.09,0.13,1,5);geoTrunk32.translate(0,0.5,0);
+  var geoCanopy32=new T.IcosahedronGeometry(0.5,0);geoCanopy32.translate(0,0.85,0);
+  kit32(geoTrunk32,new T.MeshLambertMaterial({color:0x4c3d2f}),trunk32);
+  kit32(geoCanopy32,new T.MeshLambertMaterial({color:0xffffff}),canopy32);
+  /* ---------- (2) lane dressing overlay (shipped Ribbon pattern) ---------- */
+  function Ribbon32(){this.pos=[];this.uv=[];this.idx=[];this.n=0;}
+  Ribbon32.prototype.add=function(pts,o0,o1,y,tile){
+    var P=pts,N=[],arc=0,i;
+    for(i=0;i<P.length;i++){var nx=0,nz=0;
+      if(i>0){var dx=P[i][0]-P[i-1][0],dz=P[i][1]-P[i-1][1],L=Math.sqrt(dx*dx+dz*dz)||1;nx+=-dz/L;nz+=dx/L;}
+      if(i<P.length-1){var dx2=P[i+1][0]-P[i][0],dz2=P[i+1][1]-P[i][1],L2=Math.sqrt(dx2*dx2+dz2*dz2)||1;nx+=-dz2/L2;nz+=dx2/L2;}
+      var NL=Math.sqrt(nx*nx+nz*nz);if(NL<0.001){nx=1;nz=0;NL=1;}N.push([nx/NL,nz/NL]);}
+    for(i=0;i<P.length;i++){
+      if(i>0)arc+=Math.sqrt((P[i][0]-P[i-1][0])*(P[i][0]-P[i-1][0])+(P[i][1]-P[i-1][1])*(P[i][1]-P[i-1][1]));
+      this.pos.push(P[i][0]+N[i][0]*o0,y,P[i][1]+N[i][1]*o0, P[i][0]+N[i][0]*o1,y,P[i][1]+N[i][1]*o1);
+      this.uv.push(o0/tile,arc/tile, o1/tile,arc/tile);
+      if(i>0){var a=this.n+(i-1)*2;this.idx.push(a,a+1,a+2, a+1,a+3,a+2);}
+    }
+    this.n+=P.length*2;
+  };
+  Ribbon32.prototype.mesh=function(mat){if(!this.n)return null;var g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(this.pos,3));g.setAttribute('uv',new T.Float32BufferAttribute(this.uv,2));g.setIndex(this.idx);g.computeVertexNormals();var m=new T.Mesh(g,mat);m.frustumCulled=false;scene.add(m);WL.meshes++;return m;};
+  function gravelTex32(){
+    var c=document.createElement('canvas');c.width=c.height=128;var g=c.getContext('2d');var ts=320321;function tr(){ts=(ts*48271)%2147483647;return (ts-1)/2147483646;}
+    g.fillStyle='#b3aa99';g.fillRect(0,0,128,128);
+    for(var i=0;i<2400;i++){var v=Math.floor(128+tr()*84);g.fillStyle='rgb('+v+','+(v-5)+','+(v-14)+')';g.fillRect(tr()*128,tr()*128,1.9,1.9);}
+    for(var b=0;b<7;b++){g.fillStyle='rgba(70,62,48,'+(0.06+tr()*0.06)+')';g.fillRect(tr()*100,tr()*100,13+tr()*20,8+tr()*14);}
+    var t=new T.CanvasTexture(c);t.encoding=T.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=T.RepeatWrapping;return t;
+  }
+  var UNDER32=new Ribbon32(),CENTRE32=new Ribbon32(),EDGE32=new Ribbon32();
+  var laneLists=[(__V3019_AUDIT.lanes||[]),(__V3020_AUDIT.lanes||[])];
+  laneLists.forEach(function(list){
+    list.forEach(function(sp){
+      if(!sp.pts||sp.pts.length<2)return;
+      UNDER32.add(sp.pts,-7.4,7.4,0.425,46);
+      CENTRE32.add(sp.pts,-6.5,6.5,0.46,46);
+      EDGE32.add(sp.pts,-7.3,-6.5,0.468,46);EDGE32.add(sp.pts,6.5,7.3,0.468,46);
+      WL.lanePaths++;
+      for(var j=0;j<sp.pts.length-1;j++)WL.laneLen+=Math.sqrt((sp.pts[j+1][0]-sp.pts[j][0])*(sp.pts[j+1][0]-sp.pts[j][0])+(sp.pts[j+1][1]-sp.pts[j][1])*(sp.pts[j+1][1]-sp.pts[j][1]));
+    });
+  });
+  UNDER32.mesh(new T.MeshLambertMaterial({color:0x3a3e42,side:T.DoubleSide}));
+  CENTRE32.mesh(new T.MeshLambertMaterial({map:gravelTex32(),side:T.DoubleSide}));
+  EDGE32.mesh(new T.MeshLambertMaterial({color:0xc9cbc2,side:T.DoubleSide}));
+  WL.laneLen=Math.round(WL.laneLen);
+  WL.alive=true;
+ }catch(e){WL.alive=false;WL.err=String(e&&e.message||e);}
+})();
+
+
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
