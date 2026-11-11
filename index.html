@@ -936,8 +936,165 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
   <button class="btn ghost" data-close>Cancel</button>
 </div></div>
 
+<style id="hud24css">
+/* ================= v30.24 — COMPLETE MOBILE HUD REDESIGN =================
+   Presentation + wiring ONLY. Every element below is either the ORIGINAL
+   element re-skinned (top bar, TASKS, hpDock, fight buttons, pedals,
+   steering, side feed) or a NEW display fed by the game's existing state
+   and handlers (circular minimap, location pill, heat strip, phone /
+   interact cluster buttons that forward to the shipped elements).
+   No gameplay value is read from anywhere but live state; no handler is
+   replaced — new buttons .click() the shipped ones. */
+:root{--h24op:1;}
+/* ---------- STAGE 1: top-right status strip (the shipped .bar, re-skinned) ---------- */
+.bar{left:auto;right:calc(8px + var(--sar));top:calc(6px + var(--sat));width:auto;max-width:calc(100vw - 150px);gap:0;align-items:stretch;padding:5px 7px;background:rgba(7,11,15,.74);border:1px solid rgba(255,255,255,.11);border-radius:15px;box-shadow:0 4px 18px rgba(0,0,0,.4);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);}
+.bar .pill{background:transparent;border:none;border-radius:0;box-shadow:none;padding:1px 10px 1px 9px;border-right:1px solid rgba(255,255,255,.13);display:flex;align-items:center;}
+.bar .pill .v{font-size:19px;line-height:1.05;}
+#cashPill .k{font-size:0;}
+#cashPill .k::before{content:'💷';font-size:16px;margin-right:2px;}
+#cashPill .v{color:#7ddb9a;}
+#repPill .k{font-size:0;}
+#repPill .k::before{content:'⭐';font-size:14px;margin-right:2px;}
+#repPill::after{content:'REP';font-family:'Barlow Condensed';font-size:9px;letter-spacing:.14em;color:var(--dim);margin-left:5px;align-self:flex-start;margin-top:2px;}
+#heatWrap{display:none !important;}
+#dayClock{margin-left:0;text-align:left;border-right:1px solid rgba(255,255,255,.13);}
+#dayClock .k{font-size:11px;letter-spacing:.06em;color:var(--dim);}
+.bar .iconBtn{border-radius:50%;width:44px;height:44px;flex:none;align-self:center;margin-left:6px;font-size:19px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:var(--ink);}
+.bar .iconBtn:active{transform:scale(.92);}
+/* old free-standing objective line: its text is mirrored into the TASKS
+   card (hud24 script); the toggle's job is done by the TASKS collapse. */
+#objWrap{display:none !important;}
+/* ---------- STAGE 1: top-left cluster — circular minimap + location pill + heat strip ---------- */
+#h24TL{position:absolute;top:calc(6px + var(--sat));left:calc(8px + var(--sal));z-index:15;display:flex;flex-direction:column;gap:6px;pointer-events:none;max-width:62vw;}
+#h24MmRow{display:flex;align-items:center;gap:8px;}
+#h24MmWrap{position:relative;width:calc(108px * var(--mmF));height:calc(108px * var(--mmF));flex:none;pointer-events:auto;cursor:pointer;}
+#h24mm{width:100%;height:100%;border-radius:50%;border:2px solid rgba(255,255,255,.55);box-shadow:0 4px 16px rgba(0,0,0,.5);background:#0d1218;display:block;}
+#h24MmN{position:absolute;top:-7px;left:50%;transform:translateX(-50%);background:rgba(7,11,15,.85);color:#fff;font-family:'Barlow Condensed';font-weight:700;font-size:11px;line-height:1;padding:2px 6px;border-radius:7px;border:1px solid rgba(255,255,255,.25);}
+#h24Loc{background:rgba(7,11,15,.74);border:1px solid rgba(255,255,255,.11);border-radius:12px;padding:6px 11px 6px 9px;backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);min-width:0;}
+#h24LocName{font-family:'Barlow Condensed';font-weight:700;font-size:17px;letter-spacing:.02em;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#h24LocName::before{content:'📍 ';color:var(--gold);font-size:13px;}
+#h24LocSub{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+body.h24-noring #h24MmWrap{display:none;}
+body.h24-compact #h24LocSub{display:none;}
+/* heat: quiet by default, prominent under police activity */
+#h24Heat{pointer-events:none;background:rgba(7,11,15,.6);border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:5px 9px;width:calc(196px * var(--hudF));opacity:.82;transition:opacity .3s,border-color .3s,background .3s;}
+#h24Heat .hh-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+#h24Heat .hh-k{font-family:'Barlow Condensed';font-size:10.5px;letter-spacing:.16em;color:var(--dim);}
+#h24Heat .hh-s{font-family:'Barlow Condensed';font-size:12px;font-weight:700;letter-spacing:.08em;color:#cfd8e0;white-space:nowrap;}
+#h24HeatBarO{height:5px;background:rgba(255,255,255,.14);border-radius:3px;margin-top:4px;overflow:hidden;}
+#h24HeatBar{height:100%;width:0%;background:linear-gradient(90deg,#e8b33a,#e5484d);transition:width .25s;}
+#h24Heat.hot{opacity:1;background:rgba(46,10,12,.78);border-color:rgba(229,72,77,.55);}
+#h24Heat.hot .hh-s{color:#ff8f93;}
+#h24Heat.hot{animation:h24heatPulse 1.1s ease-in-out infinite;}
+@keyframes h24heatPulse{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,0);}50%{box-shadow:0 0 0 3px rgba(229,72,77,.35);}}
+/* feed drops below the top-left cluster now */
+#sideFeed{top:calc(172px + var(--sat));}
+body.h24-noring #sideFeed{top:calc(120px + var(--sat));}
+/* ---------- STAGE 2: TASKS — the reference gold card ---------- */
+#tasksPanel{top:calc(64px + var(--sat));width:calc(238px * var(--hudF));background:linear-gradient(180deg,rgba(26,21,8,.88),rgba(10,12,15,.88));border:1px solid rgba(232,179,58,.5);border-radius:14px;}
+#tasksHead{color:var(--gold);}
+#h24ObjLine{padding:7px 11px 8px;font-size:13px;line-height:1.35;color:#f2ead2;border-top:1px solid rgba(232,179,58,.22);display:flex;gap:7px;align-items:flex-start;}
+#h24ObjLine::before{content:'◎';color:var(--gold);flex:none;}
+#tasksBody{display:block;max-height:360px;opacity:1;overflow:hidden;transition:max-height .3s ease,opacity .22s ease,padding .3s ease;}
+body.tasks-collapsed #tasksBody{display:block;max-height:0;opacity:0;padding-top:0;padding-bottom:0;}
+#taskList li.done{animation:h24doneHide .5s ease 2.6s forwards;}
+@keyframes h24doneHide{to{opacity:.38;max-height:0;margin:0;padding:0;overflow:hidden;}}
+body.h24-compact #tasksPanel{width:calc(196px * var(--hudF));}
+/* ---------- STAGE 4: HP / ST bottom-centre pills (the shipped hpDock) ---------- */
+#hpDock{width:min(430px,52vw);bottom:calc(10px + var(--sab));display:flex;flex-wrap:wrap;gap:6px;}
+#hpDock .hpRow{flex:1 1 0;min-width:0;background:rgba(7,11,15,.74);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:5px 11px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 3px 12px rgba(0,0,0,.35);}
+#hpDock .hpRow + .hpRow{margin-top:0;}
+#hpDock #carOuter{flex:0 0 100%;}
+@media (max-width:560px){#hpDock{flex-direction:column;}#hpDock .hpRow{flex:none;}}
+@media (max-width:540px){html.dale-rot #hpDock{flex-direction:column;}html.dale-rot #hpDock .hpRow{flex:none;}}
+#hpDock .hpLbl{font-size:11.5px;letter-spacing:.05em;color:#fff;min-width:34px;}
+#hpOuter,#stamOuter{height:11px;border-radius:999px;background:rgba(255,255,255,.13);}
+#hpFill{background:linear-gradient(90deg,#cf3038,#f0565c);transition:width .3s ease;}
+#hpFill.low{background:linear-gradient(90deg,#cf3038,#f0565c);}
+#stamFill{background:linear-gradient(90deg,#e8a33a,#ffd23f);transition:width .2s ease;}
+#hpDock.lowhp .hpRow:first-child{border-color:rgba(229,72,77,.65);animation:h24heatPulse 1.1s ease-in-out infinite;}
+/* ---------- STAGE 3: contextual round buttons (shipped fight cluster, re-skinned) ---------- */
+#fightBtns{gap:10px;}
+#fightBtns .btn{width:56px;height:56px;min-width:56px;border-radius:50%;padding:0;font-size:23px;line-height:54px;text-align:center;background:rgba(9,13,17,.68);border:1px solid rgba(255,255,255,.24);color:#fff;backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);box-shadow:0 4px 14px rgba(0,0,0,.4);opacity:var(--h24op);transition:transform .08s ease,opacity .25s ease;animation:h24btnIn .22s ease;}
+@keyframes h24btnIn{from{opacity:0;transform:translateY(6px) scale(.92);}to{opacity:var(--h24op);transform:none;}}
+#fightBtns .btn:active{transform:scale(.9);}
+#attackBtn{width:74px;height:74px;min-width:74px;font-size:33px;line-height:72px;background:rgba(52,13,16,.72);border-color:rgba(229,72,77,.55);}
+#weaponBtn{font-size:19px;}
+#shopBtn{width:auto;min-width:0;height:44px;border-radius:999px;font-size:13px;line-height:42px;padding:0 15px;}
+#h24PhoneBtn,#h24InteractBtn{display:none;}
+body.onfoot #h24PhoneBtn{display:block;}
+body.phone-off #h24PhoneBtn{display:none;}
+#h24InteractBtn{border-color:rgba(232,179,58,.6);background:rgba(30,24,8,.72);}
+#h24CarHint{display:none;background:rgba(9,13,17,.68);border:1px solid rgba(63,185,127,.5);color:#bfe9d2;border-radius:999px;font-size:12px;padding:7px 11px;opacity:var(--h24op);white-space:nowrap;}
+/* driving controls re-skin (handlers + positions as shipped) */
+.pedal{background:rgba(9,13,17,.68);border:1px solid rgba(255,255,255,.26);border-radius:16px;backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);opacity:var(--h24op);}
+.pedal:active{transform:scale(.94);}
+.steerBtn{background:rgba(9,13,17,.68);border:1px solid rgba(255,255,255,.26);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);opacity:var(--h24op);}
+#stick{opacity:var(--h24op);}
+/* left-handed mirror + joystick-side (the layout mover's inline positions,
+   when the player has set them, still win over these class rules) */
+body.h24-lefty #stick{left:auto;right:calc(14px + var(--sar));}
+body.h24-lefty #fightBtns{right:auto;left:calc(12px + var(--sal));align-items:flex-start;}
+body.h24-lefty #steerBtns{left:auto;right:calc(14px + var(--sar));}
+body.h24-lefty #pedals{right:auto;left:calc(12px + var(--sal));}
+body.h24-joyr #stick{left:auto;right:calc(14px + var(--sar));}
+body.h24-joyr #fightBtns{bottom:calc(158px + var(--sab));}
+/* ---------- STAGE 5: notification manager over the shipped feed ---------- */
+#sideFeed .feedItem{transition:max-height .25s ease,opacity .25s ease;}
+#sideFeed .feedItem.h24-min{max-height:19px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;opacity:.72;font-size:11px;padding-top:3px;padding-bottom:3px;}
+#sideFeed .feedItem.h24-pol{border-left-color:var(--blue);}
+#sideFeed .feedItem .h24-tag{display:inline-block;font-family:'Barlow Condensed';font-size:9.5px;letter-spacing:.12em;color:#9fd0f5;border:1px solid rgba(78,168,222,.5);border-radius:5px;padding:0 4px;margin-right:5px;vertical-align:1px;}
+#sideFeed .feedItem .h24-det{display:none;margin-top:5px;padding-top:5px;border-top:1px dashed rgba(255,255,255,.25);font-size:11.5px;line-height:1.45;color:#dbe6f2;white-space:pre-wrap;}
+#sideFeed .feedItem.h24-open .h24-det{display:block;}
+#sideFeed .feedItem.h24-open{max-height:none;white-space:normal;}
+#h24HistBtn{pointer-events:auto;align-self:flex-start;background:rgba(7,11,15,.74);border:1px solid rgba(255,255,255,.16);color:var(--ink);border-radius:999px;font-family:'Barlow Condensed';font-size:12px;letter-spacing:.08em;padding:4px 14px;min-height:44px;min-width:44px;cursor:pointer;opacity:var(--h24op);}
+#h24HistBtn:active{transform:scale(.94);}
+#h24HistPanel{position:absolute;left:calc(8px + var(--sal));top:calc(206px + var(--sat));width:min(300px,72vw);max-height:46%;overflow:auto;background:rgba(7,11,15,.92);border:1px solid rgba(255,255,255,.16);border-radius:12px;padding:9px 11px;z-index:26;display:none;pointer-events:auto;backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);}
+#h24HistPanel.on{display:block;}
+#h24HistPanel h4{margin:0 0 6px;font-family:'Barlow Condensed';letter-spacing:.1em;font-size:13px;color:var(--gold);}
+#h24HistPanel .hh-item{font-size:12px;line-height:1.4;padding:5px 0;border-top:1px solid rgba(255,255,255,.09);color:#dbe6f2;}
+#h24HistPanel .hh-item b{color:#9fd0f5;font-weight:600;}
+#h24HistPanel .hh-none{font-size:12px;color:var(--dim);}
+/* ---------- STAGE 6: compact landscape heights (mirrors the shipped compact query + rotated twin) ---------- */
+@media (orientation:landscape) and (max-height:540px){
+ #h24MmWrap{width:calc(88px * var(--mmF));height:calc(88px * var(--mmF));}
+ #sideFeed{top:calc(146px + var(--sat));}
+ #h24Heat{width:calc(168px * var(--hudF));}
+ #tasksPanel{top:calc(58px + var(--sat));}
+ #hpDock{width:min(340px,44vw);}
+ #fightBtns .btn{width:50px;height:50px;min-width:50px;line-height:48px;font-size:21px;}
+ #attackBtn{width:64px;height:64px;min-width:64px;line-height:62px;font-size:29px;}
+}
+@media (max-width:540px){
+ html.dale-rot #h24MmWrap{width:calc(88px * var(--mmF));height:calc(88px * var(--mmF));}
+ html.dale-rot #sideFeed{top:calc(146px + var(--sat));}
+ html.dale-rot #h24Heat{width:calc(168px * var(--hudF));}
+ html.dale-rot #tasksPanel{top:calc(58px + var(--sat));}
+ html.dale-rot #hpDock{width:min(340px,44vw);}
+ html.dale-rot #fightBtns .btn{width:50px;height:50px;min-width:50px;line-height:48px;font-size:21px;}
+ html.dale-rot #attackBtn{width:64px;height:64px;min-width:64px;line-height:62px;font-size:29px;}
+}
+@media (prefers-reduced-motion:reduce){
+ #h24Heat.hot,#hpDock.lowhp .hpRow:first-child{animation:none;}
+ #fightBtns .btn{animation:none;}
+ #taskList li.done{animation:none;opacity:.45;}
+ #tasksBody{transition:none;}
+}
+</style>
+
 <!-- HUD -->
 <div id="hud">
+  <!-- v30.24 STAGE 1: top-left cluster — circular minimap (new canvas, drawn
+       throttled from ROADS/AREAS by the hud24 script), location pill and the
+       contextual heat strip (heat moved out of the top bar). -->
+  <div id="h24TL">
+    <div id="h24MmRow">
+      <div id="h24MmWrap" title="Map"><canvas id="h24mm" width="224" height="224"></canvas><div id="h24MmN">N</div></div>
+      <div id="h24Loc"><div id="h24LocName">Rochdale</div><div id="h24LocSub">—</div></div>
+    </div>
+    <div id="h24Heat"><div class="hh-top"><span class="hh-k">🔥 HEAT</span><span class="hh-s" id="h24HeatState">QUIET</span></div><div id="h24HeatBarO"><div id="h24HeatBar"></div></div></div>
+  </div>
+  <div id="h24HistPanel"><h4>ALERT HISTORY</h4><div id="h24HistList"><div class="hh-none">No alerts yet.</div></div></div>
   <div class="bar">
     <div class="pill" id="cashPill">
       <div><span class="k">💰 Cash</span><div class="v gold" id="hCash">£120</div></div>
@@ -1004,6 +1161,9 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
   <div id="rivalHp"></div>
   <div id="stick"><div id="stickKnob"></div></div>
   <div id="fightBtns">
+    <button class="btn" id="h24PhoneBtn" aria-label="Phone" title="Phone — the Nokia">📱</button>
+    <button class="btn" id="h24InteractBtn" aria-label="Interact" title="Interact">✋</button>
+    <div id="h24CarHint">🚗 Walk up to your car to get in</div>
     <button class="btn" id="attackBtn">Attack</button>
     <button class="btn ghost" id="blockBtn">Block</button>
     <button class="btn ghost" id="dodgeBtn">Dodge</button>
@@ -1027,6 +1187,7 @@ window.addEventListener('orientationchange',window.__daleApplyRot);
   </div>
   <div id="tasksPanel">
     <button id="tasksHead" aria-label="Tasks panel — collapse or expand"><span>◎ TASKS</span><span id="tasksChev">▸</span></button>
+    <div id="h24ObjLine">Wait for the Line to ring…</div>
     <div id="tasksBody">
       <ul id="taskList"></ul>
       <div id="tasksActions"></div>
@@ -12733,25 +12894,40 @@ lcParkAtSpot();
 requestAnimationFrame(lcTick);
 window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.leaderCar.phase:null,t:S.leaderCar?Math.round(S.leaderCar.t):null,inTraffic:!!LC.traf,isSpare:!!LC.spare};},car:function(){return LC;},pose:LC_POSE,spot:LC_SPOT,depart:lcDepart,arrive:lcArrive,resetDay:lcResetDay,canCruise:lcCanCruise,carjack:lcCarjack,TENSION:LC_TENSION,PARK_T:LC_PARK_T,CRUISE_T:LC_CRUISE_T};
 
-/* ================= v30.22 — METROLINK TRAM · STAGE 1 (moving trams) =================
-   Ambient, stateless (no new S.* keys): two kinematic trams on the EXISTING
-   drawn Metrolink course — the guideway below is derived at boot from the
-   same ROADS polylines the v30.19/v30.20 ribbon/slab/rails were built from
-   ('Metrolink · Kingsway' + 'Metrolink · Newbold'), so the trams run exactly
-   on the drawn rails. Route as drawn: Rochdale Town Centre -> Rochdale
-   Station -> Kingsway junction -> Newbold -> Milnrow Edge (the drawn line
-   heads south-east; it does NOT reach the Middleton / Manchester districts,
-   which have no track — see CHANGELOG v30.22). The Kingsway stub south-east
-   of the junction (to [6000,5670]) carries no Stage 1 service.
-   Built at the very end of the main script, AFTER the R1 chunk registry's
-   scene.children snapshot, so tram + stop objects are never registered and
-   can never be distance-hidden; every mesh also gets frustumCulled=false.
-   Collision reuses the shipped vehicle language: onCrash(impact,'traffic')
-   (SCRAPE/MODERATE/HEAVY/WRITE-OFF tiers + persistent S.carDamage) as a
-   heavy hit, with the parked-car style positional push-out. The tram is
-   kinematic: it never derails, takes no damage and does not stop for
-   traffic. Driving physics (v24 force model) is untouched — nothing here
-   reads or writes any car-physics state except through onCrash itself. */
+
+/* ================= v30.23 — METROLINK TRAM · STAGE 2 (Manchester extension + Drake Street) =================
+   Extends the Stage 1 system (v30.22, same block, same motion/collision
+   code) to the FULL route: Rochdale Town Centre (Drake Street) -> Rochdale
+   Station -> Kingsway -> Newbold -> Milnrow Edge -> Slattocks -> Middleton
+   -> Manchester City Centre, and back. The guideway is the Stage 1 drawn
+   course with two additions, both hand-laid in WORLD coordinates:
+   (a) DRAKE STREET: the path now starts on the Drake Street centreline
+   (ROADS 'Drake Street', centre anchor = identity) at its south end and
+   runs DOWN the street, then a short junction curve joins the drawn line's
+   first point (0,-100). On the Drake St section the track is street-running:
+   flush dark panels + embedded rails, no ballast/sleepers. The Rochdale
+   Town Centre terminus + platform sit on Drake St.
+   (b) MANCHESTER EXTENSION: from Milnrow Edge (6670,3170) the line crosses
+   the open southern belt (moor/parcel land, crossing the M62 corridor) to
+   a new intermediate stop at Slattocks (840,7000), then Middleton district
+   centre (world -4450,11880 = design -640,2280 + R1 offset -3810,+9600),
+   then follows the A664 / Piccadilly road corridor (design pts + the same
+   R1 offset) and curves onto Mosley Street (world x -4507) to terminate in
+   Manchester downtown beside the shipped static tram at St Peter's Square
+   (world -4507,13535; the moving tram dwells end-to-end just north of it,
+   static tram untouched). New track is built to the v30.20/v30.21 standard
+   (ballast bed, two dark rails, rectangular sleepers) with the CORRECTED
+   v30.21 quad pattern (matching corner signs, standard winding, up
+   normals) in a fresh builder below — the older Quads/Quads19 classes are
+   NOT used. Milnrow Edge is now an intermediate stop (6 s dwell).
+   Everything else is Stage 1 verbatim: two kinematic trams, cruise 300,
+   sqrt braking with the anti-overrun step clamp, heading-dot corner
+   slowdown, 6 s intermediate / 14 s terminus dwell, opposite running lines,
+   onCrash-based contact, no new S.* keys. Built at the very end of the main
+   script, AFTER the R1 chunk registry snapshot, so tram/stop/track objects
+   are never registered and can never be distance-hidden; every mesh also
+   gets frustumCulled=false. Driving physics and Police AI are untouched —
+   nothing here reads or writes their state except through onCrash itself. */
 (function(){
  try{
   var kRoad=null,nRoad=null,i,j;
@@ -12762,7 +12938,10 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
   if(!kRoad||!nRoad)return;
   /* through path: Kingsway pts 0..5 (centre -> junction), then the Newbold
      branch from the junction (its pts[0] is the shared junction point) */
-  var RP=kRoad.pts.slice(0,6).concat(nRoad.pts.slice(1));
+  var DRAKE=[[-22,74],[10,-40],[28,-110],[26,-152]];
+  var JUNC=[[16,-124]];
+  var EXT=[[5900,4700],[4300,5900],[1800,6600],[840,7000],[-600,7600],[-2400,9200],[-3600,10600],[-4450,11880],[-4438,12070],[-4410,12390],[-4376,12720],[-4350,13040],[-4340,13400],[-4420,13410],[-4507,13440],[-4507,13490]];
+  var RP=DRAKE.concat(JUNC).concat(kRoad.pts.slice(0,6)).concat(nRoad.pts.slice(1)).concat(EXT);
   var SEG=[],TRAM_L=0;
   for(i=0;i<RP.length-1;i++){
    var sl=dist2(RP[i][0],RP[i][1],RP[i+1][0],RP[i+1][1]);
@@ -12785,6 +12964,52 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
     if(d<best){best=d;bs=g.s0+t;}}
    return bs;
   }
+  /* ---------- v30.23 new track: extension ballast line + Drake St street-running ----------
+     Fresh quad builder on the CORRECTED v30.21 pattern: all four corners use
+     matching signs (corner = centre +/- dir*hl +/- perp*hw) and the index
+     order is the standard n,n+1,n+2 / n,n+2,n+3, so computeVertexNormals
+     yields UP normals and every sleeper is a true rectangle (the v30.20
+     Quads20 pennant bug — one flipped corner sign + reversed winding — is
+     NOT reproduced here; the older Quads/Quads19 classes are not used). */
+  function Q23(){this.pos=[];this.idx=[];this.n=0;}
+  Q23.prototype.quad=function(cx,cz,dx,dz,hl,hw,y){
+   var px=dz,pz=-dx;
+   this.pos.push(cx-dx*hl-px*hw,y,cz-dz*hl-pz*hw, cx+dx*hl-px*hw,y,cz+dz*hl-pz*hw,
+                 cx+dx*hl+px*hw,y,cz+dz*hl+pz*hw, cx-dx*hl+px*hw,y,cz-dz*hl+pz*hw);
+   this.idx.push(this.n,this.n+1,this.n+2, this.n,this.n+2,this.n+3);this.n+=4;};
+  Q23.prototype.mesh=function(mat){
+   var g=new THREE.BufferGeometry();
+   g.setAttribute('position',new THREE.Float32BufferAttribute(this.pos,3));
+   g.setIndex(this.idx);g.computeVertexNormals();
+   var m=new THREE.Mesh(g,mat);m.frustumCulled=false;scene.add(m);return m;};
+  var balQ=new Q23(),slpQ=new Q23(),ralQ=new Q23(),panQ=new Q23();
+  function trackStrip(pts,street){
+   for(var k=0;k<pts.length-1;k++){
+    var ax=pts[k][0],az=pts[k][1],bx=pts[k+1][0],bz=pts[k+1][1];
+    var dx=bx-ax,dz=bz-az,L=Math.sqrt(dx*dx+dz*dz);if(!L)continue;dx/=L;dz/=L;
+    var cx=(ax+bx)/2,cz=(az+bz)/2,px=dz,pz=-dx;
+    if(street){ /* flush in the street surface: dark panel + embedded rails, NO ballast/sleepers */
+     panQ.quad(cx,cz,dx,dz,L/2,8.5,0.44);
+     ralQ.quad(cx+px*5.5,cz+pz*5.5,dx,dz,L/2,0.8,0.475);
+     ralQ.quad(cx-px*5.5,cz-pz*5.5,dx,dz,L/2,0.8,0.475);
+    }else{
+     balQ.quad(cx,cz,dx,dz,L/2,11,0.42);
+     ralQ.quad(cx+px*5.5,cz+pz*5.5,dx,dz,L/2,0.9,0.56);
+     ralQ.quad(cx-px*5.5,cz-pz*5.5,dx,dz,L/2,0.9,0.56);
+     for(var d=6.5;d<L-3;d+=13)slpQ.quad(ax+dx*d,az+dz*d,dx,dz,1.9,8.5,0.49);
+    }
+   }
+  }
+  trackStrip(DRAKE.concat(JUNC),true);            /* Drake St running + the junction curve panels onto (0,-100) */
+  var EXTPATH=[[6670,3170]].concat(EXT);
+  trackStrip(EXTPATH,false);                      /* Milnrow Edge -> Manchester ballast line */
+  var TRAM_TRACK=[
+   balQ.mesh(new THREE.MeshLambertMaterial({color:0x59534a,side:THREE.DoubleSide})),
+   slpQ.mesh(new THREE.MeshLambertMaterial({color:0x3a3129,side:THREE.DoubleSide})),
+   ralQ.mesh(new THREE.MeshLambertMaterial({color:0x43484d,side:THREE.DoubleSide})),
+   panQ.mesh(new THREE.MeshLambertMaterial({color:0x3a3d42,side:THREE.DoubleSide}))
+  ];
+  var TRAM_TRACK_QUADS={ballast:balQ.n/4,sleepers:slpQ.n/4,rails:ralQ.n/4,panels:panQ.n/4};
   var TRAM_LEN=96;
   /* ---------- stops ---------- */
   var TRAM_STOPDEF=[
@@ -12792,7 +13017,10 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
    {name:'Rochdale Station',ax:920,az:750},
    {name:'Kingsway',ax:4000,az:4000},
    {name:'Newbold',ax:3170,az:1500},
-   {name:'Milnrow Edge',ax:RP[RP.length-1][0],az:RP[RP.length-1][1],term:1}
+   {name:'Milnrow Edge',ax:6670,az:3170},
+   {name:'Slattocks',ax:840,az:7000},
+   {name:'Middleton',ax:-4450,az:11880},
+   {name:'Manchester City Centre',ax:RP[RP.length-1][0],az:RP[RP.length-1][1],term:1}
   ];
   var platMat=new THREE.MeshLambertMaterial({color:0x8f918a});
   var postMat=new THREE.MeshLambertMaterial({color:0x2c2f33});
@@ -12873,7 +13101,7 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
    var lead=tr.dir>0?tr.ends.plus:tr.ends.minus,trail=tr.dir>0?tr.ends.minus:tr.ends.plus;
    lead.lite.visible=true;trail.lite.visible=false;
    lead.dest.visible=true;trail.dest.visible=false;
-   tramDrawDest(lead.dc,tr.dir>0?'Milnrow Edge':'Rochdale Town Centre');
+   tramDrawDest(lead.dc,tr.dir>0?'Manchester City Centre':'Rochdale Town Centre');
    tramDrawDest(trail.dc,'');
   }
   var TRAMS=[tramMake(),tramMake()];
@@ -12984,11 +13212,11 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
      tramStep(TRAMS[k],dt);
      tramCollide(TRAMS[k]);
     }
-   }catch(e){if(window.console)console.log('[v30.22 tram] tick failed: '+(e&&e.message));}
+   }catch(e){if(window.console)console.log('[v30.23 tram] tick failed: '+(e&&e.message));}
   }
   tramPlace(TRAMS[0]);tramPlace(TRAMS[1]);
   requestAnimationFrame(tramTick);
-  window.__V3022_TRAM={
+  window.__V3023_TRAM={
    route:function(){return {len:Math.round(TRAM_L),pts:RP.map(function(p){return [p[0],p[1]];}),
     stops:TRAM_STOPS.map(function(st){return {name:st.name,s:Math.round(st.s),anchorS:Math.round(st.anchorS),x:Math.round(st.x),z:Math.round(st.z),term:st.term};}),
     cruise:TRAM_CRUISE};},
@@ -12997,15 +13225,20 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
    place:function(i,s,dir){var tr=TRAMS[i];if(!tr)return 'no tram';tr.s=s;if(dir)tr.dir=dir;tr.v=0;tr.mode='run';tr.atTerm=0;tramSetEnds(tr);tramPlace(tr);return 'placed';},
    dwell:function(i,t){var tr=TRAMS[i];if(!tr)return 'no tram';tr.mode='dwell';tr.dwellT=t||6;tr.v=0;tramPlace(tr);return 'dwelling';},
    objects:function(){var o=[];TRAMS.forEach(function(tr){o.push(tr.secs[0],tr.secs[1],tr.joint);});
-    TRAM_STOPS.forEach(function(st){o.push(st.group);});return o;},
+    TRAM_STOPS.forEach(function(st){o.push(st.group);});
+    TRAM_TRACK.forEach(function(m){o.push(m);});return o;},
+   track:function(){return {quads:TRAM_TRACK_QUADS,meshes:TRAM_TRACK.length};},
    registered:function(){var n=0,q;
     for(var k=0;k<R1_CHUNKS.length;k++){var o=R1_CHUNKS[k].o;
      if(o===TRAMS[0].secs[0]||o===TRAMS[0].secs[1]||o===TRAMS[0].joint||o===TRAMS[1].secs[0]||o===TRAMS[1].secs[1]||o===TRAMS[1].joint)n++;}
     for(var m=0;m<TRAM_STOPS.length;m++)for(q=0;q<R1_CHUNKS.length;q++)if(R1_CHUNKS[q].o===TRAM_STOPS[m].group)n++;
+    for(var t=0;t<TRAM_TRACK.length;t++)for(q=0;q<R1_CHUNKS.length;q++)if(R1_CHUNKS[q].o===TRAM_TRACK[t])n++;
     return n;}
   };
- }catch(e){if(window.console)console.log('[v30.22 tram] build failed: '+(e&&e.message));}
+ }catch(e){if(window.console)console.log('[v30.23 tram] build failed: '+(e&&e.message));}
 })();
+
+
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
@@ -13152,6 +13385,256 @@ window.__daleBoot.onReady(function(){
     setTimeout(function(){boot.style.display='none';},500);
   },250);
 });
+})();
+</script>
+<script>
+/* ================= v30.24 — HUD REDESIGN WIRING (all eight stages) =================
+   Display + wiring layer only. Reads live game state (S, player, combat,
+   police, ROADS, AREAS, the car records) and forwards every action to the
+   SHIPPED handlers/elements. The only storage touched is the dedicated
+   HUD-prefs key below; the only state written is append-only S.ui keys. */
+(function(){
+'use strict';
+function $(id){return document.getElementById(id);}
+function on(el,ev,fn){if(el)el.addEventListener(ev,fn);}
+var OPV=[0.6,0.75,0.9,1],OPN=['60%','75%','90%','100%'];
+var PREF_KEY='dale.hudPrefs.v1';
+var prefs=null;try{var pr=localStorage.getItem(PREF_KEY);if(pr)prefs=JSON.parse(pr);}catch(e){prefs=null;}
+var lastS=null,lastSnap='';
+function ui(){return (typeof S!=='undefined'&&S&&S.ui&&typeof S.ui==='object')?S.ui:null;}
+function uiDefaults(u){
+ if(u.h24op===undefined)u.h24op=3;
+ if(u.h24lefty===undefined)u.h24lefty=false;
+ if(u.h24joy===undefined)u.h24joy=0;
+ if(u.h24mode===undefined)u.h24mode=0;
+ if(u.h24ring===undefined)u.h24ring=true;
+}
+function snap(u){return JSON.stringify({hud:u.hud,ctl:u.ctl,mm:u.mm,mmShow:u.mmShow,feed:u.feed,op:u.h24op,lf:u.h24lefty,joy:u.h24joy,mode:u.h24mode,ring:u.h24ring});}
+function savePrefs(u){try{localStorage.setItem(PREF_KEY,JSON.stringify({hud:u.hud,ctl:u.ctl,mm:u.mm,mmShow:u.mmShow,feed:u.feed,h24op:u.h24op,h24lefty:u.h24lefty,h24joy:u.h24joy,h24mode:u.h24mode,h24ring:u.h24ring}));}catch(e){}}
+function applyPrefs(u){
+ if(!prefs)return;
+ ['hud','ctl','mm','mmShow','feed','h24op','h24lefty','h24joy','h24mode','h24ring'].forEach(function(k){if(prefs[k]!==undefined)u[k]=prefs[k];});
+ if(typeof uiApply==='function')uiApply();
+}
+function applyLook(u){
+ var b=document.body;if(!b||!u)return;
+ b.classList.toggle('h24-lefty',!!u.h24lefty);
+ b.classList.toggle('h24-joyr',u.h24joy===1&&!u.h24lefty);
+ b.classList.toggle('h24-compact',u.h24mode===1);
+ b.classList.toggle('h24-noring',u.h24ring===false);
+ b.style.setProperty('--h24op',OPV[Math.max(0,Math.min(3,u.h24op|0))]);
+}
+/* ---- one-time relabels: presentation only; ids, handlers, hold-bindings untouched ---- */
+(function relabel(){
+ var pb=$('pauseBtn');if(pb){pb.textContent='☰';pb.title='Menu';pb.setAttribute('aria-label','Menu');}
+ var sb=$('sprintBtn');if(sb){sb.textContent='🏃';sb.title='Run (hold)';}
+ var ab=$('attackBtn');if(ab){ab.textContent='✊';ab.title='Attack';}
+ var bb=$('blockBtn');if(bb){bb.textContent='🛡';bb.title='Block (hold)';}
+ var db=$('dodgeBtn');if(db){db.textContent='💨';db.title='Dodge';}
+ var gb=$('grabBtn');if(gb){gb.textContent='🤚';gb.title='Grab';}
+ var wb=$('weaponBtn');if(wb){wb.textContent='🔁';wb.title='Switch Weapon';}
+ var lbl=document.querySelectorAll('#hpDock .hpLbl');
+ if(lbl.length>1){lbl[0].textContent='♥ HP';lbl[1].textContent='⚡ ST';}
+})();
+/* ---- STAGE 3: new cluster buttons forward to the shipped elements ---- */
+on($('h24PhoneBtn'),'click',function(){var n=$('nokiaMini');if(n)n.click();});
+on($('h24InteractBtn'),'click',function(){var c=$('chip_ctx');if(c)c.click();});
+on($('h24MmWrap'),'click',function(){if(typeof S!=='undefined'&&S&&S.playing&&typeof openMap==='function')openMap(false);});
+/* ---- STAGE 7: settings rows in the shipped Settings panel + pause menu ---- */
+function mkRow(label,stateId){
+ var r=document.createElement('div');r.className='rowline';r.style.marginTop='14px';
+ r.innerHTML='<span></span><b></b>';r.children[0].textContent=label;r.children[1].id=stateId;return r;
+}
+function mkBtn(id,label){var b=document.createElement('button');b.className='btn ghost';b.id=id;b.textContent=label;return b;}
+function buildSettings(){
+ var card=document.querySelector('#settingsPanel .card');
+ if(card&&!$('h24SetOpBtn')){
+  var back=card.querySelector('[data-close]');
+  function ins(el){if(back)card.insertBefore(el,back);else card.appendChild(el);}
+  var h=document.createElement('p');h.className='small';h.style.marginTop='14px';h.textContent='HUD layout (v30.24) — saved on this device only; your run is never touched by these.';ins(h);
+  ins(mkRow('Button opacity','h24SetOpState'));ins(mkBtn('h24SetOpBtn','Change Button Opacity'));
+  ins(mkRow('Left-handed controls','h24SetLfState'));ins(mkBtn('h24SetLfBtn','Toggle Left-Handed'));
+  ins(mkRow('Joystick side','h24SetJoyState'));ins(mkBtn('h24SetJoyBtn','Change Joystick Side'));
+  ins(mkRow('HUD mode','h24SetModeState'));ins(mkBtn('h24SetModeBtn','Toggle Compact HUD'));
+  ins(mkRow('Circular minimap','h24SetRingState'));ins(mkBtn('h24SetRingBtn','Toggle Minimap'));
+ }
+ var panel=document.querySelector('#pauseScreen .panel');
+ if(panel&&!$('h24PauseOpBtn')){
+  var rb=$('restartBtn');
+  function insp(b){if(rb)panel.insertBefore(b,rb);else panel.appendChild(b);}
+  insp(mkBtn('h24PauseOpBtn','Button Opacity: 100%'));insp(mkBtn('h24PauseLfBtn','Left-Handed: Off'));
+  insp(mkBtn('h24PauseJoyBtn','Joystick: Left'));insp(mkBtn('h24PauseModeBtn','HUD: Full'));insp(mkBtn('h24PauseRingBtn','Minimap Ring: Shown'));
+  ['h24PauseOpBtn','h24PauseLfBtn','h24PauseJoyBtn','h24PauseModeBtn','h24PauseRingBtn'].forEach(function(id){var b=$(id);if(b)b.style.cssText='width:100%;margin:6px 0;';});
+ }
+ function wire(id,fn){on($(id),'click',fn);}
+ function cyc(key,mod){var u=ui();if(!u)return;uiDefaults(u);u[key]=((u[key]|0)+1)%mod;applyLook(u);syncSet();}
+ wire('h24SetOpBtn',function(){cyc('h24op',4);});wire('h24PauseOpBtn',function(){cyc('h24op',4);});
+ wire('h24SetJoyBtn',function(){cyc('h24joy',2);});wire('h24PauseJoyBtn',function(){cyc('h24joy',2);});
+ function tog(key){var u=ui();if(!u)return;uiDefaults(u);u[key]=!u[key];applyLook(u);syncSet();}
+ wire('h24SetLfBtn',function(){tog('h24lefty');});wire('h24PauseLfBtn',function(){tog('h24lefty');});
+ wire('h24SetRingBtn',function(){tog('h24ring');});wire('h24PauseRingBtn',function(){tog('h24ring');});
+ function togMode(){var u=ui();if(!u)return;uiDefaults(u);u.h24mode=u.h24mode===1?0:1;applyLook(u);syncSet();}
+ wire('h24SetModeBtn',togMode);wire('h24PauseModeBtn',togMode);
+}
+function syncSet(){
+ var u=ui();if(!u)return;uiDefaults(u);
+ function st(id,txt){var e=$(id);if(e&&e.textContent!==txt)e.textContent=txt;}
+ st('h24SetOpState',OPN[Math.max(0,Math.min(3,u.h24op|0))]);
+ st('h24SetLfState',u.h24lefty?'On':'Off');
+ st('h24SetJoyState',u.h24joy===1?'Right':'Left');
+ st('h24SetModeState',u.h24mode===1?'Compact':'Full');
+ st('h24SetRingState',u.h24ring===false?'Hidden':'Shown');
+ st('h24PauseOpBtn','Button Opacity: '+OPN[Math.max(0,Math.min(3,u.h24op|0))]);
+ st('h24PauseLfBtn','Left-Handed: '+(u.h24lefty?'On':'Off'));
+ st('h24PauseJoyBtn','Joystick: '+(u.h24joy===1?'Right':'Left'));
+ st('h24PauseModeBtn','HUD: '+(u.h24mode===1?'Compact':'Full'));
+ st('h24PauseRingBtn','Minimap Ring: '+(u.h24ring===false?'Hidden':'Shown'));
+}
+/* ---- STAGE 1: circular minimap — throttled draw from the shipped world data ---- */
+function drawRing(){
+ var cv=$('h24mm');if(!cv||cv.offsetParent===null)return;
+ if(typeof S==='undefined'||!S||!S.playing||typeof player==='undefined'||typeof ROADS==='undefined')return;
+ var g=cv.getContext('2d');var W=950,C=112,R=C/2;
+ var mcx=Math.max(-9800+W/2,Math.min(8800-W/2,player.x)),mcz=Math.max(-6800+W/2,Math.min(15800-W/2,player.z));
+ var mx0=mcx-W/2,mz0=mcz-W/2;
+ function X(x){return (x-mx0)/W*C;}function Y(z){return (z-mz0)/W*C;}
+ g.save();g.beginPath();g.arc(R,R,R-1,0,7);g.clip();
+ g.fillStyle='#0d1218';g.fillRect(0,0,C,C);
+ g.strokeStyle='rgba(255,255,255,.10)';g.lineWidth=1;
+ for(var gx=0;gx<=4;gx++){g.beginPath();g.moveTo(gx*C/4,0);g.lineTo(gx*C/4,C);g.stroke();g.beginPath();g.moveTo(0,gx*C/4);g.lineTo(C,gx*C/4);g.stroke();}
+ if(typeof AREAS!=='undefined')AREAS.forEach(function(a){g.fillStyle=a.color;g.beginPath();g.arc(X(a.x),Y(a.z),3.5,0,7);g.fill();});
+ g.strokeStyle='rgba(235,240,245,.34)';g.lineWidth=1.6;g.lineCap='round';
+ ROADS.forEach(function(r){if(r.cls==='R')return;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();});
+ function dot(x,z,col,rad){var px=X(x),py=Y(z);if(px<-6||px>C+6||py<-6||py>C+6)return false;g.fillStyle=col;g.beginPath();g.arc(px,py,rad,0,7);g.fill();return true;}
+ if(typeof pinGroup!=='undefined'&&pinGroup&&pinGroup.visible){
+  var px=X(pinGroup.position.x),py=Y(pinGroup.position.z);
+  if(px>=4&&px<=C-4&&py>=4&&py<=C-4){g.fillStyle='#e8b33a';g.beginPath();g.arc(px,py,4,0,7);g.fill();g.strokeStyle='#0d1218';g.lineWidth=1.2;g.stroke();}
+  else{var ex=Math.max(9,Math.min(C-9,px)),ey=Math.max(9,Math.min(C-9,py)),ea=Math.atan2(ey-R,ex-R);g.save();g.translate(ex,ey);g.rotate(ea);g.fillStyle='#e8b33a';g.beginPath();g.moveTo(6.5,0);g.lineTo(-4.5,4);g.lineTo(-4.5,-4);g.closePath();g.fill();g.restore();}
+ }
+ if(typeof SAFE!=='undefined')dot(SAFE.x,SAFE.z,'#3fb97f',3);
+ if(typeof police!=='undefined'&&police)dot(police.x,police.z,'#4ea8de',3);
+ if(typeof rival!=='undefined'&&rival)dot(rival.x,rival.z,'#e5484d',3);
+ if(typeof leaders!=='undefined'&&leaders)leaders.forEach(function(L){if(L.state==='active')dot(L.x,L.z,'#e8b33a',2.4);});
+ /* player arrow — real heading: footMode.h on foot, player.h in the car
+    (both use the game's own heading convention; verified in source) */
+ var h=(typeof footMode!=='undefined'&&footMode)?(footMode.h||0):(player.h||0);
+ g.translate(R,R);g.rotate(h);
+ g.fillStyle='#fff';g.strokeStyle='#0d1218';g.lineWidth=1.4;
+ g.beginPath();g.moveTo(0,-7);g.lineTo(5,5.5);g.lineTo(0,2.6);g.lineTo(-5,5.5);g.closePath();g.fill();g.stroke();
+ g.restore();
+}
+/* ---- STAGE 5: notification manager over the shipped side feed ---- */
+var hist=[];
+function isPoliceItem(txt,cls){return cls.indexOf('anpr')>=0||cls.indexOf('bad')>=0||/police|witness|plate|anpr|marker|arrest|chase|pursuit|scan/i.test(txt);}
+function isMissionItem(txt){return /the line|drop:|side job|objective|job:/i.test(txt);}
+function detailText(){
+ try{
+  var rec=(typeof ensureRecord==='function'&&typeof S!=='undefined'&&S)?ensureRecord(S.car):null;
+  var lines=[];
+  if(rec){lines.push('Vehicle: '+((typeof CARS!=='undefined'&&CARS[S.car])?CARS[S.car].name:S.car)+' · Plate: '+rec.plate);
+   var mk=(rec.markers||[]);lines.push(mk.length?('Markers on this car: '+mk.map(function(m){return m.text+' (Day '+m.day+')';}).join('; ')):'Markers on this car: none');}
+  var st=(typeof streetAt==='function'&&typeof player!=='undefined')?streetAt(player.x,player.z):null;
+  lines.push('Where: '+(st?st:'Off road')+(typeof curArea!=='undefined'&&curArea?(' · '+curArea.name):''));
+  if(typeof S!=='undefined'&&S)lines.push('Heat now: '+Math.round(S.heat)+'%');
+  return lines.join('\n');
+ }catch(e){return 'Details unavailable.';}
+}
+function renderHist(){
+ var el=$('h24HistList');if(!el)return;
+ if(!hist.length){el.innerHTML='<div class="hh-none">No alerts yet.</div>';return;}
+ el.innerHTML=hist.slice().reverse().map(function(h){
+  return '<div class="hh-item"><b>'+h.when+'</b> · '+h.txt.replace(/</g,'&lt;')+'</div>';
+ }).join('');
+}
+function manageFeed(){
+ var f=$('sideFeed');if(!f)return;
+ var items=[];for(var i=0;i<f.children.length;i++){var c=f.children[i];if(c.classList&&c.classList.contains('feedItem')&&!c.classList.contains('pin'))items.push(c);}
+ if(!items.length)return;
+ var prim=null;
+ for(var j=items.length-1;j>=0;j--){if(items[j].dataset.h24pol||items[j].dataset.h24mis){prim=items[j];break;}}
+ if(!prim)prim=items[items.length-1];
+ items.forEach(function(it){var isP=it===prim;it.classList.toggle('h24-prim',isP);it.classList.toggle('h24-min',!isP&&!it.classList.contains('h24-open'));});
+}
+function onFeedAdd(node){
+ if(!node||!node.classList||!node.classList.contains('feedItem')||node.classList.contains('pin'))return;
+ var txt=node.textContent||'',cls=node.className||'';
+ var pol=isPoliceItem(txt,cls),mis=isMissionItem(txt);
+ if(pol){node.classList.add('h24-pol');node.dataset.h24pol='1';
+  if(!node.querySelector('.h24-tag')){var t=document.createElement('span');t.className='h24-tag';t.textContent='POLICE / WITNESS';node.insertBefore(t,node.firstChild);}}
+ if(mis)node.dataset.h24mis='1';
+ if(pol||mis){
+  hist.push({txt:txt,when:(typeof S!=='undefined'&&S)?('Day '+S.day+' '+(typeof fmtClock==='function'?fmtClock():'')):'—'});
+  if(hist.length>24)hist.shift();renderHist();
+ }
+ if(pol||/plate|witness|marker|anpr/i.test(txt)){
+  node.style.pointerEvents='auto';node.style.cursor='pointer';node.title='Tap for details';
+  node.addEventListener('click',function(){
+   var d=node.querySelector('.h24-det');
+   if(!d){d=document.createElement('div');d.className='h24-det';node.appendChild(d);}
+   if(node.classList.toggle('h24-open'))d.textContent=detailText();
+   manageFeed();
+  });
+ }
+ manageFeed();
+}
+function initFeed(){
+ var f=$('sideFeed');if(!f)return;
+ if(!$('h24HistBtn')){
+  var b=document.createElement('button');b.id='h24HistBtn';b.textContent='🔔 Alerts';
+  b.addEventListener('click',function(){$('h24HistPanel').classList.toggle('on');renderHist();});
+  f.insertBefore(b,f.firstChild);
+ }
+ var mo=new MutationObserver(function(muts){
+  muts.forEach(function(m){
+   for(var i=0;i<m.addedNodes.length;i++)onFeedAdd(m.addedNodes[i]);
+   if(m.removedNodes.length)manageFeed();
+  });
+ });
+ mo.observe(f,{childList:true});
+ for(var i=0;i<f.children.length;i++)onFeedAdd(f.children[i]);
+}
+/* ---- throttled HUD tick (4 Hz): text/DOM writes only when values change ---- */
+var cache={loc:'',sub:'',obj:'',heat:-1,heatState:'',carHint:null,inter:null,lowhp:null};
+function tick(){
+ var u=ui();
+ if(u){
+  uiDefaults(u);
+  if(typeof S!=='undefined'&&S!==lastS){lastS=S;applyPrefs(u);applyLook(u);lastSnap=snap(u);syncSet();}
+  else{var sn=snap(u);if(sn!==lastSnap){lastSnap=sn;applyLook(u);savePrefs(u);syncSet();}}
+ }
+ if(typeof S==='undefined'||!S||!S.playing)return;
+ /* location pill */
+ var nm=(typeof curArea!=='undefined'&&curArea)?curArea.name:'Between areas';
+ if(nm!==cache.loc){cache.loc=nm;var e=$('h24LocName');if(e)e.textContent=nm;}
+ var st2=(typeof streetAt==='function')?streetAt(player.x,player.z):null;
+ var sub=st2?('📍 '+st2):((typeof curArea!=='undefined'&&curArea)?curArea.gang+' turf':'Off road');
+ if(sub!==cache.sub){cache.sub=sub;var e2=$('h24LocSub');if(e2)e2.textContent=sub;}
+ /* heat strip */
+ var heat=Math.round(S.heat||0);
+ var pst='',hot=false;
+ try{
+  if(typeof police!=='undefined'&&police&&police.ai){pst=police.ai.state||'';}
+  if(typeof police!=='undefined'&&police&&police.mode==='chase')hot=true;
+ }catch(e){}
+ var label=hot||pst==='PURSUE'?'PURSUIT':(pst==='SEARCH'?'SEARCHING':(pst==='ARREST'?'ARREST IN PROGRESS':(pst==='INVESTIGATE'||pst==='SUSPICIOUS'?'POLICE INTEREST':(heat>=75?'HOT — LAY LOW':(heat>=45?'WARM':(heat>=15?'COOL':'QUIET'))))));
+ if(pst==='PURSUE'||pst==='SEARCH'||pst==='ARREST')hot=true;
+ if(heat!==cache.heat){cache.heat=heat;var hb=$('h24HeatBar');if(hb)hb.style.width=Math.max(0,Math.min(100,heat))+'%';}
+ if(label!==cache.heatState){cache.heatState=label;var hs=$('h24HeatState');if(hs)hs.textContent=label;var hw=$('h24Heat');if(hw)hw.classList.toggle('hot',hot);}
+ /* TASKS current objective — mirrored from the shipped objective line */
+ var ol=$('objLine'),ov=$('h24ObjLine');
+ if(ol&&ov){var t=ol.textContent||'';if(t!==cache.obj){cache.obj=t;ov.textContent=t.replace(/^[^\w]+/,'');}}
+ /* contextual cluster visibility */
+ var ib=$('interactBar'),nb=$('h24InteractBtn');
+ if(nb){var showI=!!(ib&&ib.style.display==='flex');if(cache.inter!==showI){cache.inter=showI;nb.style.display=showI?'block':'none';}}
+ var ch=$('h24CarHint');
+ if(ch){var near=false;try{near=!!(typeof footMode!=='undefined'&&footMode&&typeof carPark!=='undefined'&&carPark&&typeof dist2==='function'&&dist2(player.x,player.z,carPark.x,carPark.z)<70);}catch(e){near=false;}
+  if(cache.carHint!==near){cache.carHint=near;ch.style.display=near?'block':'none';}}
+ var dock=$('hpDock');
+ if(dock){var low=S.hp<=30;if(cache.lowhp!==low){cache.lowhp=low;dock.classList.toggle('lowhp',low);}}
+ drawRing();
+}
+buildSettings();initFeed();syncSet();
+setInterval(tick,250);
 })();
 </script>
 </body>
