@@ -1080,6 +1080,37 @@ body.h24-joyr #fightBtns{bottom:calc(158px + var(--sab));}
  #taskList li.done{animation:none;opacity:.45;}
  #tasksBody{transition:none;}
 }
+
+/* ---------- v30.25 HOTFIX: minimap source + cluster fit ---------- */
+/* The shipped drawer minimap (#minimap) is the ring's live source: the
+   drawer is kept DISPLAYED while closed so the shipped drawMinimap's
+   offsetParent guard passes, but visibility:hidden keeps it unseen and
+   untappable; body.drawer-open restores it exactly as shipped. */
+#statusDrawer{display:flex !important;visibility:hidden !important;}
+body.drawer-open #statusDrawer{visibility:visible !important;}
+body:not(.drawer-open) #mmWrap{display:block !important;}
+/* Cluster fit: the intended Attack / Buy Bat sizes (the v30.24 rules lost
+   on specificity to #fightBtns .btn), and the stack wraps into an extra
+   column to the LEFT instead of running off the top/bottom edge. */
+#fightBtns{flex-wrap:wrap-reverse;align-content:flex-start;max-height:calc(100dvh - 190px);}
+#fightBtns #attackBtn{width:74px;height:74px;min-width:74px;font-size:33px;line-height:72px;}
+#fightBtns #shopBtn{width:auto;min-width:0;height:44px;border-radius:999px;font-size:13px;line-height:42px;padding:0 15px;}
+@media (orientation:landscape) and (max-height:540px){
+ #fightBtns{bottom:calc(10px + var(--sab));gap:7px;max-height:calc(100dvh - 240px);}
+ #fightBtns .btn{width:44px;height:44px;min-width:44px;line-height:42px;font-size:19px;}
+ #fightBtns #attackBtn{width:56px;height:56px;min-width:56px;line-height:54px;font-size:25px;}
+ #fightBtns #shopBtn{height:38px;line-height:36px;font-size:12px;}
+ #tasksBody{max-height:150px;overflow-y:auto;}
+ body:not(.tasks-collapsed) #sideBtns{max-height:calc(100dvh - 286px);overflow:hidden;}
+}
+@media (max-width:540px){
+ html.dale-rot #fightBtns{bottom:calc(10px + var(--sab));gap:7px;max-height:calc(100vw - 240px);}
+ html.dale-rot #fightBtns .btn{width:44px;height:44px;min-width:44px;line-height:42px;font-size:19px;}
+ html.dale-rot #fightBtns #attackBtn{width:56px;height:56px;min-width:56px;line-height:54px;font-size:25px;}
+ html.dale-rot #fightBtns #shopBtn{height:38px;line-height:36px;font-size:12px;}
+ html.dale-rot #tasksBody{max-height:150px;overflow-y:auto;}
+ html.dale-rot body:not(.tasks-collapsed) #sideBtns{max-height:calc(100vw - 286px);overflow:hidden;}
+}
 </style>
 
 <!-- HUD -->
@@ -13439,7 +13470,7 @@ function applyLook(u){
 /* ---- STAGE 3: new cluster buttons forward to the shipped elements ---- */
 on($('h24PhoneBtn'),'click',function(){var n=$('nokiaMini');if(n)n.click();});
 on($('h24InteractBtn'),'click',function(){var c=$('chip_ctx');if(c)c.click();});
-on($('h24MmWrap'),'click',function(){if(typeof S!=='undefined'&&S&&S.playing&&typeof openMap==='function')openMap(false);});
+on($('h24MmWrap'),'click',function(){var w=$('mmWrap');if(w&&window.__daleMenu&&window.__daleMenu.isPlaying())w.click();});
 /* ---- STAGE 7: settings rows in the shipped Settings panel + pause menu ---- */
 function mkRow(label,stateId){
  var r=document.createElement('div');r.className='rowline';r.style.marginTop='14px';
@@ -13492,35 +13523,19 @@ function syncSet(){
 }
 /* ---- STAGE 1: circular minimap — throttled draw from the shipped world data ---- */
 function drawRing(){
+ /* v30.25: the ring is a circular live view of the SHIPPED drawer minimap
+    canvas (#minimap, drawn by the shipped drawMinimap from the real
+    ROADS/AREAS state at 4 Hz). The v30.24 version read page-scope globals
+    (S / player / ROADS) that do not exist outside the game script's IIFE,
+    so it never drew a pixel; the centre crop below is the shipped
+    follow-window centred on the player marker, minus its street strip. */
  var cv=$('h24mm');if(!cv||cv.offsetParent===null)return;
- if(typeof S==='undefined'||!S||!S.playing||typeof player==='undefined'||typeof ROADS==='undefined')return;
- var g=cv.getContext('2d');var W=950,C=112,R=C/2;
- var mcx=Math.max(-9800+W/2,Math.min(8800-W/2,player.x)),mcz=Math.max(-6800+W/2,Math.min(15800-W/2,player.z));
- var mx0=mcx-W/2,mz0=mcz-W/2;
- function X(x){return (x-mx0)/W*C;}function Y(z){return (z-mz0)/W*C;}
+ var src=$('minimap');if(!src||!src.width)return;
+ try{var sp=src.getContext('2d').getImageData(86,66,1,1).data;if(sp[3]===0)return;}catch(e){return;}
+ var g=cv.getContext('2d');var C=224,R=112;
  g.save();g.beginPath();g.arc(R,R,R-1,0,7);g.clip();
  g.fillStyle='#0d1218';g.fillRect(0,0,C,C);
- g.strokeStyle='rgba(255,255,255,.10)';g.lineWidth=1;
- for(var gx=0;gx<=4;gx++){g.beginPath();g.moveTo(gx*C/4,0);g.lineTo(gx*C/4,C);g.stroke();g.beginPath();g.moveTo(0,gx*C/4);g.lineTo(C,gx*C/4);g.stroke();}
- if(typeof AREAS!=='undefined')AREAS.forEach(function(a){g.fillStyle=a.color;g.beginPath();g.arc(X(a.x),Y(a.z),3.5,0,7);g.fill();});
- g.strokeStyle='rgba(235,240,245,.34)';g.lineWidth=1.6;g.lineCap='round';
- ROADS.forEach(function(r){if(r.cls==='R')return;g.beginPath();r.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.stroke();});
- function dot(x,z,col,rad){var px=X(x),py=Y(z);if(px<-6||px>C+6||py<-6||py>C+6)return false;g.fillStyle=col;g.beginPath();g.arc(px,py,rad,0,7);g.fill();return true;}
- if(typeof pinGroup!=='undefined'&&pinGroup&&pinGroup.visible){
-  var px=X(pinGroup.position.x),py=Y(pinGroup.position.z);
-  if(px>=4&&px<=C-4&&py>=4&&py<=C-4){g.fillStyle='#e8b33a';g.beginPath();g.arc(px,py,4,0,7);g.fill();g.strokeStyle='#0d1218';g.lineWidth=1.2;g.stroke();}
-  else{var ex=Math.max(9,Math.min(C-9,px)),ey=Math.max(9,Math.min(C-9,py)),ea=Math.atan2(ey-R,ex-R);g.save();g.translate(ex,ey);g.rotate(ea);g.fillStyle='#e8b33a';g.beginPath();g.moveTo(6.5,0);g.lineTo(-4.5,4);g.lineTo(-4.5,-4);g.closePath();g.fill();g.restore();}
- }
- if(typeof SAFE!=='undefined')dot(SAFE.x,SAFE.z,'#3fb97f',3);
- if(typeof police!=='undefined'&&police)dot(police.x,police.z,'#4ea8de',3);
- if(typeof rival!=='undefined'&&rival)dot(rival.x,rival.z,'#e5484d',3);
- if(typeof leaders!=='undefined'&&leaders)leaders.forEach(function(L){if(L.state==='active')dot(L.x,L.z,'#e8b33a',2.4);});
- /* player arrow — real heading: footMode.h on foot, player.h in the car
-    (both use the game's own heading convention; verified in source) */
- var h=(typeof footMode!=='undefined'&&footMode)?(footMode.h||0):(player.h||0);
- g.translate(R,R);g.rotate(h);
- g.fillStyle='#fff';g.strokeStyle='#0d1218';g.lineWidth=1.4;
- g.beginPath();g.moveTo(0,-7);g.lineTo(5,5.5);g.lineTo(0,2.6);g.lineTo(-5,5.5);g.closePath();g.fill();g.stroke();
+ g.drawImage(src,26.5,6.5,119,119,0,0,C,C);
  g.restore();
 }
 /* ---- STAGE 5: notification manager over the shipped side feed ---- */
@@ -13602,15 +13617,19 @@ function tick(){
   if(typeof S!=='undefined'&&S!==lastS){lastS=S;applyPrefs(u);applyLook(u);lastSnap=snap(u);syncSet();}
   else{var sn=snap(u);if(sn!==lastSnap){lastSnap=sn;applyLook(u);savePrefs(u);syncSet();}}
  }
- if(typeof S==='undefined'||!S||!S.playing)return;
+ var playing=(typeof S!=='undefined'&&S&&S.playing)||(window.__daleMenu&&window.__daleMenu.isPlaying());
+ if(!playing)return;
  /* location pill */
- var nm=(typeof curArea!=='undefined'&&curArea)?curArea.name:'Between areas';
+ var nm=(typeof curArea!=='undefined'&&curArea)?curArea.name:null;
+ if(!nm){var apn=$('apName');nm=apn?((apn.textContent||'').replace(/\s+— YOUR ENDS.*$/,'').trim()):'';if(!nm)nm='Between areas';}
  if(nm!==cache.loc){cache.loc=nm;var e=$('h24LocName');if(e)e.textContent=nm;}
- var st2=(typeof streetAt==='function')?streetAt(player.x,player.z):null;
- var sub=st2?('📍 '+st2):((typeof curArea!=='undefined'&&curArea)?curArea.gang+' turf':'Off road');
+ var aps=$('apStreet');var sub=(aps&&aps.textContent)?aps.textContent:null;
+ if(!sub){var st2=(typeof streetAt==='function')?streetAt(player.x,player.z):null;sub=st2?('📍 '+st2):((typeof curArea!=='undefined'&&curArea)?curArea.gang+' turf':'Off road');}
  if(sub!==cache.sub){cache.sub=sub;var e2=$('h24LocSub');if(e2)e2.textContent=sub;}
  /* heat strip */
- var heat=Math.round(S.heat||0);
+ var heat=0;
+ if(typeof S!=='undefined'&&S)heat=Math.round(S.heat||0);
+ else{var hbe=$('heatBar');var hbw=hbe?parseFloat(hbe.style.width):NaN;heat=isNaN(hbw)?0:Math.round(hbw);}
  var pst='',hot=false;
  try{
   if(typeof police!=='undefined'&&police&&police.ai){pst=police.ai.state||'';}
@@ -13630,7 +13649,10 @@ function tick(){
  if(ch){var near=false;try{near=!!(typeof footMode!=='undefined'&&footMode&&typeof carPark!=='undefined'&&carPark&&typeof dist2==='function'&&dist2(player.x,player.z,carPark.x,carPark.z)<70);}catch(e){near=false;}
   if(cache.carHint!==near){cache.carHint=near;ch.style.display=near?'block':'none';}}
  var dock=$('hpDock');
- if(dock){var low=S.hp<=30;if(cache.lowhp!==low){cache.lowhp=low;dock.classList.toggle('lowhp',low);}}
+ if(dock){var low;
+  if(typeof S!=='undefined'&&S)low=S.hp<=30;
+  else{var hpf2=$('hpFill');var hpw=hpf2?parseFloat(hpf2.style.width):NaN;low=!isNaN(hpw)&&hpw<=30;}
+  if(cache.lowhp!==low){cache.lowhp=low;dock.classList.toggle('lowhp',low);}}
  drawRing();
 }
 buildSettings();initFeed();syncSet();
