@@ -13543,6 +13543,189 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
  setInterval(lsTick,250); /* staggered decision tick — NOT a per-frame loop;
     the shipped walker still moves every ped inside update() */
 })();
+/* ================= v30.29 — PHASE 2 · STAGE 1: COMBAT RESPONSIVENESS & HIT DETECTION =================
+   An ADDITIVE enhancement layer (spec section 3) wrapped around the SHIPPED
+   F1-F5 combat machine — it creates NO second combat controller, NO second
+   damage path and NO competing timer. What the shipped machine already does
+   (verified by inspection, left byte-identical): dt-based
+   startup/contact/recovery phases keyed to the animation timing in
+   COMBAT.chain; per-swing hit registry (combat.hitReg) so one swing can
+   never damage the same target twice; combatLOS against buildings[] so no
+   hit lands through a wall; facing-arc + range validation in
+   combatValid/combatAcquire; stamina spent EXACTLY once per action (five
+   combatSpendStam sites: swing / charged heavy / grapple / dodge / blocked
+   impact — swing and heavy are mutually exclusive by construction);
+   one-deep mid-swing follow-up buffer (combat.buffered, consumed at swing
+   end); pointer-capture multitouch buttons (stick + Attack + Block
+   together); sfxHit per chain hit and weapon; hit-stop pair freeze;
+   F5 parry / charged heavy / grapple untouched, exactly as approved.
+   THIS LAYER CLOSES THREE NARROW GAPS ONLY:
+   (1) INPUT (spec section 4): a press landing inside the two brief
+       "arms busy" windows — blockstun (<=0.35 s after blocking a heavy)
+       or a dodge step (0.22 s) — while the swing machine is IDLE was
+       silently dropped by combatPressAttack's early returns. The layer
+       holds ONE such press for up to C29CFG.bufferMs (150 ms, the spec's
+       100-150 ms band) and fires it through the ORIGINAL
+       combatPressAttack the moment the window lifts. Every other shipped
+       drop keeps its meaning: paused / in a vehicle / staggered / downed /
+       grabbing / charging presses are never resurrected, and the pending
+       press is cleared on vehicle entry, arrest/custody screens, death
+       screens, pause/menus and every combatClearInputs break (spec's
+       clear list). Mid-swing presses are NOT intercepted — the shipped
+       chain buffer already owns them.
+   (2) FEEDBACK (spec sections 8/12): the Attack button never showed a
+       pressed state (Block and Dodge add .held; Attack did not). The
+       layer reflects the SHIPPED combat.heldAtk flag onto the button
+       (.c29held) and shows a gold ring while a press is buffered
+       (.c29buf) — driven from existing state, no new input listeners.
+       Landed/blocked/missed already read differently through shipped
+       cues (sfxHit voice per chain hit, chip + no stagger on a block,
+       hit-stop only on contact, finisher-only camera shake per the
+       COMBAT.shakeFin design note) — unchanged.
+   (3) DEBUG (spec section 15): window.__C29 with a state snapshot,
+       counters, the last rejection/hit note and an OFF-by-default
+       overlay. No scene objects are created (chunk guardrail moot); the
+       optional visual hitbox display is provided as numeric range/arc
+       readouts in the overlay instead of geometry.
+   CONFLICTS (spec section 17 — documented, behaviour preserved):
+   C-1: combatResolveContact's registry keys core hostiles by CLASS
+       (swingId+':fighter'), so one swing damages at most one fighter
+       (+ the rival, + S2 peds under their unique s2Keys), although its
+       comment says "every hostile in the arc". F5's bat wide-arc extra
+       is designed as ONE additional target beyond a single primary, so
+       the class-key behaviour is the shipped F1-F5 equilibrium; making
+       swings multi-target vs fighters would multiply group-fight damage
+       (an unapproved balance change, spec sections 1/9). NOT changed —
+       flagged for the user's explicit call in a later stage.
+   C-2: consequently the soft-locked target is not guaranteed to be the
+       fighter damaged when several fighters share the arc (first in
+       combatHostiles() order wins). Same root as C-1; not fixable
+       without rewriting the authoritative contact path. NOT changed.
+   SAVE NOTE (spec section 14): the game persists no gameplay state
+   (forensic-proven), so there is nothing to migrate; the buffer, pending
+   press and all layer state are transient in-memory only and are never
+   written anywhere. LS INTEGRATION (spec sections 10/16.22): the layer
+   touches no ped, routine or fighter state — Living Streets suspension
+   on promotion is entirely the shipped S2/LS behaviour, verified intact
+   by the __LS27 steering spot check in the delivery tests.
+   FAILURE ISOLATION: installation and every wrapper body run guarded;
+   any throw self-disables the layer (alive=false) and all calls delegate
+   to the original functions, so the layer can never take the game down.
+   Flag OFF (enhancedCombatEnabled=false / __C29.setEnabled(false)) =
+   wrappers delegate immediately; original combat behaviour, verified by
+   the flag-off spot check in the delivery tests. */
+var enhancedCombatEnabled=true; /* spec section 3 feature flag (default ON) */
+(function(){
+ 'use strict';
+ var C29CFG={bufferMs:150}; /* section 9 tuning, centralised: the late-block buffer window. Range/arc/stamina/timing values stay in COMBAT — untouched. */
+ var C29={enabled:true,alive:false,pending:0,orig:null,cfg:C29CFG,
+  stats:{pressSeen:0,buffered:0,fired:0,expired:0,cleared:0},
+  lastNote:'layer not installed',overlay:null,ovT:0,_prevPhase:'idle',_swingHit:null,_btnHeld:null,_btnBuf:null,_ab:null,
+  state:function(){
+   var t=(typeof combat!=='undefined')?combat.target:null,td='none';
+   if(t&&t.o)td=(t.isRival?'rival':(t.s2?('s2:'+t.s2):'fighter'))+' hp '+Math.round(t.o.hp);
+   return {version:'v30.29',enabled:C29.enabled,alive:C29.alive,
+    pendingMs:C29.pending?Math.max(0,Math.round(C29.pending-performance.now())):0,
+    phase:(typeof combat!=='undefined')?combat.phase:'?',swingId:(typeof combat!=='undefined')?combat.swingId:-1,
+    chainIdx:(typeof combat!=='undefined')?combat.chainIdx:-1,weapon:(typeof S!=='undefined'&&S)?S.weapon:'?',
+    stam:(typeof combat!=='undefined')?Math.round(combat.stam):-1,
+    blockStunT:(typeof combat!=='undefined')?+combat.blockStunT.toFixed(3):-1,
+    dodgeT:(typeof combat!=='undefined')?+combat.dodgeT.toFixed(3):-1,
+    target:td,targetDist:(t&&t.o&&typeof dist2==='function')?Math.round(dist2(player.x,player.z,t.o.x,t.o.z)):-1,
+    hitRange:(typeof COMBAT!=='undefined')?COMBAT.hitRange:-1,
+    stats:{pressSeen:C29.stats.pressSeen,buffered:C29.stats.buffered,fired:C29.stats.fired,expired:C29.stats.expired,cleared:C29.stats.cleared},
+    lastNote:C29.lastNote};
+  },
+  setEnabled:function(b){C29.enabled=!!b;enhancedCombatEnabled=!!b;
+   if(!C29.enabled&&C29.pending){C29.pending=0;C29.lastNote='buffer cleared (layer disabled)';}
+   if(!C29.enabled)c29Btn(true);return C29.enabled;},
+  debug:function(on){
+   if(on&&!C29.overlay){var d=document.createElement('div');d.id='c29Overlay';
+    d.style.cssText='position:fixed;left:8px;top:8px;z-index:99;background:rgba(10,10,14,.82);color:#ffd23f;font:11px/1.5 monospace;padding:6px 9px;border-radius:6px;white-space:pre;pointer-events:none;';
+    document.body.appendChild(d);C29.overlay=d;c29Draw();}
+   if(!on&&C29.overlay){C29.overlay.remove();C29.overlay=null;}
+   return !!C29.overlay;}
+ };
+ function c29AB(){if(!C29._ab)C29._ab=document.getElementById('attackBtn');return C29._ab;}
+ function c29Btn(forceOff){
+  var ab=c29AB();if(!ab)return;
+  var h=!forceOff&&typeof combat!=='undefined'&&!!combat.heldAtk,b=!forceOff&&!!C29.pending;
+  if(h!==C29._btnHeld){C29._btnHeld=h;ab.classList.toggle('c29held',h);}
+  if(b!==C29._btnBuf){C29._btnBuf=b;ab.classList.toggle('c29buf',b);}
+ }
+ function c29Draw(){
+  if(!C29.overlay)return;var s=C29.state();
+  C29.overlay.textContent='C29 COMBAT '+(s.enabled?(s.alive?'ON':'DEAD'):'OFF')+' · swing '+s.swingId+' · '+s.phase+' · chain '+(s.chainIdx+1)+'\n'+
+   'weapon '+s.weapon+' · stam '+s.stam+' · target '+s.target+'\n'+
+   'dist '+s.targetDist+' / range '+s.hitRange+' · blockStun '+s.blockStunT+' · dodge '+s.dodgeT+'\n'+
+   'buffer: pending '+s.pendingMs+'ms · seen '+s.stats.pressSeen+' held '+s.stats.buffered+' fired '+s.stats.fired+' exp '+s.stats.expired+' clr '+s.stats.cleared+'\n'+
+   s.lastNote;
+ }
+ function c29Bufferable(){
+  /* TRUE only when the shipped combatPressAttack would drop this press
+     SOLELY because the arms are briefly busy — blockstun or a dodge
+     step — while the swing machine is idle. Mirrors the shipped early
+     returns in order; every other drop is the original's to make. */
+  if(!S||!S.playing||S.paused||!footMode)return false;
+  if(typeof pReact==='undefined'||!pReact)return false;
+  if(pReact.staggerT>0||pReact.kdT>0)return false; /* hitstun/knockdown own the body — never buffered */
+  if(combat.f5Grab||combat.f5GrabRecoverT>0||combat.f5Charge)return false; /* F5 owns the arms */
+  if(combat.phase!=='idle')return false; /* mid-swing: the shipped chain buffer owns the press */
+  return combat.blockStunT>0||combat.dodgeT>0;
+ }
+ function c29Press(){
+  C29.stats.pressSeen++;
+  if(C29.enabled&&C29.alive&&!C29.pending){
+   var buf=false;
+   try{buf=c29Bufferable();}catch(e){C29.alive=false;C29.lastNote='predicate error — layer self-disabled';}
+   if(buf){C29.pending=performance.now()+C29CFG.bufferMs;C29.stats.buffered++;C29.lastNote='press buffered (arms busy: blockstun/dodge)';c29Btn();return;}
+  }
+  return C29.orig.press();
+ }
+ function c29Clear(){
+  var r=C29.orig.clear();
+  if(C29.pending){C29.pending=0;C29.stats.cleared++;C29.lastNote='buffer cleared with inputs (menu/vehicle/pause break)';c29Btn();}
+  return r;
+ }
+ function c29Tick(){
+  var now=performance.now();
+  if(C29.pending){
+   var invalid=false;
+   try{invalid=!S||!S.playing||S.paused||!footMode||pReact.staggerT>0||pReact.kdT>0||!!combat.f5Grab||!!combat.f5Charge||!!document.querySelector('.screen.on');}catch(e){invalid=true;}
+   if(invalid){C29.pending=0;C29.stats.cleared++;C29.lastNote='buffer cleared (state changed: vehicle/screen/control lost)';}
+   else if(now>=C29.pending){C29.pending=0;C29.stats.expired++;C29.lastNote='buffer expired unused (arms busy too long)';}
+   else if(combat.blockStunT<=0&&combat.dodgeT<=0&&combat.phase==='idle'){C29.pending=0;C29.stats.fired++;C29.lastNote='buffered press fired';C29.orig.press();}
+  }
+  /* debug hit/miss note, read off the shipped per-swing registry — a
+     contact phase that registered keys connected; one ending empty missed */
+  if(combat.phase==='contact'&&C29._prevPhase!=='contact')C29._swingHit=null;
+  if(combat.phase==='contact'&&combat.hitReg){for(var k in combat.hitReg){C29._swingHit=k;break;}}
+  if(C29._prevPhase==='contact'&&combat.phase==='recovery')C29.lastNote=C29._swingHit?('swing '+combat.swingId+': hit registered'):('swing '+combat.swingId+': no contact (miss)');
+  C29._prevPhase=combat.phase;
+  c29Btn();
+ }
+ function c29Update(dt){
+  var r=C29.orig.update(dt);
+  if(C29.enabled&&C29.alive){
+   try{c29Tick();}catch(e){C29.alive=false;C29.lastNote='tick error — layer self-disabled';}
+   if(C29.overlay){C29.ovT+=dt;if(C29.ovT>=0.15){C29.ovT=0;try{c29Draw();}catch(e){}}}
+  }
+  return r;
+ }
+ try{
+  if(typeof combatPressAttack!=='function'||typeof updateCombatF1!=='function'||typeof combatClearInputs!=='function')
+   throw new Error('shipped combat entry points missing');
+  C29.orig={press:combatPressAttack,update:updateCombatF1,clear:combatClearInputs};
+  var st=document.createElement('style');st.id='c29css';
+  st.textContent='#attackBtn.c29held{filter:brightness(1.4) saturate(1.2);transform:scale(.93);}#attackBtn.c29buf{box-shadow:0 0 0 3px rgba(255,210,63,.85),0 4px 16px rgba(194,51,56,.45);}';
+  document.head.appendChild(st);
+  combatPressAttack=c29Press;
+  updateCombatF1=c29Update;
+  combatClearInputs=c29Clear;
+  C29.alive=true;C29.lastNote='installed (wrappers on combatPressAttack / updateCombatF1 / combatClearInputs)';
+ }catch(e){C29.alive=false;C29.lastNote='install failed: '+((e&&e.message)||e);}
+ window.__C29=C29;
+})();
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
