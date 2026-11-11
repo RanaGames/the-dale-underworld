@@ -12545,7 +12545,7 @@ $('startBtn').onclick=function(){
  startEngine();
  S.playing=true;$('startScreen').classList.remove('on');$('hud').classList.add('on');
  startDay(true);
- toast('Day 1 — the Line is live. Watch the Nokia.');
+ toast('Day '+S.day+' — the Line is live. Watch the Nokia.');
 };
 window.addEventListener('resize',function(){fitCamera();renderer.setSize(viewW(),viewH());});
 
@@ -14520,7 +14520,321 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
   WL.alive=true;
  }catch(e){WL.alive=false;WL.err=String(e&&e.message||e);}
 })();
+/* ================= v30.35 — SAVE SYSTEM (progression persistence) =================
+   The game shipped with NO gameplay persistence: every load was a fresh boot
+   and the menu's Continue only ever resumed a live in-page session. This
+   block adds a versioned localStorage save of the PROGRESSION subset of S —
+   nothing else about the game changes.
 
+   RESUME MODEL (day-boundary): a save captures progression as of the last
+   save trigger; loading restores those fields onto the fresh boot state and
+   play then begins through the shipped PLAY -> intro -> Start Day flow, so
+   the restored day starts cleanly via startDay() exactly as a fresh Day 1
+   does today. In-day transients are therefore NOT serialised (see EXCLUDED):
+   the in-day clock, any ringing call / active drop, combat state, the police
+   FSM and entity positions all belong to the day the shipped startDay()
+   rebuilds. S.clock is excluded for the same reason — startDay owns it.
+
+   SERIALISED (progression): day, cash, Rep, pendingHeat (the heat that
+   lands tomorrow — intraday S.heat is reset from it by startDay), Line stock
+   + goods, per-area Tension, weapon + ownedWeapons, outfit + ownedClothes +
+   tracksuit colourway, current car + ownedCars + carMods + carDamage +
+   carDamageBy, the per-car ANPR records (S.carRecords), impounded, the
+   custody record (S.record: arrests / offences / pending fines / licence
+   points), fines, banDays, postTickets, S.leaderMem (the persistent leader
+   memory — S.leaderDowns is NOT saved: it is the per-day "leaders put down"
+   list the day summary prints, and startDay resets it), S.raceRec, Snake
+   hi-score, ringtone, phoneOn, muted, tokens, seenCams,
+   complaints, dodgyTxt, homeCash, missedTotal, camera view + S.ui prefs.
+   SECTIONS (optional, individually versioned, so later stages — notably
+   Living Streets Stage 5 NPC memory — can add their own without schema
+   breakage): mates (loyalty / injured / pending legal-fee state),
+   houseKnown, and the S.underworldFactions members + S.livingStreets
+   profiles mirrors (deterministic today, carried for forward compatibility;
+   their `enabled` fields are NOT restored — the live flags own those).
+   Sections this build does not manage are carried over verbatim from the
+   stored payload on every save, never dropped.
+   EXCLUDED (transient or day-owned): playing/paused, clock, hp (startDay
+   restores 100), heat (see pendingHeat), earned/drops/missed/sideDone/
+   jobsToday/dayMarkers/crashFeed/snitchReports/social/arrestsToday/assaults
+   (daily counters startDay resets), atkCd/balaCd, lastDropArea/lastDropTime,
+   droveCar/turfYesterday/avoidedToday (yesterday-markers dailyRollovers
+   consumes), S.ride (a stolen ride in progress — the player's own car is
+   recovered from ride.ownKey, the shipped R1 migration rule, and becomes
+   S.car in the save), S.leaderCar (world cycle state; ships reset-to-parked
+   on load), weather-of-the-moment, and every entity position/timer.
+
+   TRIGGERS: endDay() (wrapped — the S3 ensureRecord wrap is the precedent),
+   next-day and busted-screen buttons (post-hoc listeners; the shipped
+   onclick handlers run first), the pause button (pause menu opening), and
+   pagehide / visibilitychange-hidden for mobile tab-kill safety. A save is
+   only ever written while S.playing — a menu-only visit can never overwrite
+   a real save with fresh defaults. Every write is exception-guarded: a
+   failed save never throws into gameplay.
+
+   MENU WIRING (the menu layer itself is untouched): with a valid save
+   present and no run in progress, Continue is unhidden with a "Resume —
+   Day N" sub-label and its click starts the restored run through the
+   shipped startBtn handler; PLAY keeps its shipped flow (intro -> the
+   start button, relabelled "Start Day N" when a save was restored); NEW
+   GAME opens the menu's EXISTING "Start fresh?" confirm panel, whose
+   Start Fresh button reloads with #fresh — and #fresh at boot wipes the
+   save before anything is restored (the user's standing rule: save data is
+   only ever deleted through that explicit confirm). With no save present,
+   every menu behaviour is byte-identical to v30.34.
+
+   CORRUPTION: unparseable JSON, a wrong version, or a non-object state is
+   ignored — fresh boot, zero errors, and the bad payload is left in place
+   (non-destructive) for the NEW GAME flow or __SAVE35.wipe() to clear.
+
+   Flag: saveSystemEnabled (default true) — off restores exact pre-build
+   behaviour (no restore, no wiring, no saves; the stored payload is left
+   untouched). Debug: window.__SAVE35 (quiet by default). The HUD prefs key
+   dale.hudPrefs.v1 is a separate store and is never touched. */
+(function(){
+ 'use strict';
+ var saveSystemEnabled=true;
+ var SV_KEY='dale.save.v1';
+ var SV={alive:false,restored:false,wipedFresh:false,hasSave:false,saveDay:0,
+         saves:0,lastSaveAt:0,lastReason:'',saveBytes:0,err:null};
+ function svIsObj(o){return !!o&&typeof o==='object'&&!Array.isArray(o);}
+ function svClone(o){try{return JSON.parse(JSON.stringify(o));}catch(e){return undefined;}}
+ function svNum(v){return (typeof v==='number'&&isFinite(v))?v:undefined;}
+ function svPut(st,k,v){if(v!==undefined)st[k]=v;}
+
+ function svCollect(){
+  if(typeof S==='undefined'||!S)return null;
+  var st={},i,k;
+  /* keep carDamageBy in step with the live car, as the shipped repair
+     flows do, so the day-start read (carDamageBy[S.car]) agrees */
+  try{if(!S.carDamageBy)S.carDamageBy={};if(S.car)S.carDamageBy[S.car]=S.carDamage||0;}catch(e){}
+  /* a stolen ride in progress is transient: the save names the player's
+     OWN car (the shipped R1 migration rule reads ride.ownKey the same way) */
+  var car=S.car;
+  try{if(S.ride&&S.ride.ownKey&&S.ownedCars&&S.ownedCars[S.ride.ownKey])car=S.ride.ownKey;}catch(e){}
+  svPut(st,'mapVer',svNum(S.mapVer)!==undefined?S.mapVer:1);
+  svPut(st,'day',(typeof S.day==='number'&&isFinite(S.day)&&S.day>=1)?Math.floor(S.day):undefined);
+  svPut(st,'cash',svNum(S.cash)); svPut(st,'rep',svNum(S.rep));
+  svPut(st,'pendingHeat',svNum(S.pendingHeat));
+  if(svIsObj(S.stock)){var so={};svPut(so,'crack',svNum(S.stock.crack));svPut(so,'heroin',svNum(S.stock.heroin));st.stock=so;}
+  if(svIsObj(S.goods)){var go={};svPut(go,'cigs',svNum(S.goods.cigs));svPut(go,'alcohol',svNum(S.goods.alcohol));svPut(go,'vapes',svNum(S.goods.vapes));st.goods=go;}
+  if(svIsObj(S.tension))svPut(st,'tension',svClone(S.tension));
+  if(typeof S.weapon==='string')st.weapon=S.weapon;
+  if(svIsObj(S.ownedWeapons))svPut(st,'ownedWeapons',svClone(S.ownedWeapons));
+  if(svIsObj(S.outfit))svPut(st,'outfit',svClone(S.outfit));
+  if(svIsObj(S.ownedClothes))svPut(st,'ownedClothes',svClone(S.ownedClothes));
+  if(typeof S.tracksuitCW==='string')st.tracksuitCW=S.tracksuitCW;
+  if(typeof car==='string')st.car=car;
+  if(svIsObj(S.ownedCars))svPut(st,'ownedCars',svClone(S.ownedCars));
+  if(svIsObj(S.carMods))svPut(st,'carMods',svClone(S.carMods));
+  svPut(st,'carDamage',svNum(S.carDamage));
+  if(svIsObj(S.carDamageBy))svPut(st,'carDamageBy',svClone(S.carDamageBy));
+  if(svIsObj(S.carRecords))svPut(st,'carRecords',svClone(S.carRecords));
+  if(svIsObj(S.impounded))svPut(st,'impounded',svClone(S.impounded));
+  if(svIsObj(S.record))svPut(st,'record',svClone(S.record));
+  svPut(st,'fines',svNum(S.fines)); svPut(st,'banDays',svNum(S.banDays));
+  if(Array.isArray(S.postTickets))svPut(st,'postTickets',svClone(S.postTickets));
+  if(svIsObj(S.leaderMem))svPut(st,'leaderMem',svClone(S.leaderMem));
+  if(svIsObj(S.raceRec))svPut(st,'raceRec',svClone(S.raceRec));
+  svPut(st,'snakeHi',svNum(S.snakeHi));
+  if(typeof S.ringtone==='string')st.ringtone=S.ringtone;
+  if(typeof S.phoneOn==='boolean')st.phoneOn=S.phoneOn;
+  if(typeof S.muted==='boolean')st.muted=S.muted;
+  if(svIsObj(S.tokens))svPut(st,'tokens',svClone(S.tokens));
+  if(Array.isArray(S.seenCams))svPut(st,'seenCams',svClone(S.seenCams));
+  if(svIsObj(S.complaints))svPut(st,'complaints',svClone(S.complaints));
+  if(typeof S.dodgyTxt==='boolean')st.dodgyTxt=S.dodgyTxt;
+  svPut(st,'homeCash',svNum(S.homeCash)); svPut(st,'missedTotal',svNum(S.missedTotal));
+  svPut(st,'camMode',svNum(S.camMode)); svPut(st,'camVer',svNum(S.camVer));
+  if(svIsObj(S.ui))svPut(st,'ui',svClone(S.ui));
+  /* ---- optional per-system sections (individually versioned) ---- */
+  var sec={};
+  try{
+   if(typeof mateState!=='undefined'&&svIsObj(mateState)){
+    var md={};
+    for(k in mateState){var ms=mateState[k];if(!svIsObj(ms))continue;var me={};
+     svPut(me,'loyalty',svNum(ms.loyalty));svPut(me,'injured',svNum(ms.injured));
+     if(ms.nicked===null)me.nicked=null;else if(svIsObj(ms.nicked))svPut(me,'nicked',svClone(ms.nicked));
+     md[k]=me;}
+    sec.mates={version:1,data:md};
+   }
+  }catch(e){}
+  try{if(typeof houseKnown!=='undefined'&&svIsObj(houseKnown))sec.houseKnown={version:1,data:svClone(houseKnown)};}catch(e){}
+  try{if(svIsObj(S.underworldFactions)&&svIsObj(S.underworldFactions.members))sec.underworldFactions={version:1,data:{members:svClone(S.underworldFactions.members)}};}catch(e){}
+  try{if(svIsObj(S.livingStreets)&&svIsObj(S.livingStreets.profiles))sec.livingStreets={version:1,data:{profiles:svClone(S.livingStreets.profiles)}};}catch(e){}
+  /* carry over sections this build does not manage (forward compatibility:
+     a later stage's section survives this build's re-saves verbatim) */
+  try{
+   var rawPrev=localStorage.getItem(SV_KEY),prev=rawPrev?JSON.parse(rawPrev):null;
+   if(prev&&prev.version===1&&svIsObj(prev.state)&&svIsObj(prev.state.sections)){
+    for(k in prev.state.sections){if(!(k in sec))sec[k]=prev.state.sections[k];}
+   }
+  }catch(e){}
+  st.sections=sec;
+  return st;
+ }
+
+ function svSave(reason){
+  if(!saveSystemEnabled)return false;
+  if(typeof S==='undefined'||!S||!S.playing)return false; /* a menu-only visit never overwrites a real save */
+  try{
+   var st=svCollect();if(!st)return false;
+   var txt=JSON.stringify({version:1,savedAt:Date.now(),state:st});
+   localStorage.setItem(SV_KEY,txt);
+   SV.saves++;SV.lastSaveAt=Date.now();SV.lastReason=reason||'';SV.saveBytes=txt.length;SV.hasSave=true;SV.saveDay=st.day||SV.saveDay;
+   return true;
+  }catch(e){SV.err=String(e&&e.message||e);return false;}
+ }
+
+ function svRestore(st){
+  var k,sl;
+  if(typeof st.day==='number'&&isFinite(st.day)&&st.day>=1)S.day=Math.floor(st.day);
+  if(svNum(st.cash)!==undefined)S.cash=st.cash;
+  if(svNum(st.rep)!==undefined)S.rep=st.rep;
+  if(svNum(st.pendingHeat)!==undefined)S.pendingHeat=st.pendingHeat;
+  if(svIsObj(st.stock)){if(svNum(st.stock.crack)!==undefined)S.stock.crack=st.stock.crack;if(svNum(st.stock.heroin)!==undefined)S.stock.heroin=st.stock.heroin;}
+  if(svIsObj(st.goods)){if(svNum(st.goods.cigs)!==undefined)S.goods.cigs=st.goods.cigs;if(svNum(st.goods.alcohol)!==undefined)S.goods.alcohol=st.goods.alcohol;if(svNum(st.goods.vapes)!==undefined)S.goods.vapes=st.goods.vapes;}
+  if(svIsObj(st.tension)){var tc=svClone(st.tension);if(tc)for(k in tc)if(svNum(tc[k])!==undefined)S.tension[k]=tc[k];}
+  if(svIsObj(st.ownedWeapons)){var ow=svClone(st.ownedWeapons);if(ow)S.ownedWeapons=ow;}
+  if(typeof st.weapon==='string'&&typeof WEAPONS!=='undefined'&&WEAPONS[st.weapon]&&S.ownedWeapons[st.weapon])S.weapon=st.weapon;
+  if(svIsObj(st.outfit)){var slots=['Head','Jacket','Bottoms','Trainers','Accessories'];for(var si=0;si<slots.length;si++){sl=slots[si];if(typeof st.outfit[sl]==='string')S.outfit[sl]=st.outfit[sl];}}
+  if(svIsObj(st.ownedClothes)){var oc=svClone(st.ownedClothes);if(oc)S.ownedClothes=oc;}
+  if(typeof st.tracksuitCW==='string')S.tracksuitCW=st.tracksuitCW;
+  if(svIsObj(st.ownedCars)){var ocars=svClone(st.ownedCars);if(ocars)S.ownedCars=ocars;}
+  if(svIsObj(st.carMods)){var cm=svClone(st.carMods);if(cm)S.carMods=cm;}
+  if(typeof st.car==='string'&&typeof CARS!=='undefined'&&CARS[st.car]&&S.ownedCars&&S.ownedCars[st.car])S.car=st.car;
+  else if(!(S.ownedCars&&S.ownedCars[S.car])){var fk=Object.keys(S.ownedCars||{})[0];if(fk)S.car=fk;}
+  if(svIsObj(st.carDamageBy)){var cdb=svClone(st.carDamageBy);if(cdb)S.carDamageBy=cdb;}
+  if(svNum(st.carDamage)!==undefined)S.carDamage=Math.max(0,Math.min(100,st.carDamage));
+  if(svIsObj(S.carDamageBy)&&svNum(S.carDamageBy[S.car])!==undefined)S.carDamage=S.carDamageBy[S.car];
+  if(svIsObj(st.carRecords)){var cr=svClone(st.carRecords);if(cr)S.carRecords=cr;}
+  if(svIsObj(st.impounded)){var im=svClone(st.impounded);if(im)S.impounded=im;}
+  if(svIsObj(st.record)){var rc=svClone(st.record);if(rc)S.record=rc;try{ensureRecord2();}catch(e){}}
+  if(svNum(st.fines)!==undefined)S.fines=st.fines;
+  if(svNum(st.banDays)!==undefined)S.banDays=st.banDays;
+  if(Array.isArray(st.postTickets)){var pt=svClone(st.postTickets);if(pt)S.postTickets=pt;}
+  if(svIsObj(st.leaderMem)){var lm=svClone(st.leaderMem);if(lm)S.leaderMem=lm;}
+  try{ensureLeaderState();}catch(e){}
+  if(svIsObj(st.raceRec)){var rr=svClone(st.raceRec);if(rr)S.raceRec=rr;}
+  if(svNum(st.snakeHi)!==undefined)S.snakeHi=st.snakeHi;
+  if(typeof st.ringtone==='string')S.ringtone=st.ringtone;
+  if(typeof st.phoneOn==='boolean')S.phoneOn=st.phoneOn;
+  if(typeof st.muted==='boolean')S.muted=st.muted;
+  if(svIsObj(st.tokens)){var tk=svClone(st.tokens);if(tk)S.tokens=tk;}
+  if(Array.isArray(st.seenCams)){var sc=svClone(st.seenCams);if(sc)S.seenCams=sc.filter(function(x){return typeof x==='string';});}
+  if(svIsObj(st.complaints)){var cp=svClone(st.complaints);if(cp)S.complaints=cp;}
+  if(typeof st.dodgyTxt==='boolean')S.dodgyTxt=st.dodgyTxt;
+  if(svNum(st.homeCash)!==undefined)S.homeCash=st.homeCash;
+  if(svNum(st.missedTotal)!==undefined)S.missedTotal=st.missedTotal;
+  if(svNum(st.camMode)!==undefined)S.camMode=st.camMode;
+  if(svIsObj(st.ui)){var uu=svClone(st.ui);if(uu)S.ui=uu;}
+  /* ---- sections ---- */
+  if(svIsObj(st.sections)){
+   var sec=st.sections;
+   try{
+    if(svIsObj(sec.mates)&&svIsObj(sec.mates.data)&&typeof mateState!=='undefined'){
+     for(k in sec.mates.data){var me2=sec.mates.data[k],ms2=mateState[k];if(!svIsObj(me2)||!svIsObj(ms2))continue;
+      if(svNum(me2.loyalty)!==undefined)ms2.loyalty=me2.loyalty;
+      if(svNum(me2.injured)!==undefined)ms2.injured=me2.injured;
+      if(me2.nicked===null)ms2.nicked=null;else if(svIsObj(me2.nicked)){var nk=svClone(me2.nicked);if(nk)ms2.nicked=nk;}}
+    }
+   }catch(e){}
+   try{
+    if(svIsObj(sec.houseKnown)&&svIsObj(sec.houseKnown.data)&&typeof houseKnown!=='undefined'){
+     for(k in houseKnown)delete houseKnown[k];
+     var hk=svClone(sec.houseKnown.data);if(hk)for(k in hk)if(svNum(hk[k])!==undefined)houseKnown[k]=hk[k];
+    }
+   }catch(e){}
+   try{if(svIsObj(sec.underworldFactions)&&svIsObj(sec.underworldFactions.data)&&svIsObj(sec.underworldFactions.data.members)&&svIsObj(S.underworldFactions)){var fm=svClone(sec.underworldFactions.data.members);if(fm)S.underworldFactions.members=fm;}}catch(e){}
+   try{if(svIsObj(sec.livingStreets)&&svIsObj(sec.livingStreets.data)&&svIsObj(sec.livingStreets.data.profiles)&&svIsObj(S.livingStreets)){var lp=svClone(sec.livingStreets.data.profiles);if(lp)S.livingStreets.profiles=lp;}}catch(e){}
+  }
+  /* the boot pass already ran with fresh values: re-apply the shipped
+     apply steps so the restored car, outfit, camera and UI are what the
+     player actually sees (the exact calls boot makes, in boot's order) */
+  try{applyCar();}catch(e){}
+  try{applyOutfitToFigure();}catch(e){}
+  try{camSnapTo(camView());camSyncBtn();}catch(e){}
+  try{if(window.__daleUi)window.__daleUi.apply();}catch(e){}
+  try{if(window.__daleLayout)window.__daleLayout.apply();}catch(e){}
+  try{if(window.__GFX16)window.__GFX16.apply();}catch(e){}
+  return true;
+ }
+
+ /* ---------- boot: wipe-on-fresh, else restore ---------- */
+ try{
+  if(location.hash==='#fresh'){
+   try{localStorage.removeItem(SV_KEY);}catch(e){}
+   SV.wipedFresh=true;
+  }else{
+   var raw=null;try{raw=localStorage.getItem(SV_KEY);}catch(e){}
+   if(raw){
+    var p=null;try{p=JSON.parse(raw);}catch(e){}
+    if(p&&p.version===1&&svIsObj(p.state)&&typeof p.state.day==='number'&&isFinite(p.state.day)&&p.state.day>=1){
+     SV.hasSave=true;SV.saveDay=Math.floor(p.state.day);
+     if(saveSystemEnabled&&typeof S!=='undefined'&&S){
+      try{if(svRestore(p.state)){SV.restored=true;SV.restoredDay=S.day;SV.saveDay=S.day;}}catch(e){SV.err=String(e&&e.message||e);}
+     }
+    }
+   }
+  }
+ }catch(e){SV.err=String(e&&e.message||e);}
+
+ /* ---------- menu wiring (additive listeners; registered before the menu
+    layer's own, so an interception can stopImmediatePropagation) ---------- */
+ try{
+  if(saveSystemEnabled){
+   var mbNew=document.getElementById('mbNew');
+   if(mbNew)mbNew.addEventListener('click',function(e){
+    if(!SV.hasSave||typeof S==='undefined'||!S||S.playing)return; /* shipped flow owns every other case */
+    if(e&&e.stopImmediatePropagation)e.stopImmediatePropagation();
+    var ps=document.querySelectorAll('.menuPanel');for(var i=0;i<ps.length;i++)ps[i].classList.remove('on');
+    var cp=document.getElementById('confirmPanel');if(cp)cp.classList.add('on');
+   });
+   var mbCont=document.getElementById('mbContinue');
+   if(mbCont)mbCont.addEventListener('click',function(e){
+    if(!SV.hasSave||typeof S==='undefined'||!S||S.playing)return; /* the in-session resume is the menu layer's own */
+    if(e&&e.stopImmediatePropagation)e.stopImmediatePropagation();
+    var sb=document.getElementById('startBtn');if(sb)sb.click(); /* the shipped Start Day handler + the menu layer's enterGame, in their shipped order */
+   });
+   if(SV.restored){var sb2=document.getElementById('startBtn');if(sb2)sb2.textContent='Start Day '+S.day;}
+   setInterval(function(){
+    if(!saveSystemEnabled||!SV.hasSave||typeof S==='undefined'||!S||S.playing)return;
+    var mc=document.getElementById('mbContinue');if(!mc)return;
+    if(mc.hidden)mc.hidden=false;
+    var sub=document.getElementById('mbContinueSub');
+    if(sub){var t='Resume — Day '+SV.saveDay;if(sub.textContent!==t)sub.textContent=t;}
+   },600);
+  }
+ }catch(e){SV.err=String(e&&e.message||e);}
+
+ /* ---------- save triggers ---------- */
+ try{
+  if(saveSystemEnabled){
+   if(typeof endDay==='function'){var svEndDay=endDay;endDay=function(){svEndDay();svSave('endday');};}
+   var nd=document.getElementById('nextDayBtn');if(nd)nd.addEventListener('click',function(){svSave('nextday');});
+   var bb=document.getElementById('bustedBtn');if(bb)bb.addEventListener('click',function(){svSave('busted');});
+   var pb=document.getElementById('pauseBtn');if(pb)pb.addEventListener('click',function(){svSave('pause');});
+   window.addEventListener('pagehide',function(){svSave('pagehide');});
+   document.addEventListener('visibilitychange',function(){if(document.hidden)svSave('hidden');});
+  }
+ }catch(e){SV.err=String(e&&e.message||e);}
+
+ SV.alive=true;
+ window.__SAVE35={
+  version:'v30.35',
+  enabled:function(){return saveSystemEnabled;},
+  setEnabled:function(on){saveSystemEnabled=!!on;return saveSystemEnabled;},
+  status:function(){
+   var stored=-1;try{var r=localStorage.getItem(SV_KEY);stored=r?r.length:0;}catch(e){}
+   return {alive:SV.alive,enabled:saveSystemEnabled,hasSave:SV.hasSave,restored:SV.restored,
+    restoredDay:SV.restoredDay||0,wipedFresh:SV.wipedFresh,saves:SV.saves,lastSaveAt:SV.lastSaveAt,
+    lastReason:SV.lastReason,saveBytes:SV.saveBytes,storedBytes:stored,err:SV.err};
+  },
+  saveNow:function(){return svSave('debug');},
+  wipe:function(){try{localStorage.removeItem(SV_KEY);SV.hasSave=false;SV.saveDay=0;return true;}catch(e){return false;}},
+  inspect:function(){return svCollect();}
+ };
+})();
 
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
