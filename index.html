@@ -1320,8 +1320,24 @@ window.__daleBoot=(function(){
 (function(){
 'use strict';
 var errBox=document.getElementById('errBox');
-window.onerror=function(m){errBox.style.display='block';errBox.textContent='Error: '+m;};
-window.addEventListener('unhandledrejection',function(e){errBox.style.display='block';errBox.textContent='Error: '+(e.reason&&e.reason.message||e.reason);});
+/* v30.20: readable error formatting — the shipped handlers stringified the
+   raw value, so a non-Error throw / rejection reason (a plain object has
+   neither .message nor a useful toString) surfaced as the red toast
+   "Error: [object Object]". __daleFmtErr always produces a real message:
+   the Error's name + message where they exist, the string itself, else a
+   stable JSON rendering, else 'Unknown error' — [object Object] can no
+   longer reach the box. */
+window.__daleFmtErr=function(e){
+ if(e==null)return 'Unknown error';
+ if(typeof e==='string')return e;
+ if(typeof e!=='object'&&typeof e!=='function')return String(e);
+ if(e.message)return (e.name?e.name+': ':'')+e.message;
+ try{var s=JSON.stringify(e);if(s&&s!=='{}'&&s!=='[]')return s;}catch(_){}
+ if(e.name)return e.name;
+ return 'Unknown error';
+};
+window.onerror=function(m,s,l,c,err){var src=(err&&typeof err==='object')?err:m;var t=(typeof src==='string')?src:window.__daleFmtErr(src);errBox.style.display='block';errBox.textContent=/^[A-Za-z]*Error: /.test(t)?t:'Error: '+t;};
+window.addEventListener('unhandledrejection',function(e){var r=e&&e.reason;var t=window.__daleFmtErr(r);errBox.style.display='block';errBox.textContent=/^[A-Za-z]*Error: /.test(t)?t:'Error: '+t;});
 
 /* ================= WORLD DATA — stylised from the real Rochdale map =================
    World units: X = east(+)/west(−), Z = south(+)/north(−). Map 2600 × 2000. */
@@ -9506,7 +9522,7 @@ function drawFullMap(){
  if(typeof RIVER!=='undefined'){g.strokeStyle='rgba(84,112,122,.9)';g.lineWidth=Math.max(1.4,48*s);g.beginPath();RIVER.forEach(function(p2,i){i?g.lineTo(X(p2[0]),Y(p2[1])):g.moveTo(X(p2[0]),Y(p2[1]));});g.stroke();}
  if(typeof R1_CANAL!=='undefined'){g.strokeStyle='rgba(84,112,122,.9)';g.lineWidth=Math.max(1.2,34*s);g.beginPath();R1_CANAL.forEach(function(p2,i){i?g.lineTo(X(p2[0]),Y(p2[1])):g.moveTo(X(p2[0]),Y(p2[1]));});g.stroke();} /* v30.19: river + canal drawn as water */
  /* districts: turf tint + NAME + gang (names live here, not in-world) */
- var drawnIds19={};
+ var LAB20=[]; /* v30.20: label jobs collected here, drawn after the tint pass so FIT ALL can collision-resolve them */
  AREA_POLY.forEach(function(ap){
    var a=areaById(ap.id);
    g.beginPath();ap.pts.forEach(function(p,i){i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]));});g.closePath();
@@ -9520,14 +9536,68 @@ function drawFullMap(){
    }
    g.strokeStyle=a.color;g.lineWidth=1.4;g.stroke();g.setLineDash([]);
    var cxp=0,czp=0;ap.pts.forEach(function(p){cxp+=p[0];czp+=p[1];});cxp/=ap.pts.length;czp/=ap.pts.length;
-   if(zm19<2&&drawnIds19[ap.id])return;drawnIds19[ap.id]=1; /* v30.19: at FIT ALL each district is labelled once (the turf rects no longer repeat the same name up to 5x); zoom in and every polygon labels as shipped */
-   g.textAlign='center';
-   g.font='700 12px Barlow, sans-serif';g.fillStyle=a.color;
-   g.fillText(a.contested?'MANCHESTER CITY CENTRE':a.name.toUpperCase(),X(cxp),Y(czp)-2);
-   g.font='8.5px Barlow, sans-serif';g.fillStyle='#cfd6dd';
-   g.fillText(a.contested?'— CONTESTED —':a.gang,X(cxp),Y(czp)+10);
-   if(a.contested)g.fillText('city Heat ×1.3 · no crew',X(cxp),Y(czp)+21);
+   LAB20.push({a:a,cxp:cxp,czp:czp});
  });
+ /* v30.20: district labels. At FIT ALL (zoom <2) ONLY these labels show,
+    one per district id, placed collision-free: each label's box is
+    measured (canvas measureText with a conservative per-character floor,
+    so the box the resolver sees is never smaller than the drawn text) and
+    a deterministic candidate-offset search picks the first spot that
+    overlaps no already-placed label. At zoom >=2 every polygon labels at
+    its centroid, as shipped. Every draw records its boxes + pairwise
+    overlap count on window.__V3020_MAP — the FIT ALL count is provable
+    from the page itself. */
+ (function(){
+   function labTexts(jb){return [jb.a.contested?'MANCHESTER CITY CENTRE':jb.a.name.toUpperCase(),jb.a.contested?'— CONTESTED —':jb.a.gang,jb.a.contested?'city Heat ×1.3 · no crew':''];}
+   function labBox(jb,cx,cy){
+     var ts=labTexts(jb);
+     g.font='700 12px Barlow, sans-serif';var w=Math.max(g.measureText(ts[0]).width,ts[0].length*7.0);
+     g.font='8.5px Barlow, sans-serif';w=Math.max(w,g.measureText(ts[1]).width,ts[1].length*5.0);
+     if(ts[2])w=Math.max(w,g.measureText(ts[2]).width,ts[2].length*5.0);
+     return {x:cx-w/2,y:cy-14,w:w,h:ts[2]?38:26};
+   }
+   function drawLab(jb,cx,cy){
+     var ts=labTexts(jb);
+     g.textAlign='center';
+     g.font='700 12px Barlow, sans-serif';g.fillStyle=jb.a.color;
+     g.fillText(ts[0],cx,cy-2);
+     g.font='8.5px Barlow, sans-serif';g.fillStyle='#cfd6dd';
+     g.fillText(ts[1],cx,cy+10);
+     if(ts[2])g.fillText(ts[2],cx,cy+21);
+   }
+   function overlaps(a,b,pad){return a.x-pad<b.x+b.w&&b.x-pad<a.x+a.w&&a.y-pad<b.y+b.h&&b.y-pad<a.y+a.h;}
+   var placed=[],rec={zoom:zm19,shown:0,labels:[],overlaps:0,suppressedRoadNames:0,suppressedPoiLabels:0};
+   if(zm19<2){
+     var seenId={},jobs=[];
+     LAB20.forEach(function(jb){if(seenId[jb.a.id])return;seenId[jb.a.id]=1;jobs.push(jb);});
+     var CAND=[[0,0],[0,-16],[0,16],[0,-32],[0,32],[-36,0],[36,0],[-36,-16],[36,-16],[-36,16],[36,16],[0,-50],[0,50],[-64,-30],[64,-30],[-64,30],[64,30],[-90,0],[90,0],[0,-70],[0,70],[-110,-44],[110,-44],[-110,44],[110,44],[0,-92],[0,92],[-140,-60],[140,-60],[-140,60],[140,60],[0,-120],[0,120]];
+     jobs.forEach(function(jb){
+       var bx=X(jb.cxp),by=Y(jb.czp),box=null,fx=bx,fy=by;
+       for(var ci2=0;ci2<CAND.length;ci2++){
+         var cx2=bx+CAND[ci2][0],cy2=by+CAND[ci2][1];
+         var cb=labBox(jb,cx2,cy2);
+         if(cb.x<3||cb.y<3||cb.x+cb.w>W-3||cb.y+cb.h>H-3)continue;
+         var hit=false;for(var pi2=0;pi2<placed.length;pi2++)if(overlaps(cb,placed[pi2],2)){hit=true;break;}
+         if(!hit){box=cb;fx=cx2;fy=cy2;break;}
+       }
+       if(!box)box=labBox(jb,bx,by);
+       placed.push(box);rec.labels.push({t:labTexts(jb)[0],x:Math.round(box.x),y:Math.round(box.y),w:Math.round(box.w),h:Math.round(box.h)});
+       drawLab(jb,fx,fy);
+     });
+     rec.shown=jobs.length;
+     ROADS.forEach(function(r){if(r.cls==='A')rec.suppressedRoadNames++;});
+     rec.suppressedPoiLabels=6; /* 5 anchor labels + RELEASE: text returns at x2 (glyphs still draw) */
+   }else{
+     LAB20.forEach(function(jb){
+       var bx=X(jb.cxp),by=Y(jb.czp);
+       placed.push(labBox(jb,bx,by));rec.labels.push({t:labTexts(jb)[0],x:Math.round(bx),y:Math.round(by)});
+       drawLab(jb,bx,by);
+     });
+     rec.shown=LAB20.length;
+   }
+   for(var oi=0;oi<placed.length;oi++)for(var oj=oi+1;oj<placed.length;oj++)if(overlaps(placed[oi],placed[oj],0))rec.overlaps++;
+   window.__V3020_MAP=rec;
+ })();
  /* v30.19: buildings — footprints/density dots from the REAL buildings[] (shipped + v30.17 + v30.18 + v30.19 sets), so FIT ALL reads as a town plan */
  if(typeof buildings!=='undefined'&&buildings){g.fillStyle=zm19>=2?'rgba(228,222,206,.88)':'rgba(228,222,206,.6)';for(var bi=0;bi<buildings.length;bi++){var bb=buildings[bi];var bw=Math.max(1.3,(bb.hw*2)*s),bh=Math.max(1.3,(bb.hd*2)*s);g.fillRect(X(bb.x)-bw/2,Y(bb.z)-bh/2,bw,bh);}}
  /* v30.19: road RIBBONS first (wide dark strokes at true width), incl. generated side streets + orphan lanes */
@@ -9535,6 +9605,7 @@ function drawFullMap(){
  ROADS.forEach(function(r){if(r.cls==='R')return;ribbon19(r.pts,rh(r)+7,'#2e3237');});
  if(window.__V3018_AUDIT&&__V3018_AUDIT.streets)__V3018_AUDIT.streets.forEach(function(sp){ribbon19(sp.pts,sp.w,'#2e3237');});
  if(window.__V3019_AUDIT){__V3019_AUDIT.streets.forEach(function(sp){ribbon19(sp.pts,sp.w,'#2e3237');});__V3019_AUDIT.lanes.forEach(function(sp){ribbon19(sp.pts,sp.w,'#3a3e42');});}
+ if(window.__V3020_AUDIT&&__V3020_AUDIT.lanes)__V3020_AUDIT.lanes.forEach(function(sp){ribbon19(sp.pts,sp.w,'#3a3e42');}); /* v30.20: the all-buildings orphan lanes draw too */
  /* roads from ROADS centrelines: A/B bright + named, S thin — now over their ribbons; rail/Metrolink in their own colours */
  ROADS.forEach(function(r){
    if(r.cls==='R'){if(r.name.indexOf('Metrolink')===0){g.strokeStyle='rgba(160,200,210,.75)';g.lineWidth=1.2;g.setLineDash([]);}else if(r.name.indexOf('Motorway')>=0){g.strokeStyle='rgba(255,255,255,.55)';g.lineWidth=2;g.setLineDash([]);}else{g.strokeStyle='rgba(198,170,132,.8)';g.lineWidth=1.2;g.setLineDash([4,3]);}}
@@ -9545,7 +9616,7 @@ function drawFullMap(){
  });
  g.font='8px Barlow, sans-serif';g.fillStyle='rgba(238,241,244,.9)';g.textAlign='center';
  ROADS.forEach(function(r){ /* road names on A/B roads + the district mains */
-   if(zm19<2){if(r.cls!=='A')return;} /* v30.19: FIT ALL shows A-road names only — B/S names return at zoom, as the shipped zoom behaviour intends */
+   if(zm19<2)return; /* v30.20: FIT ALL shows district labels only — road names (A/B + the named streets) return at x2 zoom and above, as the shipped zoom behaviour intends */
    if(r.cls!=='A'&&r.cls!=='B'&&r.name!=='Cross Street'&&r.name!=='College Bank')return;
    var mp=pathPoint(r.pts,.5);if(mp)g.fillText(r.name,X(mp.x),Y(mp.z)-3);
  });
@@ -9553,14 +9624,14 @@ function drawFullMap(){
  g.fillStyle='rgba(255,255,255,.35)';
  SPOTS.forEach(function(sp){g.beginPath();g.arc(X(sp.x),Y(sp.z),1.6,0,7);g.fill();});
  /* anchors: glyph + tiny label */
- function anchor(x,z,icon,label){g.font='13px sans-serif';g.textAlign='center';g.fillText(icon,X(x),Y(z)+4);g.font='7.5px Barlow, sans-serif';g.fillStyle='#eef1f4';g.fillText(label,X(x),Y(z)+15);g.fillStyle='rgba(255,255,255,.35)';}
+ function anchor(x,z,icon,label){g.font='13px sans-serif';g.textAlign='center';g.fillText(icon,X(x),Y(z)+4);if(zm19>=2){g.font='7.5px Barlow, sans-serif';g.fillStyle='#eef1f4';g.fillText(label,X(x),Y(z)+15);}g.fillStyle='rgba(255,255,255,.35)';} /* v30.20: POI text labels are a x2+ tier — the glyphs still mark the spots at FIT ALL */
  anchor(SAFE.x,SAFE.z,'🏠','SAFE HOUSE');
  anchor(LOT.x,LOT.z,'🚗','USED CARS');
  anchor(SHOP.x,SHOP.z,'👕','CLOTHES');
  anchor(FENCE.x,FENCE.z,'🔒','FENCE');
  anchor(-30,-240,'🚓','POLICE');
  g.fillStyle='#e8b33a';g.beginPath();g.arc(X(-24),Y(-186),2.6,0,7);g.fill();
- g.font='7.5px Barlow, sans-serif';g.fillStyle='#eef1f4';g.fillText('RELEASE',X(-24),Y(-186)+13);
+ if(zm19>=2){g.font='7.5px Barlow, sans-serif';g.fillStyle='#eef1f4';g.fillText('RELEASE',X(-24),Y(-186)+13);} /* v30.20: RELEASE text is POI-tier too */
  /* cameras — the fairness ruling: speed cameras ALWAYS shown; ANPR only
     once discovered (S.seenCams, append-only; undiscovered = invisible) */
  g.font='10px sans-serif';g.textAlign='center';
@@ -11684,6 +11755,433 @@ function r1HiddenBld(b){return !!R1_HIDDEN_BLD[Math.round(b.x)+','+Math.round(b.
    nwDiagonal:'Railway canvas paint, Heywood-Castleton-station course, leg (-1800,2400)->(-200,1300) west of the safe house — retired and replaced by ballast/rail geometry',
    classify:classify19,disc:disc19,
    discs:function(){var out={safehouse:disc19(SAFE.x,SAFE.z,1500,60)};ANCH.forEach(function(an){if(an.id!=='safehouse')out[an.id]=disc19(an.x,an.z,1500,60);});return out;}
+ };
+})();
+
+
+/* ================= v30.20 — WEST GROUND PATTERN, ALL-BUILDINGS ORPHANS, RAILWAY, MAP LABELS + ERROR TOAST =================
+   Answers the third screenshot inspection of v30.19 (PARTLY BETTER, NOT
+   FIXED) point by point:
+   (1) WEST GROUND — v30.19's cover grid measured "zero flat cells" yet the
+       west still read as a flat mud void: the western cells are MOOR, whose
+       four instance tones are all olive-brown within a few % of each other
+       (0x6b6248 / 0x71684e / 0x655c46 / 0x757052) and whose heather-mottle
+       texture features are 10-35u across — at AERIAL distance they
+       mip-average to the same olive as the instance colour, so parcel,
+       texture and tone all vanish together (the F1 failure mode, one level
+       up). Fix is PATTERN AT PARCEL SCALE: every open cell (field / moor /
+       wood) now carries a parcel quad from a 1,240u (2x2-cell) parcel hash
+       in a WIDE muted palette (several greens, olive, heather, bracken,
+       pale grass, ploughed brown as ONE tone among several), bounded by
+       dark hedgerow / dry-stone-wall strips along parcel boundaries that
+       stay visible from the air, plus scattered tree clusters. The measure
+       is distance-scale by construction: __V3020_AUDIT.westMeasure()
+       samples the western disc in 130u blocks and reports tonal variance +
+       parcel-edge density (a uniform-olive result fails it, however
+       textured the ground is up close).
+   (2) ORPHANS, ALL BUILDINGS — v30.19's audit covered GENERATED buildings
+       only (the v30.18 set). The shipped R1/v30.17 sets were never audited,
+       so shipped houses stand street-less (one just south of the safe
+       house). Here the SAME frontage-gap rule (>60u to every street) runs
+       over EVERY building in the world; the v30.17 perimeter wall segments
+       (684, flagged v17perim — the boundary structure itself, not houses)
+       are counted separately and excluded from laning. Every orphan found
+       gets a lane/stub in the v30.18/19 manner (dressing, always-visible
+       merged ribbon, collision == visibility); nothing shipped moves.
+       A borderline band is laned too: houses at gap 45-60 near the safe
+       house / district anchors are inside the rule on paper but read as
+       standing alone (the inspection's safe-house-south house measures
+       gap 59) — their frontage is made visible, not just arithmetic.
+   (3) RAILWAY — v30.19's ballast canvas base was #7a756b (pale warm grey)
+       with 0.6u speckle: under the northern grade it reads as a WHITE band,
+       its 1.6u-wide steel was pale silver 0x9aa0a4, and its sleepers were
+       single-sided dark quads whose two triangles shade unevenly at
+       distance (the "black triangular chevrons"). Re-skin ON THE SAME
+       COURSE: a darker grey-brown ballast overlay (base #59534a, chunky
+       speckle), chunkier double-sided sleepers (17u across, 13u spacing)
+       and DARK gunmetal rails (0x43484d) so the course reads ballast +
+       sleepers + twin rails from AERIAL. The Metrolink failed the same bar
+       (pale #b9bcb4 slab + the same pale steel) and gets the same re-skin:
+       darker concrete slab + dark rails.
+   (4) MAP LABELS — fixed inside drawFullMap (its own hunks): FIT ALL now
+       shows ONLY district labels, collision-resolved by a deterministic
+       nudge search over measured label boxes; road / POI labels return at
+       x2 zoom and above (zoom levels, pan, ribbons, footprints unchanged).
+       Every draw records its label boxes on window.__V3020_MAP so the
+       overlap count is provable from the page itself.
+   (5) ERROR TOAST — the two-line handler at the head of this IIFE is
+       replaced alongside this block: errors/rejections are formatted by
+       window.__daleFmtErr (Error name + message; never [object Object]).
+   Everything here is ADDITIONS on a PRIVATE seeded stream (20261120) plus
+   the declared drawFullMap / error-handler hunks: no shipped building,
+   centreline, anchor, drop or gameplay element moves; saves gain no
+   fields; new fabric renders through world-scale instanced/merged sets
+   (frustumCulled=false) placed before the R1 chunk registry exactly like
+   v30.17-v30.19, so collision == visibility holds for every new solid. */
+(function(){
+ var V20={parcels:0,hedges:0,trees:0,lanes:0,orphansFound:0,orphansFixed:0,perimOrphans:0,sets:0,sleepers:0};
+ var seed=20261120; function rnd20(){seed=(seed*48271)%2147483647;return (seed-1)/2147483646;}
+ function hash20(a,b){var h=(a*374761393+b*668265263)^(20261120);h=(h^(h>>13))*1274126177;return ((h^(h>>16))>>>0)/4294967295;}
+ function segD20(x,z,s){var dx=s.bx-s.ax,dz=s.bz-s.az,L=dx*dx+dz*dz;var t=L?((x-s.ax)*dx+(z-s.az)*dz)/L:0;t=t<0?0:(t>1?1:t);var cx=s.ax+dx*t,cz=s.az+dz*t;return Math.sqrt((x-cx)*(x-cx)+(z-cz)*(z-cz));}
+ function waterDist20(x,z){var d=1e9;for(var a=0;a<RIVER.length-1;a++)d=Math.min(d,segDist(x,z,RIVER[a][0],RIVER[a][1],RIVER[a+1][0],RIVER[a+1][1]));for(var c=0;c<R1_CANAL.length-1;c++)d=Math.min(d,segDist(x,z,R1_CANAL[c][0],R1_CANAL[c][1],R1_CANAL[c+1][0],R1_CANAL[c+1][1]));return d;}
+ /* ---- unified street/course segment lists (shipped roads + all generated streets/lanes) ---- */
+ var RDSEG20=[],RSEG20=[],STSEG20=[];
+ ROADS.forEach(function(r){for(var j=0;j<r.pts.length-1;j++){var sg={ax:r.pts[j][0],az:r.pts[j][1],bx:r.pts[j+1][0],bz:r.pts[j+1][1],h:(r.cls==='R'?0:rh(r)),cls:r.cls};(r.cls==='R'?RSEG20:RDSEG20).push(sg);}});
+ function addStreets20(list){(list||[]).forEach(function(sp){for(var j=0;j<sp.pts.length-1;j++)STSEG20.push({ax:sp.pts[j][0],az:sp.pts[j][1],bx:sp.pts[j+1][0],bz:sp.pts[j+1][1],w:sp.w,street:1});});}
+ addStreets20(window.__V3018_AUDIT&&__V3018_AUDIT.streets);
+ addStreets20(window.__V3019_AUDIT&&__V3019_AUDIT.streets);
+ addStreets20(window.__V3019_AUDIT&&__V3019_AUDIT.lanes);
+ var SEGIDX20={};
+ function segIdxAdd20(s){var x0=Math.floor((Math.min(s.ax,s.bx)-160)/400),x1=Math.floor((Math.max(s.ax,s.bx)+160)/400),z0=Math.floor((Math.min(s.az,s.bz)-160)/400),z1=Math.floor((Math.max(s.az,s.bz)+160)/400);for(var i=x0;i<=x1;i++)for(var j=z0;j<=z1;j++){var k=i+','+j;(SEGIDX20[k]=SEGIDX20[k]||[]).push(s);}}
+ RDSEG20.forEach(segIdxAdd20);STSEG20.forEach(segIdxAdd20);RSEG20.forEach(segIdxAdd20);
+ function segsNear20(x,z){return SEGIDX20[Math.floor(x/400)+','+Math.floor(z/400)]||[];}
+ function segsNear20w(x,z){var out=[],cx=Math.floor(x/400),cz=Math.floor(z/400);for(var i=-1;i<=1;i++)for(var j=-1;j<=1;j++){var l=SEGIDX20[(cx+i)+','+(cz+j)];if(l)for(var k=0;k<l.length;k++)out.push(l[k]);}return out;}
+ function streetGap20(b,extra){
+   var best=1e9,i,s,dd;
+   var near=segsNear20w(b.x,b.z);
+   for(i=0;i<near.length;i++){s=near[i];if(s.cls==='R')continue;dd=segD20(b.x,b.z,s)-(s.street?s.w:s.h);if(dd<best)best=dd;}
+   if(best>800){ /* sparse corner of the index: fall back to the full scan so the audit matches the v30.19 rule exactly */
+     for(i=0;i<RDSEG20.length;i++){dd=segD20(b.x,b.z,RDSEG20[i])-RDSEG20[i].h;if(dd<best)best=dd;}
+     for(i=0;i<STSEG20.length;i++){dd=segD20(b.x,b.z,STSEG20[i])-STSEG20[i].w;if(dd<best)best=dd;}
+   }
+   if(extra)for(i=0;i<extra.length;i++){dd=segD20(b.x,b.z,extra[i])-extra[i].w;if(dd<best)best=dd;}
+   return best-Math.min(b.hw,b.hd);
+ }
+ /* building grid (overlap tests for lanes/parcels/trees) */
+ var GRID20={},GCELL20=260;
+ function gkey20(x,z){return Math.floor(x/GCELL20)+','+Math.floor(z/GCELL20);}
+ buildings.forEach(function(b){var k=gkey20(b.x,b.z);(GRID20[k]=GRID20[k]||[]).push(b);});
+ function overlaps20(x,z,hw,hd,skip){var cx=Math.floor(x/GCELL20),cz=Math.floor(z/GCELL20);for(var i=-1;i<=1;i++)for(var j=-1;j<=1;j++){var l=GRID20[(cx+i)+','+(cz+j)];if(!l)continue;for(var k=0;k<l.length;k++){var bb=l[k];if(bb===skip)continue;if(Math.abs(x-bb.x)<bb.hw+hw+3&&Math.abs(z-bb.z)<bb.hd+hd+3)return true;}}return false;}
+ /* ---- shared kit / ribbon builders (v30.19 pattern, own instances) ---- */
+ var M4=new THREE.Matrix4(),QT=new THREE.Quaternion(),EU=new THREE.Euler(),V3=new THREE.Vector3(),S3v=new THREE.Vector3(),C1=new THREE.Color();
+ function kit20(geo,mat,list){
+   if(!list.length)return null;
+   var im=new THREE.InstancedMesh(geo,mat,list.length);
+   for(var i=0;i<list.length;i++){var it=list[i];EU.set(0,it.ry||0,0);QT.setFromEuler(EU);V3.set(it.x,it.y||0,it.z);S3v.set(it.sx,it.sy,it.sz);M4.compose(V3,QT,S3v);im.setMatrixAt(i,M4);if(it.col!==undefined)im.setColorAt(i,C1.set(it.col));}
+   im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true;
+   im.frustumCulled=false;scene.add(im);V20.sets++;return im;
+ }
+ function Ribbon20(){this.pos=[];this.uv=[];this.idx=[];this.n=0;}
+ Ribbon20.prototype.add=function(pts,o0,o1,y,tile){
+   var P=pts,N=[],arc=0,i;
+   for(i=0;i<P.length;i++){var nx=0,nz=0;
+     if(i>0){var dx=P[i][0]-P[i-1][0],dz=P[i][1]-P[i-1][1],L=Math.sqrt(dx*dx+dz*dz)||1;nx+=-dz/L;nz+=dx/L;}
+     if(i<P.length-1){var dx2=P[i+1][0]-P[i][0],dz2=P[i+1][1]-P[i][1],L2=Math.sqrt(dx2*dx2+dz2*dz2)||1;nx+=-dz2/L2;nz+=dx2/L2;}
+     var NL=Math.sqrt(nx*nx+nz*nz);if(NL<0.001){nx=1;nz=0;NL=1;}N.push([nx/NL,nz/NL]);}
+   for(i=0;i<P.length;i++){
+     if(i>0)arc+=dist2(P[i][0],P[i][1],P[i-1][0],P[i-1][1]);
+     this.pos.push(P[i][0]+N[i][0]*o0,y,P[i][1]+N[i][1]*o0, P[i][0]+N[i][0]*o1,y,P[i][1]+N[i][1]*o1);
+     this.uv.push(o0/tile,arc/tile, o1/tile,arc/tile);
+     if(i>0){var a=this.n+(i-1)*2;this.idx.push(a,a+1,a+2, a+1,a+3,a+2);}
+   }
+   this.n+=P.length*2;
+ };
+ Ribbon20.prototype.mesh=function(mat){if(!this.n)return null;var g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(this.pos,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(this.uv,2));g.setIndex(this.idx);g.computeVertexNormals();var m=new THREE.Mesh(g,mat);m.frustumCulled=false;scene.add(m);V20.sets++;return m;};
+ function Quads20(){this.pos=[];this.uv=[];this.idx=[];this.n=0;}
+ Quads20.prototype.quad=function(cx,cz,dx,dz,hw,hl,y){var px=dz,pz=-dx;
+   var cs=[[cx-dx*hl-px*hw,cz-dz*hl-pz*hw],[cx+dx*hl-px*hw,cz+dz*hl+pz*hw],[cx+dx*hl+px*hw,cz+dz*hl+pz*hw],[cx-dx*hl+px*hw,cz-dz*hl+pz*hw]];
+   for(var i=0;i<4;i++){this.pos.push(cs[i][0],y,cs[i][1]);this.uv.push(i%2,Math.floor(i/2));}
+   this.idx.push(this.n,this.n+2,this.n+1, this.n,this.n+3,this.n+2);this.n+=4;};
+ Quads20.prototype.mesh=function(mat){if(!this.n)return null;var g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(this.pos,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(this.uv,2));g.setIndex(this.idx);g.computeVertexNormals();var m=new THREE.Mesh(g,mat);m.frustumCulled=false;scene.add(m);V20.sets++;return m;};
+ function asphTex20(){var c=document.createElement('canvas');c.width=c.height=256;var g=c.getContext('2d');var ts=32020;function tr(){ts=(ts*48271)%2147483647;return (ts-1)/2147483646;}
+   g.fillStyle='#2e3134';g.fillRect(0,0,256,256);
+   for(var i=0;i<2800;i++){g.fillStyle=(i%2?'rgba(255,255,255,':'rgba(0,0,0,')+(0.03+tr()*0.06)+')';g.fillRect(tr()*256,tr()*256,1.6,1.6);}
+   var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
+ var matAsph20=new THREE.MeshLambertMaterial({map:asphTex20(),side:THREE.DoubleSide});
+ var geoBox20=new THREE.BoxGeometry(1,1,1);geoBox20.translate(0,0.5,0);
+
+ /* ============ (2) ALL-BUILDINGS orphan audit + lanes ============ */
+ var ORPH20=[],PERIM20=0;
+ buildings.forEach(function(b){
+   if(b.v17perim){if(streetGap20(b)>60)PERIM20++;return;} /* the perimeter wall is the boundary itself — counted, never laned */
+   if(streetGap20(b)>60)ORPH20.push(b);
+ });
+ V20.orphansFound=ORPH20.length;V20.perimOrphans=PERIM20;
+ var orphList20=ORPH20.map(function(b){return {x:Math.round(b.x),z:Math.round(b.z),gap:Math.round(streetGap20(b)),set:(b.v19?'v30.19':(b.v18?'v30.18':(b.v17?'v30.17':'shipped')))};});
+ var safeSouth20=null;
+ ORPH20.forEach(function(b){if(b.z>SAFE.z&&Math.abs(b.x-SAFE.x)<700){var d=dist2(b.x,b.z,SAFE.x,SAFE.z);if(!safeSouth20||d<safeSouth20.d)safeSouth20={x:Math.round(b.x),z:Math.round(b.z),gap:Math.round(streetGap20(b)),d:Math.round(d)};}});
+ /* diagnostic: the largest frontage gap among ALL non-perimeter buildings
+    south of the safe house (r=2000) — names the inspection's house either
+    way: if it was an orphan it is in ORPH20 and laned above; if its gap
+    was already <=60 it was fronted on paper and this says by how much. */
+ var safeSouthDiag20=null;
+ buildings.forEach(function(b){if(b.v17perim)return;if(b.z<=SAFE.z)return;var d=dist2(b.x,b.z,SAFE.x,SAFE.z);if(d>=2000)return;var g=streetGap20(b);if(!safeSouthDiag20||g>safeSouthDiag20.gap)safeSouthDiag20={x:Math.round(b.x),z:Math.round(b.z),gap:Math.round(g),d:Math.round(d),orphan:g>60};});
+ var LANES20=[];
+ var aprons20=[];
+ (function(){
+   if(!ORPH20.length)return;
+   var curSegs=STSEG20.slice();
+   function laneSegsOf(sp){var o=[];for(var j=0;j<sp.pts.length-1;j++)o.push({ax:sp.pts[j][0],az:sp.pts[j][1],bx:sp.pts[j+1][0],bz:sp.pts[j+1][1],w:sp.w,street:1});return o;}
+   function placeLane(pts,b){
+     LANES20.push({pts:pts,w:8,zone:'orphan-lane-20'});V20.lanes++;
+     aprons20.push({x:b.x,y:0.06,z:b.z,ry:0,sx:b.hw*2+30,sy:0.5,sz:b.hd*2+30,col:0x8a8578});
+     laneSegsOf(LANES20[LANES20.length-1]).forEach(function(s){curSegs.push(s);});
+   }
+   function candsFor(b,limit){
+     var cands=[];
+     function scan(list,halfOf){for(var i=0;i<list.length;i++){var s=list[i];var dx=s.bx-s.ax,dz=s.bz-s.az;var LL=dx*dx+dz*dz;var t=LL?((b.x-s.ax)*dx+(b.z-s.az)*dz)/LL:0;t=t<0?0:(t>1?1:t);var px=s.ax+dx*t,pz=s.az+dz*t;cands.push({x:px,z:pz,d:dist2(b.x,b.z,px,pz)});}}
+     scan(RDSEG20);scan(curSegs);
+     cands.sort(function(a,c){return a.d-c.d;});
+     return cands.slice(0,limit);
+   }
+   function clearPath(pts,b,room,waterMin){
+     for(var li2=0;li2<pts.length-1;li2++){var ax=pts[li2][0],az=pts[li2][1],bx=pts[li2+1][0],bz=pts[li2+1][1];var LL=dist2(ax,az,bx,bz);var nn=Math.max(1,Math.round(LL/28));
+       for(var kk=0;kk<=nn;kk++){var lx=ax+(bx-ax)*kk/nn,lz=az+(bz-az)*kk/nn;if(overlaps20(lx,lz,room,room,b))return false;if(waterDist20(lx,lz)<waterMin)return false;}}
+     return true;
+   }
+   function tryPass(b,candN,bends,room,waterMin,thresh){
+     if(streetGap20(b,curSegs)<=thresh)return true;
+     var cands=candsFor(b,candN);
+     for(var ci=0;ci<cands.length;ci++){
+       var cp=cands[ci];
+       var dx=b.x-cp.x,dz=b.z-cp.z,L=Math.sqrt(dx*dx+dz*dz)||1;dx/=L;dz/=L;
+       var fx=b.x-dx*(Math.min(b.hw,b.hd)+4),fz=b.z-dz*(Math.min(b.hw,b.hd)+4);
+       var trials=[[[Math.round(cp.x),Math.round(cp.z)],[Math.round(fx),Math.round(fz)]]];
+       bends.forEach(function(bn){trials.push([[Math.round(cp.x),Math.round(cp.z)],[Math.round((cp.x+fx)/2-dz*bn),Math.round((cp.z+fz)/2+dx*bn)],[Math.round(fx),Math.round(fz)]]);});
+       for(var ti=0;ti<trials.length;ti++){if(clearPath(trials[ti],b,room,waterMin)){placeLane(trials[ti],b);return true;}}
+     }
+     return false;
+   }
+   ORPH20.forEach(function(b){tryPass(b,7,[70,-70,120,-120,190,-190,280,-280],10,30,60);});
+   ORPH20.forEach(function(b){tryPass(b,10,[90,-90,160,-160,240,-240,340,-340],8,14,60);});
+   ORPH20.forEach(function(b){tryPass(b,14,[60,-60,110,-110,170,-170,250,-250,340,-340,430,-430],4,8,60);});
+   /* last resort: least-overlap scoring, as v30.19 — a lane is always placed */
+   ORPH20.forEach(function(b){
+     if(streetGap20(b,curSegs)<=60)return;
+     var cands=candsFor(b,6),bestPts=null,bestScore=1e18;
+     for(var ci=0;ci<cands.length;ci++){
+       var cp=cands[ci];
+       var dx=b.x-cp.x,dz=b.z-cp.z,L=Math.sqrt(dx*dx+dz*dz)||1;dx/=L;dz/=L;
+       var fx=b.x-dx*(Math.min(b.hw,b.hd)+4),fz=b.z-dz*(Math.min(b.hw,b.hd)+4);
+       var trials=[[[Math.round(cp.x),Math.round(cp.z)],[Math.round(fx),Math.round(fz)]]];
+       [80,-80,150,-150,230,-230,320,-320].forEach(function(bn){trials.push([[Math.round(cp.x),Math.round(cp.z)],[Math.round((cp.x+fx)/2-dz*bn),Math.round((cp.z+fz)/2+dx*bn)],[Math.round(fx),Math.round(fz)]]);});
+       for(var ti=0;ti<trials.length;ti++){
+         var pts=trials[ti],score=0;
+         for(var li2=0;li2<pts.length-1;li2++){var ax=pts[li2][0],az=pts[li2][1],bx=pts[li2+1][0],bz=pts[li2+1][1];var LL2=dist2(ax,az,bx,bz);var nn=Math.max(1,Math.round(LL2/20));
+           for(var kk=0;kk<=nn;kk++){var lx=ax+(bx-ax)*kk/nn,lz=az+(bz-az)*kk/nn;if(overlaps20(lx,lz,2,2,b))score+=1;if(waterDist20(lx,lz)<6)score+=2;}}
+         if(score<bestScore){bestScore=score;bestPts=pts;}
+       }
+     }
+     if(bestPts)placeLane(bestPts,b);
+   });
+   /* borderline pass: houses at gap 45-60 near the safe house / district
+      anchors are fronted ON PAPER (inside the 60u rule) but read as
+      standing alone in open ground — the v30.18 back-land scatter left a
+      whole band of them (its plots sat >=108u from its own streets). The
+      inspection's safe-house-south house is one: (-714,1985), gap 59,
+      ~520u SSW of the safe house. They all get a lane too, so their
+      frontage is visible, not arithmetic. */
+   var ANCH20=[{x:SAFE.x,z:SAFE.z}];
+   (function(){var seen={};AREAS.forEach(function(a){if(seen[a.id])return;seen[a.id]=1;ANCH20.push({x:a.x,z:a.z});});})();
+   var BORD20=[];
+   buildings.forEach(function(b){
+     if(b.v17perim)return;
+     var g0=streetGap20(b); /* base index first (roads + all shipped/generated streets): lanes only ever shrink a gap, so g0<=45 can never be borderline */
+     if(g0<=45||g0>60)return;
+     var g=streetGap20(b,curSegs);
+     if(g<=45||g>60)return;
+     for(var ai=0;ai<ANCH20.length;ai++){if(dist2(b.x,b.z,ANCH20[ai].x,ANCH20[ai].z)<2000){BORD20.push({b:b,gap:Math.round(g)});break;}}
+   });
+   V20.borderlineFound=BORD20.length;
+   V20.borderlineList=BORD20.map(function(r){return {x:Math.round(r.b.x),z:Math.round(r.b.z),gap:r.gap};});
+   BORD20.forEach(function(r){tryPass(r.b,10,[80,-80,140,-140,220,-220,320,-320],8,16,45);});
+   /* borderline last resort: least-overlap scoring, as the orphan pass —
+      every borderline house gets its lane */
+   BORD20.forEach(function(r){
+     var b=r.b;
+     if(streetGap20(b,curSegs)<=45)return;
+     var cands=candsFor(b,6),bestPts=null,bestScore=1e18;
+     for(var ci=0;ci<cands.length;ci++){
+       var cp=cands[ci];
+       var dx=b.x-cp.x,dz=b.z-cp.z,L=Math.sqrt(dx*dx+dz*dz)||1;dx/=L;dz/=L;
+       var fx=b.x-dx*(Math.min(b.hw,b.hd)+4),fz=b.z-dz*(Math.min(b.hw,b.hd)+4);
+       var trials=[[[Math.round(cp.x),Math.round(cp.z)],[Math.round(fx),Math.round(fz)]]];
+       [80,-80,150,-150,230,-230,320,-320].forEach(function(bn){trials.push([[Math.round(cp.x),Math.round(cp.z)],[Math.round((cp.x+fx)/2-dz*bn),Math.round((cp.z+fz)/2+dx*bn)],[Math.round(fx),Math.round(fz)]]);});
+       for(var ti=0;ti<trials.length;ti++){
+         var pts=trials[ti],score=0;
+         for(var li2=0;li2<pts.length-1;li2++){var ax=pts[li2][0],az=pts[li2][1],bx=pts[li2+1][0],bz=pts[li2+1][1];var LL2=dist2(ax,az,bx,bz);var nn=Math.max(1,Math.round(LL2/20));
+           for(var kk=0;kk<=nn;kk++){var lx=ax+(bx-ax)*kk/nn,lz=az+(bz-az)*kk/nn;if(overlaps20(lx,lz,2,2,b))score+=1;if(waterDist20(lx,lz)<6)score+=2;}}
+         if(score<bestScore){bestScore=score;bestPts=pts;}
+       }
+     }
+     if(bestPts)placeLane(bestPts,b);
+   });
+   var bordFixed=0;BORD20.forEach(function(r){if(streetGap20(r.b,curSegs)<=45)bordFixed++;});
+   V20.borderlineFixed=bordFixed;
+   var laneSegsAll=[];LANES20.forEach(function(sp){laneSegsOf(sp).forEach(function(s){laneSegsAll.push(s);});});
+   var fixed=0;ORPH20.forEach(function(b){if(streetGap20(b,laneSegsAll)<=60)fixed++;});
+   V20.orphansFixed=fixed;
+   var RB=new Ribbon20();
+   LANES20.forEach(function(st){RB.add(st.pts,-st.w,st.w,0.40,46);});
+   RB.mesh(matAsph20);
+ })();
+ kit20(geoBox20,new THREE.MeshLambertMaterial({color:0xffffff}),aprons20);
+
+ /* ============ (1) parcel patchwork over the open cover cells ============ */
+ var CVL20=(window.__V3019_AUDIT&&__V3019_AUDIT.coverList)||[];
+ var OX20=-9480,OZ20=-6480,CELL20=620;
+ var CELLMAP20={};
+ CVL20.forEach(function(cv){var i=Math.round((cv.x-(OX20+CELL20/2))/CELL20),j=Math.round((cv.z-(OZ20+CELL20/2))/CELL20);CELLMAP20[i+','+j]={x:cv.x,z:cv.z,t:cv.t,i:i,j:j};});
+ var FIELD20=[0x54743c,0x7d9a5e,0x688550,0x4d6b38,0x87a068,0x5d7a45,0x6a5a63,0x71604a]; /* wide luminance spread (96-149) so neighbouring parcels separate at distance; last two: heather + ploughed, minorities */
+ var MOOR20=[0x5f7046,0x7d815c,0x8a9068,0x6a5560,0x77684a,0x67784f,0x46543a,0x71604a]; /* greens + pale grass + heather + bracken + dark moss, ploughed last */
+ var WOODF20=[0x4d603d,0x54663f,0x475a38,0x52663f];
+ var HEDGE20=[0x3f4f33,0x46543a,0x3a4630];
+ var WALL20=[0x6b675c,0x5f5b52];
+ var PARCELCACHE20={};
+ function parcelOf(cell){
+   var pi=Math.floor(cell.i/2),pj=Math.floor(cell.j/2);
+   var key=pi+','+pj+','+cell.t;
+   if(PARCELCACHE20[key])return PARCELCACHE20[key];
+   var pal=cell.t==='moor'?MOOR20:(cell.t==='wood'?WOODF20:FIELD20);
+   var h=hash20(pi*7+11,pj*13+5);
+   var idx=Math.floor(h*pal.length)%pal.length;
+   if(cell.t!=='wood'&&h>0.90)idx=pal.length-1; /* ploughed brown: ~1 parcel in 10, never the whole field */
+   /* patchwork rule: a parcel never shares its tone with the parcel west or
+      north of it (cells are visited west-to-east, north-to-south, so both
+      are already decided) — identical neighbours would merge into one flat
+      read at distance, which is the failure being fixed */
+   var wP=PARCELCACHE20[(pi-1)+','+pj+','+cell.t],nP=PARCELCACHE20[pi+','+(pj-1)+','+cell.t];
+   if((wP&&wP.col===pal[idx])||(nP&&nP.col===pal[idx])){idx=(idx+3)%pal.length;
+     if((wP&&wP.col===pal[idx])||(nP&&nP.col===pal[idx]))idx=(idx+5)%pal.length;}
+   var rec={pi:pi,pj:pj,col:pal[idx],idx:idx};
+   PARCELCACHE20[key]=rec;
+   return rec;
+ }
+ var PARCELMAP20={};
+ Object.keys(CELLMAP20).map(function(k){return CELLMAP20[k];}).sort(function(a,b){return (a.i-b.i)||(a.j-b.j);}).forEach(function(c){if(c.t==='urban')return;PARCELMAP20[c.i+','+c.j]=parcelOf(c);});
+ function parcelAt20(x,z){
+   var i=Math.floor((x-OX20)/CELL20),j=Math.floor((z-OZ20)/CELL20);
+   var c=CELLMAP20[i+','+j];if(!c||c.t==='urban')return null;
+   var p=PARCELMAP20[i+','+j];if(!p)return null;
+   return {col:p.col,tone:p.idx,pi:p.pi,pj:p.pj,t:c.t};
+ }
+ var parcelItems=[],hedgeItems=[],trunk20=[],canopy20=[],HEDGESEEN20={};
+ var LEAF20=[0x51663f,0x5d7350,0x49603c,0x667c55,0x42563a];
+ function segClear20(x,z,roadPad,railPad,waterPad){
+   if(waterDist20(x,z)<waterPad)return false;
+   var near=segsNear20(x,z);
+   for(var i=0;i<near.length;i++){var s=near[i];var d=segD20(x,z,s);if(s.cls==='R'){if(d<railPad)return false;}else if(s.street){if(d<s.w+roadPad)return false;}else if(d<s.h+roadPad)return false;}
+   return true;
+ }
+ Object.keys(CELLMAP20).forEach(function(k){
+   var c=CELLMAP20[k];if(c.t==='urban')return;
+   var p=PARCELMAP20[k];if(!p)return;
+   if(waterDist20(c.x,c.z)<95)return; /* channel + banks keep their own ribbons */
+   var rNear=false;for(var ri=0;ri<RSEG20.length;ri++){if(segD20(c.x,c.z,RSEG20[ri])<60){rNear=true;break;}}
+   if(rNear)return; /* the rail/Metrolink courses keep their own beds */
+   parcelItems.push({x:c.x,y:0.262,z:c.z,ry:0,sx:CELL20-6,sy:0.023,sz:CELL20-6,col:p.col});V20.parcels++; /* top 0.285: above the cover cells (0.26) but below banks (0.29) / water (0.31) / towpath (0.33) / ballast (0.34), so a cell straddling a channel never paints over it — the shipped stack's own plane gaps are 0.02-0.05 */
+   /* hedgerow / wall strips where the parcel tone changes — all four edges, deduped by edge key so a shared edge is built once */
+   [[1,0],[-1,0],[0,1],[0,-1]].forEach(function(dir){
+     var ekey=dir[0]!==0?('V'+(dir[0]>0?c.i+1:c.i)+','+c.j):('H'+c.i+','+(dir[1]>0?c.j+1:c.j));
+     if(HEDGESEEN20[ekey])return;
+     var nk=(c.i+dir[0])+','+(c.j+dir[1]);
+     var nc=CELLMAP20[nk],np=PARCELMAP20[nk];
+     var boundary=!nc||nc.t==='urban'||!np||np.pi!==p.pi||np.pj!==p.pj||np.col!==p.col;
+     if(!boundary)return;
+     HEDGESEEN20[ekey]=1;
+     var ex=c.x+dir[0]*(CELL20/2),ez=c.z+dir[1]*(CELL20/2);
+     var wall=(c.t==='moor'&&hash20(c.i*3+dir[0],c.j*5+dir[1])<0.45);
+     var col=wall?WALL20[Math.floor(hash20(c.i,c.j)*2)%2]:HEDGE20[Math.floor(hash20(c.j,c.i)*3)%3];
+     for(var sub=0;sub<4;sub++){
+       var off=-CELL20/2+CELL20*(sub+0.5)/4;
+       var hx=dir[0]!==0?ex:ex+off,hz=dir[1]!==0?ez:ez+off;
+       if(!segClear20(hx,hz,16,26,42))continue;
+       hedgeItems.push({x:hx,y:0.30,z:hz,ry:0,sx:dir[0]!==0?9:(CELL20/4+4),sy:wall?4.2:5.5,sz:dir[1]!==0?9:(CELL20/4+4),col:col});V20.hedges++;
+     }
+   });
+   /* scattered tree clusters on open parcels */
+   if(hash20(c.i*17,c.j*23)<0.16){
+     var n=2+Math.floor(hash20(c.j,c.i)*4);
+     for(var tt=0;tt<n;tt++){
+       var tx=c.x+(hash20(c.i+tt*31,c.j)-0.5)*440,tz=c.z+(hash20(c.j+tt*47,c.i)-0.5)*440;
+       if(!segClear20(tx,tz,24,44,60))continue;
+       if(overlaps20(tx,tz,10,10))continue;
+       var sc=0.85+hash20(tx,tz)*0.7;
+       trunk20.push({x:tx,y:0,z:tz,ry:hash20(tx,tt)*3.14,sx:14*sc,sy:22*sc,sz:14*sc});
+       canopy20.push({x:tx,y:0,z:tz,ry:hash20(tz,tt)*3.14,sx:34*sc,sy:40*sc,sz:34*sc,col:LEAF20[Math.floor(hash20(tx*3,tz)*LEAF20.length)%LEAF20.length]});
+       V20.trees++;
+     }
+   }
+ });
+ kit20(geoBox20,new THREE.MeshLambertMaterial({color:0xffffff}),parcelItems);
+ kit20(geoBox20,new THREE.MeshLambertMaterial({color:0xffffff}),hedgeItems);
+ var geoTrunk20=new THREE.CylinderGeometry(0.09,0.13,1,5);geoTrunk20.translate(0,0.5,0);
+ var geoCanopy20=new THREE.IcosahedronGeometry(0.5,0);geoCanopy20.translate(0,0.85,0);
+ kit20(geoTrunk20,new THREE.MeshLambertMaterial({color:0x4c3d2f}),trunk20);
+ kit20(geoCanopy20,new THREE.MeshLambertMaterial({color:0xffffff}),canopy20);
+
+ /* ============ (3) railway + Metrolink re-skin (same courses) ============ */
+ function ballastTex20(){var c=document.createElement('canvas');c.width=c.height=128;var g=c.getContext('2d');var ts=555020;function tr(){ts=(ts*48271)%2147483647;return (ts-1)/2147483646;}
+   g.fillStyle='#59534a';g.fillRect(0,0,128,128);
+   for(var i=0;i<1500;i++){var v=Math.floor(58+tr()*70);g.fillStyle='rgb('+v+','+(v-3)+','+(v-10)+')';g.fillRect(tr()*128,tr()*128,2.4,2.4);}
+   for(var b=0;b<8;b++){g.fillStyle='rgba(30,26,20,'+(0.08+tr()*0.08)+')';g.fillRect(tr()*100,tr()*100,14+tr()*22,9+tr()*16);}
+   var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
+ function slabTex20(){var c=document.createElement('canvas');c.width=c.height=128;var g=c.getContext('2d');var ts=555021;function tr(){ts=(ts*48271)%2147483647;return (ts-1)/2147483646;}
+   g.fillStyle='#8f918a';g.fillRect(0,0,128,128);
+   for(var i=0;i<1100;i++){g.fillStyle=(i%2?'rgba(255,255,255,':'rgba(20,22,20,')+(0.03+tr()*0.05)+')';g.fillRect(tr()*128,tr()*128,1.8,1.8);}
+   g.strokeStyle='rgba(28,30,28,.55)';g.lineWidth=2;g.strokeRect(1,1,126,126);g.beginPath();g.moveTo(64,0);g.lineTo(64,128);g.stroke();
+   var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
+ var matBallast20=new THREE.MeshLambertMaterial({map:ballastTex20(),side:THREE.DoubleSide});
+ var matSlab20=new THREE.MeshLambertMaterial({map:slabTex20(),side:THREE.DoubleSide});
+ var matSteel20=new THREE.MeshLambertMaterial({color:0x43484d,side:THREE.DoubleSide});
+ var matSleeper20=new THREE.MeshLambertMaterial({color:0x3a3129,side:THREE.DoubleSide});
+ var BALL20=new Ribbon20(),RAIL20=new Ribbon20(),SLAB20=new Ribbon20(),SLEP20=new Quads20();
+ var railLen20=0,metroLen20=0;
+ ROADS.forEach(function(r){
+   if(r.name==='Railway'){
+     BALL20.add(r.pts,-13,13,0.42,40);
+     RAIL20.add(r.pts,-6.3,-4.7,0.55,40);RAIL20.add(r.pts,4.7,6.3,0.55,40);
+     for(var j=0;j<r.pts.length-1;j++){var ax=r.pts[j][0],az=r.pts[j][1],bx=r.pts[j+1][0],bz=r.pts[j+1][1];var L=dist2(ax,az,bx,bz);railLen20+=L;if(L<16)continue;var dx=(bx-ax)/L,dz=(bz-az)/L;for(var s=6;s<L;s+=13){SLEP20.quad(ax+dx*s,az+dz*s,dx,dz,8.6,2.0,0.485);V20.sleepers++;}}
+   }else if(r.name.indexOf('Metrolink')===0){
+     SLAB20.add(r.pts,-11,11,0.40,40);
+     RAIL20.add(r.pts,-5.6,-4.2,0.52,40);RAIL20.add(r.pts,4.2,5.6,0.52,40);
+     for(var j2=0;j2<r.pts.length-1;j2++)metroLen20+=dist2(r.pts[j2][0],r.pts[j2][1],r.pts[j2+1][0],r.pts[j2+1][1]);
+   }
+ });
+ BALL20.mesh(matBallast20);RAIL20.mesh(matSteel20);SLAB20.mesh(matSlab20);SLEP20.mesh(matSleeper20);
+
+ /* ============ audit hook ============ */
+ function lum20(col){return 0.299*((col>>16)&255)+0.587*((col>>8)&255)+0.114*(col&255);}
+ function westMeasure20(){
+   var cx=SAFE.x-4200,cz=SAFE.z,rad=2600,step=130;
+   var n={ground:0,road:0,water:0,built:0,open:0},tones={},lums=[],edges=0,pairs=0,prevCol={};
+   for(var gx=cx-rad;gx<=cx+rad;gx+=step){
+     var prevTone=null,curCol={};
+     for(var gz=cz-rad;gz<=cz+rad;gz+=step){
+       var dx=gx-cx,dz=gz-cz;if(dx*dx+dz*dz>rad*rad){prevTone=null;continue;}
+       var cls='ground',tone=null;
+       if(waterDist20(gx,gz)<28)cls='water';
+       else if(overlaps20(gx,gz,26,26))cls='built';
+       else{var near=segsNear20w(gx,gz),isRoad=false;for(var i2=0;i2<near.length;i2++){var s2=near[i2];if(s2.cls==='R')continue;var lim=s2.street?s2.w+15:s2.h+15;if(segD20(gx,gz,s2)<lim){isRoad=true;break;}}
+         if(isRoad)cls='road';
+         else{var pa=parcelAt20(gx,gz);if(pa){tone=pa.col;}else cls='open';}}
+       n[cls==='ground'&&tone===null?'open':cls]++;
+       if(tone!==null){tones[tone]=1;lums.push(lum20(tone));
+         if(prevTone!==null){pairs++;if(Math.abs(lum20(tone)-lum20(prevTone))>14)edges++;}
+         var up=prevCol[gz];if(up!==undefined&&up!==null){pairs++;if(Math.abs(lum20(tone)-lum20(up))>14)edges++;}
+         curCol[gz]=tone;prevTone=tone;
+       }else{prevTone=null;curCol[gz]=null;}
+     }
+     prevCol=curCol;
+   }
+   var mean=0;lums.forEach(function(v){mean+=v;});mean=lums.length?mean/lums.length:0;
+   var varr=0;lums.forEach(function(v){varr+=(v-mean)*(v-mean);});varr=lums.length?varr/lums.length:0;
+   return {centre:[cx,cz],r:rad,step:step,classes:n,distinctTones:Object.keys(tones).length,meanLum:Math.round(mean*10)/10,lumStd:Math.round(Math.sqrt(varr)*10)/10,edgeDensity:pairs?Math.round(edges/pairs*1000)/1000:0,edgePairs:pairs};
+ }
+ window.__V3020_AUDIT={
+   version:'v30.20',
+   lanes:LANES20,
+   orphansFound:V20.orphansFound,orphansFixed:V20.orphansFixed,orphansList:orphList20.slice(0,240),
+   borderlineFound:V20.borderlineFound||0,borderlineFixed:V20.borderlineFixed||0,borderlineList:V20.borderlineList||[],
+   perimeterOrphansSkipped:V20.perimOrphans,
+   safehouseSouth:safeSouth20,safehouseSouthDiag:safeSouthDiag20,
+   parcels:V20.parcels,hedges:V20.hedges,trees:V20.trees,sleepers:V20.sleepers,sets:V20.sets,
+   parcelAt:parcelAt20,westMeasure:westMeasure20,
+   linear20:{
+     railway:{before:'ballast canvas #7a756b + 0.6u speckle (reads white), steel 0x9aa0a4 pale silver, single-sided sleeper quads (triangles shade unevenly = chevrons)',after:'ballast overlay #59534a chunky speckle, sleepers 17u wide / 13u spacing double-sided 0x3a3129, rails dark gunmetal 0x43484d',courseLen:Math.round(railLen20)},
+     metrolink:{verdict:'failed the same bar (pale #b9bcb4 slab + pale steel) — re-skinned too',after:'slab overlay #8f918a jointed concrete, rails dark gunmetal 0x43484d',courseLen:Math.round(metroLen20)}
+   },
+   mapLabels:function(){return window.__V3020_MAP||null;}
  };
 })();
 
