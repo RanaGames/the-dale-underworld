@@ -15958,6 +15958,506 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
     loop; LS + the shipped walker keep sole ownership of ped movement */
 })();
 
+
+/* ================= v30.38 — LIVING STREETS · STAGE 4 (reactive pedestrians & world awareness) =================
+   Additive PERCEPTION layer layered over Living Streets Stage 1
+   (__LS27 routines), Stage 2 (__CV36 conversations + personalities)
+   and Stage 3 (__EN37 encounters) — it generalises civilian awareness
+   AROUND the shipped S2 reactions, never replacing or duplicating
+   them. The shipped walker still owns every ped: dive (fast car
+   inside 66u) and s2Flee scatter (s2Witness, inside 110u of a witnessed
+   crime) are the shipped panic responses to DIRECT threats, and they
+   pre-empt this layer exactly as they pre-empt LS/CV/EN — a ped that
+   is downed, fleeing or diving is SUSPENDED here and never written.
+   WHAT THIS LAYER ADDS: perception of events the shipped systems do
+   not cover ambiently — a fight in progress, a police chase / pullover
+   / arrest nearby, a fresh crash, the player's own dangerous driving
+   beyond the dive ring — and a lightweight reaction repertoire on the
+   existing movement only: Notice (face the event), Startle (short
+   step back), Avoid (step aside, off the road), Retreat (walk to a
+   validated safer point), Observe (watch from a safe distance),
+   Resume (hand the ped back to LS, which restores its routine).
+   PERCEPTION: event/proximity driven off shipped state read on ONE
+   staggered 300 ms tick (the LS27/CV36/EN37 rhythm — no per-frame
+   scans, no new loop). A stimulus must pass distance bands AND the
+   shipped combatLOS building check (no reaction through walls, no
+   omniscience) before a ped is even considered. LOS failures are
+   counted once per ped per episode. Reactions are STAGGERED: each
+   ped's start delay comes from its Stage 2 personality plus jitter,
+   and escape bearings are rotated per ped, so a crowd never moves as
+   one and never runs to the same point.
+   PERSONALITIES come from Stage 2 verbatim — read through
+   __CV36.personalities() every tick (falling back to the ped's own
+   __cv36 record if the surface is unavailable): Nervous reacts
+   soonest, startles into retreats and keeps the largest distances;
+   Confident hesitates, prefers to Observe and retreats shortest;
+   Grumpy often just Notices and carries on; Quiet is slowest.
+   OWNERSHIP (programme ladder: missions > police/arrest > combat >
+   witness > ambient reactions > conversations/events > routines):
+   reactions are taken ONLY from the same pool every prior layer
+   composes with — LS-parked peds (WAITING / SOCIALISING, not
+   LS-suspended). A ped in a __CV36 conversation, reserved by an
+   __EN37 scene, promoted into fighters[], downed/fleeing/diving, or
+   whose LS record has moved on is never reaction-driven; if ownership
+   changes mid-reaction the reaction aborts cleanly that tick and the
+   ped is released (the established suspend -> react -> resume pattern
+   around LS's p.tx / p.tz / p.waitT and the p.__ls27.until dwell
+   hold, identical to EN37's). Travelling peds are LS-steered and are
+   not touched — the shipped dive/flee still covers them for direct
+   threats. Aunties, mates, leaders and police are not in peds[] and
+   are never reaction-driven.
+   WITNESS: this layer reports NOTHING. s2Witness stays the sole
+   crime-reporting authority; the module writes no Cash / Rep / Heat /
+   Tension / complaint state (grep-verifiable) — consequences belong
+   to shipped mechanics alone. Startle exclamations are presentation
+   only, through the shipped bubble(), under the same range/busy
+   rules as EN37's breakdown mutters.
+   STIMULI (all read from shipped state; positions are loci):
+   - fight: fighters[] non-empty, locus = fighter centroid (the
+     EN37 bystander computation), severity grows with fighter count.
+   - police: police.mode chase/pullover, the FSM in PURSUE / ARREST,
+     or the controlled arrestSeq running; locus = the unit (or the
+     player during arrestSeq). police2 only wanders/parks (shipped)
+     and is not a stimulus.
+   - crash: a new S.crashFeed entry matching the incident filter
+     (the feed is strings; EN37 used its length the same way) —
+     crashes involve the player, so the locus is the player focus;
+     the episode stays live ~6 game-s.
+   - driving: the player's own speedNow() above RP_FAST outside the
+     shipped dive ring — a fast pass. Traffic cars are NOT a stimulus:
+     they pass peds on roads constantly by design and reacting to
+     them would be pure noise.
+   SAVES: transient state only — nothing is serialised (S.reactions
+   is an append-only in-memory mirror like S.conversations /
+   S.encounters; the save system's unknown-section carry-over is
+   untouched). On load the module simply starts empty.
+   EVENTS for Living Streets Stage 5 (exposed, memory NOT built):
+   __RP38.events() ring + __RP38.on(fn) listeners: 'perceived',
+   'reaction' (with stimulus, npcId, personality, reaction, start
+   time and the stagger delay), 'resumed' and 'aborted' records.
+   Feature flag: reactivePedsEnabled (default ON). OFF = all
+   reactions end ('disabled'), no new perception, baseline v30.37
+   behaviour. Failure isolation: any throw disables ONLY this module.
+   Randomness is Math.random ONLY — the seeded rnd() stream that
+   world generation and gameplay draw from is never consumed.
+   Debug: window.__RP38 (overlay OFF by default); forceStimulus() is
+   a debug-only synthetic episode at an explicit locus — it exercises
+   the identical perception/reaction path the real stimuli use and
+   changes no gameplay state of its own. */
+(function(){
+ 'use strict';
+ var reactivePedsEnabled=true;
+ var RP=null;
+ var RP_TICK_MS=300;
+ var RP_FAST=150; /* player speedNow() above this = a dangerous pass */
+ var RP_BAND={ /* perceive / close radii per stimulus kind */
+  fight:{per:280,close:150},police:{per:320,close:170},
+  crash:{per:260,close:130},driving:{per:175,close:115}};
+ var RP_PERS={ /* per-personality stagger delay range + post-reaction cooldown (game-s) */
+  friendly:{delay:[0.3,0.9],cd:7},talkative:{delay:[0.25,0.8],cd:6},
+  quiet:{delay:[0.6,1.4],cd:9},grumpy:{delay:[0.5,1.2],cd:8},
+  nervous:{delay:[0.1,0.5],cd:5},confident:{delay:[0.4,1.0],cd:8}};
+ var RP_STARTLE_LINES=['Bloody hell!','Oi! Watch it!','Ey! Mind out!','Woah — steady on!','Jesus! Look out!'];
+ var RP_CRASH_RE=/crash|written off|collision|clipped|hit-and-run|ran from incident/i;
+ function rpFocus(){return (typeof footMode!=='undefined'&&footMode)?footMode:player;}
+ function rpSuspendedP(p){return !!(p.down||(p.s2DownT&&p.s2DownT>0)||(p.s2FleeT&&p.s2FleeT>0)||(p.diveT&&p.diveT>0));}
+ function rpFightersHas(p){
+  if(typeof fighters==='undefined'||!fighters)return false;
+  for(var i=0;i<fighters.length;i++)if(fighters[i].mesh===p.mesh)return true;
+  return false;
+ }
+ function rpLsOff(){try{return !!(window.__LS27&&window.__LS27.enabled&&!window.__LS27.enabled());}catch(e){return false;}}
+ function rpInit(){
+  RP={recs:[],episodes:{fight:null,police:null,crash:null,driving:null},epSeq:0,
+      lastCrashLen:(S&&S.crashFeed)?S.crashFeed.length:0,driveQuietSince:0,
+      events:[],listeners:[],debugStim:null,
+      counts:{perceived:0,reactions:0,resumed:0,aborted:0,losSkips:0,
+              byStimulus:{},byReaction:{},byAbort:{}},
+      day:(S?S.day:1),avgTickMs:0,tickN:0,overlay:null,lastStimuli:[]};
+  if(S&&!S.reactions)S.reactions={version:1,enabled:true};
+ }
+ function rpEmit(type,rec,extra){
+  var ev={type:type,t:Math.round(gameT*10)/10,
+          npcId:rec?rec.npcId:null,personality:rec?rec.pers:null};
+  if(extra)for(var k in extra)ev[k]=extra[k];
+  RP.events.push(ev);if(RP.events.length>60)RP.events.shift();
+  for(var i=0;i<RP.listeners.length;i++){try{RP.listeners[i](ev);}catch(e){}}
+ }
+ /* ---------- ped records + personalities (Stage 2's, verbatim) ---------- */
+ function rpReconcile(){
+  var persList=null;
+  try{if(window.__CV36&&window.__CV36.personalities)persList=window.__CV36.personalities();}catch(e){}
+  var i,p,r;
+  for(i=0;i<peds.length;i++){p=peds[i];
+   var entry=persList?persList[i]:null;
+   if(!p.__rp38||p.__rp38.p!==p){
+    r={p:p,ix:i,npcId:entry?entry.npcId:('ped'+i),pers:entry?entry.personality:(p.__cv36?p.__cv36.pers:null),
+       cdUntil:0,pending:null,react:null,lastEp:{},losEp:{}};
+    p.__rp38=r;RP.recs.push(r);
+   }else{
+    r=p.__rp38;r.ix=i;
+    if(entry){r.npcId=entry.npcId;if(entry.personality)r.pers=entry.personality;}
+    else if(p.__cv36&&p.__cv36.pers)r.pers=p.__cv36.pers;
+   }
+  }
+  for(i=RP.recs.length-1;i>=0;i--){if(peds.indexOf(RP.recs[i].p)<0){RP.recs[i].p.__rp38=null;RP.recs.splice(i,1);}}
+ }
+ /* ---------- eligibility & ownership ---------- */
+ function rpParked(p){ /* LS-parked and not owned by any shipped/layer system */
+  if(!p||rpSuspendedP(p))return false;
+  var lr=p.__ls27;if(!lr||lr.suspended)return false;
+  if(lr.state!=='WAITING'&&lr.state!=='SOCIALISING')return false;
+  return true;
+ }
+ function rpEligible(p){ /* reaction-free right now */
+  if(!rpParked(p))return false;
+  if(p.__cv36&&p.__cv36.convo)return false;
+  if(p.__en37)return false;
+  if(rpFightersHas(p))return false;
+  return true;
+ }
+ function rpInvalid(p){ /* mid-reaction ownership check: reason or null */
+  if(peds.indexOf(p)<0)return 'despawn';
+  if(rpSuspendedP(p))return 'state';
+  if(p.__cv36&&p.__cv36.convo)return 'claimed';
+  if(p.__en37)return 'encounter';
+  if(rpFightersHas(p))return 'combat';
+  var lr=p.__ls27;
+  if(!lr||lr.suspended||(lr.state!=='WAITING'&&lr.state!=='SOCIALISING'))return 'routine';
+  return null;
+ }
+ function rpHold(p){var lr=p.__ls27;if(lr&&lr.until<gameT+9)lr.until=gameT+9;}
+ function rpRelease(rec,reason,cdShort){
+  var p=rec.p;
+  rec.pending=null;rec.react=null;
+  if(p&&p.__rp38===rec&&peds.indexOf(p)>=0){
+   var lr=p.__ls27;if(lr)lr.until=gameT+1+Math.random()*2; /* LS re-decides promptly: routine restored */
+  }
+  if(cdShort)rec.cdUntil=Math.max(rec.cdUntil,gameT+2);
+ }
+ /* ---------- stimuli: read from shipped state only ---------- */
+ function rpDetect(){
+  var out=[],i;
+  /* police (highest ambient priority) */
+  var polOn=false,polX=0,polZ=0,polSev=2;
+  try{
+   if(typeof arrestSeq!=='undefined'&&arrestSeq){polOn=true;polSev=3;
+    var f0=rpFocus();polX=f0.x;polZ=f0.z;}
+   else if(typeof police!=='undefined'&&police){
+    var fsm=(police.ai&&police.ai.state)?police.ai.state:'';
+    if(police.mode==='chase'||police.mode==='pullover'||fsm==='PURSUE'||fsm==='ARREST'){
+     polOn=true;polX=police.x;polZ=police.z;if(fsm==='ARREST')polSev=3;}
+   }
+  }catch(e){}
+  if(polOn){
+   if(!RP.episodes.police)RP.episodes.police={id:++RP.epSeq};
+   out.push({kind:'police',x:polX,z:polZ,sev:polSev,epId:RP.episodes.police.id,debug:false});
+  }else RP.episodes.police=null;
+  /* fight */
+  if(typeof fighters!=='undefined'&&fighters&&fighters.length){
+   var cx=0,cz=0,n=0;
+   for(i=0;i<fighters.length;i++){if(fighters[i].mesh&&fighters[i].mesh.position){cx+=fighters[i].mesh.position.x;cz+=fighters[i].mesh.position.z;n++;}}
+   if(n){
+    if(!RP.episodes.fight)RP.episodes.fight={id:++RP.epSeq};
+    out.push({kind:'fight',x:cx/n,z:cz/n,sev:Math.min(3,1+Math.floor(fighters.length/2)),
+              epId:RP.episodes.fight.id,debug:false});
+   }else RP.episodes.fight=null;
+  }else RP.episodes.fight=null;
+  /* crash: new incident lines in the shipped feed */
+  if(S&&S.crashFeed){
+   if(S.crashFeed.length<RP.lastCrashLen)RP.lastCrashLen=S.crashFeed.length;
+   if(S.crashFeed.length>RP.lastCrashLen){
+    var hit=false;
+    for(i=RP.lastCrashLen;i<S.crashFeed.length;i++)if(RP_CRASH_RE.test(S.crashFeed[i]))hit=true;
+    RP.lastCrashLen=S.crashFeed.length;
+    if(hit){var f1=rpFocus();RP.episodes.crash={id:++RP.epSeq,x:f1.x,z:f1.z,until:gameT+6};}
+   }
+   if(RP.episodes.crash&&gameT<RP.episodes.crash.until)
+    out.push({kind:'crash',x:RP.episodes.crash.x,z:RP.episodes.crash.z,sev:3,
+              epId:RP.episodes.crash.id,debug:false});
+  }
+  /* driving: the player's own fast pass, outside the shipped dive ring */
+  var spd=0;try{spd=speedNow();}catch(e){}
+  if(spd>RP_FAST){
+   if(!RP.episodes.driving)RP.episodes.driving={id:++RP.epSeq};
+   RP.driveQuietSince=0;
+   out.push({kind:'driving',x:player.x,z:player.z,sev:spd>230?2:1,
+             epId:RP.episodes.driving.id,debug:false});
+  }else{
+   if(!RP.driveQuietSince)RP.driveQuietSince=gameT;
+   if(gameT-RP.driveQuietSince>3)RP.episodes.driving=null;
+  }
+  /* debug-only synthetic episode (verification; identical path) */
+  if(RP.debugStim&&gameT<RP.debugStim.until)
+   out.push({kind:RP.debugStim.kind,x:RP.debugStim.x,z:RP.debugStim.z,
+             sev:RP.debugStim.sev,epId:RP.debugStim.id,debug:true});
+  return out;
+ }
+ /* ---------- reaction choice (personality x stimulus x band) ---------- */
+ function rpChoose(kind,band,pers,sev){
+  if(kind==='driving'){
+   if(band==='close')return pers==='nervous'?'retreat':'avoid';
+   return 'notice';
+  }
+  if(kind==='police'){
+   if(band==='close')return pers==='nervous'?'retreat':'avoid';
+   if(pers==='nervous')return 'retreat';
+   return (pers==='grumpy'||pers==='quiet')?'notice':'observe';
+  }
+  if(kind==='crash'){
+   if(band==='close')return pers==='nervous'?'retreat':'startle';
+   if(pers==='nervous')return 'retreat';
+   return (pers==='confident'||pers==='talkative'||pers==='friendly')?'observe':'notice';
+  }
+  /* fight */
+  if(band==='close')return 'retreat';
+  if(pers==='nervous')return 'retreat';
+  return (pers==='quiet'||pers==='grumpy')?'notice':'observe';
+ }
+ /* ---------- destinations: validated, off-road, strictly safer ---------- */
+ function rpDestAway(p,lx,lz,stepLen,rot){
+  var a0=Math.atan2(p.x-lx,p.z-lz),cur=dist2(p.x,p.z,lx,lz);
+  var offs=[0,0.55,-0.55,1.1,-1.1,1.7,-1.7,2.4,-2.4];
+  for(var i=0;i<offs.length;i++){
+   /* candidate order rotated per ped: a crowd spreads across bearings
+      instead of every ped trying dead-away first */
+   var a=a0+offs[(i+rot)%offs.length];
+   var cx=p.x+Math.sin(a)*stepLen,cz=p.z+Math.cos(a)*stepLen;
+   if(footBlocked(cx,cz))continue;
+   try{if(onRoad(cx,cz))continue;}catch(e){}
+   if(dist2(cx,cz,lx,lz)<cur+8)continue; /* must end strictly farther from the event */
+   return {x:cx,z:cz};
+  }
+  return null;
+ }
+ function rpStart(rec,pend,stim){
+  var p=rec.p,kind=stim.kind;
+  var d=dist2(p.x,p.z,stim.x,stim.z);
+  var band=(d<=RP_BAND[kind].close)?'close':'mid';
+  var type=rpChoose(kind,band,rec.pers,stim.sev);
+  var persMul=rec.pers==='nervous'?1.3:(rec.pers==='confident'?0.7:(rec.pers==='grumpy'?0.85:1));
+  var dest=null,holdT=2,endT=0;
+  if(type==='retreat'){
+   var distNeeded=(stim.sev>=3?120:(stim.sev===2?85:55))*persMul;
+   dest=rpDestAway(p,stim.x,stim.z,Math.max(20,distNeeded-d+25),rec.ix%5);
+   if(!dest&&d>=60)type='observe';
+   else if(!dest)type='notice';
+   holdT=1.5+Math.random()*1.5;
+  }else if(type==='avoid'){
+   dest=rpDestAway(p,stim.x,stim.z,30,rec.ix%5);
+   if(!dest)type='startle';
+   holdT=0.8;
+  }else if(type==='startle'){
+   dest=rpDestAway(p,stim.x,stim.z,8,rec.ix%5); /* a step back, if a valid one exists */
+   holdT=1+Math.random()*0.8;
+  }else if(type==='observe'){
+   var ringMin=(kind==='police'?95:(kind==='fight'?85:75));
+   if(d<ringMin){dest=rpDestAway(p,stim.x,stim.z,ringMin-d+18,rec.ix%5);
+    if(!dest)type='notice';}
+   holdT=4+Math.random()*4;
+  }else{ /* notice */
+   holdT=2+Math.random()*1.5;
+  }
+  var react={kind:kind,epId:stim.epId,type:type,sev:stim.sev,debug:!!stim.debug,
+   lx:stim.x,lz:stim.z,phase:dest?'move':'hold',dest:dest,
+   anchorX:p.x,anchorZ:p.z,startT:gameT,holdT:holdT,
+   moveCap:gameT+9,endT:dest?0:gameT+holdT,bubbled:false};
+  rec.react=react;rec.pending=null;
+  RP.counts.reactions++;RP.counts.byStimulus[kind]=(RP.counts.byStimulus[kind]||0)+1;
+  RP.counts.byReaction[type]=(RP.counts.byReaction[type]||0)+1;
+  rpEmit('reaction',rec,{stimulus:kind,reaction:type,severity:stim.sev,
+   delay:Math.round((gameT-pend.assignedT)*10)/10,debug:!!stim.debug,
+   x:Math.round(p.x),z:Math.round(p.z)});
+  /* startle / close-avoid exclamation: presentation only, shipped bubble */
+  if((type==='startle'||(type==='avoid'&&band==='close'))&&Math.random()<0.6){
+   var f=rpFocus();
+   if(dist2(p.x,p.z,f.x,f.z)<450&&!(typeof bubbleT!=='undefined'&&bubbleT>0.25)){
+    try{bubble(p.mesh,RP_STARTLE_LINES[Math.floor(Math.random()*RP_STARTLE_LINES.length)]);react.bubbled=true;}catch(e){}
+   }
+  }
+ }
+ function rpStepToward(p,tx,tz,maxStep){
+  var dx=tx-p.x,dz=tz-p.z,d=Math.sqrt(dx*dx+dz*dz);if(d<1.5)return true;
+  var s=Math.min(d,maxStep);p.tx=p.x+dx/d*s;p.tz=p.z+dz/d*s;return d<=maxStep+1.5;
+ }
+ function rpFaceStep(rec){
+  var p=rec.p,r=rec.react;
+  var dx=r.lx-p.x,dz=r.lz-p.z,d=Math.sqrt(dx*dx+dz*dz);if(d<4)return;
+  /* bounded facing: step toward the locus only while within ~5u of the
+     hold anchor, otherwise step back to it — the ped turns to watch
+     without creeping into the incident (sustained at-rest facing is
+     the walker's documented limitation; this is the CV36 mechanism) */
+  if(dist2(p.x,p.z,r.anchorX,r.anchorZ)>5){p.tx=r.anchorX;p.tz=r.anchorZ;return;}
+  p.tx=p.x+dx/d*3;p.tz=p.z+dz/d*3;
+ }
+ function rpAbort(rec,reason){
+  RP.counts.aborted++;RP.counts.byAbort[reason]=(RP.counts.byAbort[reason]||0)+1;
+  rpEmit('aborted',rec,{reason:reason,stimulus:rec.react?rec.react.kind:(rec.pending?rec.pending.kind:null)});
+  rpRelease(rec,reason,true);
+ }
+ function rpComplete(rec){
+  RP.counts.resumed++;
+  var pc=RP_PERS[rec.pers]||RP_PERS.friendly;
+  rec.cdUntil=gameT+pc.cd+Math.random()*3;
+  rpEmit('resumed',rec,{stimulus:rec.react?rec.react.kind:null,reaction:rec.react?rec.react.type:null});
+  rpRelease(rec,'complete',false);
+ }
+ /* ---------- the tick ---------- */
+ function rpTick(){
+  var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  try{
+   if(!reactivePedsEnabled)return;
+   if(typeof S==='undefined'||!S||!S.playing||S.paused)return;
+   if(typeof peds==='undefined'||!peds.length)return;
+   if(!RP)rpInit();
+   if(S&&!S.reactions)S.reactions={version:1,enabled:true};
+   if(S.day!==RP.day){RP.day=S.day;
+    for(var di=0;di<RP.recs.length;di++)if(RP.recs[di].react||RP.recs[di].pending)rpRelease(RP.recs[di],'day',false);
+    RP.episodes={fight:null,police:null,crash:null,driving:null};RP.debugStim=null;}
+   rpReconcile();
+   if(rpLsOff()){
+    for(var li=0;li<RP.recs.length;li++)if(RP.recs[li].react||RP.recs[li].pending)rpAbort(RP.recs[li],'routine');
+    if(RP.overlay)rpOverlayDraw();
+    return;
+   }
+   var stimuli=rpDetect();
+   RP.lastStimuli=stimuli;
+   var i,j,rec,p,stim;
+   /* ---- perception: assign staggered pendings, priority order ---- */
+   for(i=0;i<stimuli.length;i++){
+    stim=stimuli[i];
+    var band=RP_BAND[stim.kind];if(!band)continue;
+    for(j=0;j<RP.recs.length;j++){
+     rec=RP.recs[j];p=rec.p;
+     if(rec.react||rec.pending)continue;
+     if(gameT<rec.cdUntil)continue;
+     if(rec.lastEp[stim.kind]===stim.epId)continue;
+     if(!rpEligible(p))continue;
+     var d=dist2(p.x,p.z,stim.x,stim.z);
+     if(d>band.per)continue;
+     if(d<26)continue; /* point-blank is the shipped dive/flee's ground, not ours */
+     var los=false;
+     try{los=combatLOS(p.x,p.z,stim.x,stim.z);}catch(e){los=false;}
+     if(!los){
+      if(rec.losEp[stim.kind]!==stim.epId){rec.losEp[stim.kind]=stim.epId;RP.counts.losSkips++;}
+      continue;
+     }
+     var pc=RP_PERS[rec.pers]||RP_PERS.friendly;
+     var delay=pc.delay[0]+Math.random()*(pc.delay[1]-pc.delay[0])+(d/band.per)*0.4;
+     rec.pending={kind:stim.kind,epId:stim.epId,assignedT:gameT,reactAt:gameT+delay};
+     rec.lastEp[stim.kind]=stim.epId;
+     rpHold(p);
+     RP.counts.perceived++;
+     rpEmit('perceived',rec,{stimulus:stim.kind,severity:stim.sev,
+      delay:Math.round(delay*10)/10,debug:!!stim.debug});
+    }
+   }
+   /* ---- advance pendings -> reactions ---- */
+   for(j=0;j<RP.recs.length;j++){
+    rec=RP.recs[j];if(!rec.pending)continue;
+    p=rec.p;
+    var inv=rpInvalid(p);
+    if(inv){rpAbort(rec,inv);continue;}
+    if(gameT<rec.pending.reactAt){rpHold(p);continue;}
+    var live=null;
+    for(i=0;i<stimuli.length;i++)if(stimuli[i].kind===rec.pending.kind&&stimuli[i].epId===rec.pending.epId)live=stimuli[i];
+    if(!live){rec.pending=null;continue;} /* the event ended before the delay ran out — no reaction */
+    rpStart(rec,rec.pending,live);
+   }
+   /* ---- advance reactions ---- */
+   for(j=0;j<RP.recs.length;j++){
+    rec=RP.recs[j];if(!rec.react)continue;
+    p=rec.p;var r=rec.react;
+    var inv2=rpInvalid(p);
+    if(inv2){rpAbort(rec,inv2);continue;}
+    rpHold(p);
+    if(r.phase==='move'&&r.dest){
+     var arrived=rpStepToward(p,r.dest.x,r.dest.z,26);
+     if(arrived&&dist2(p.x,p.z,r.dest.x,r.dest.z)<=7){r.phase='hold';r.endT=gameT+r.holdT;r.anchorX=p.x;r.anchorZ=p.z;}
+     else if(gameT>r.moveCap){r.phase='hold';r.endT=gameT+r.holdT;r.anchorX=p.x;r.anchorZ=p.z;}
+    }else{
+     if(r.type==='notice'||r.type==='observe'||r.type==='startle')rpFaceStep(rec);
+     if(gameT>=r.endT)rpComplete(rec);
+    }
+   }
+   if(RP.overlay)rpOverlayDraw();
+  }catch(e){
+   reactivePedsEnabled=false; /* failure isolation: only this module dies */
+   if(window.console)console.log('[v30.38 reactive-peds] disabled after error: '+(e&&e.message));
+  }
+  if(t0&&RP){var dtms=performance.now()-t0;RP.avgTickMs=RP.tickN?RP.avgTickMs*0.9+dtms*0.1:dtms;RP.tickN++;}
+ }
+ function rpOverlayDraw(){
+  if(!RP||!RP.overlay)return;
+  var act=0,pen=0,i;
+  for(i=0;i<RP.recs.length;i++){if(RP.recs[i].react)act++;if(RP.recs[i].pending)pen++;}
+  RP.overlay.textContent='REACTIVE PEDS · perceived '+RP.counts.perceived+' · reactions '+RP.counts.reactions+
+   ' · active '+act+' · pending '+pen+' · resumed '+RP.counts.resumed+' · aborted '+RP.counts.aborted+
+   ' · LOS-skips '+RP.counts.losSkips+' · tick '+RP.avgTickMs.toFixed(2)+'ms';
+ }
+ window.__RP38={
+  version:'v30.38',
+  enabled:function(){return reactivePedsEnabled;},
+  setEnabled:function(on){
+   reactivePedsEnabled=!!on;
+   if(S){if(!S.reactions)rpInit();if(S.reactions)S.reactions.enabled=reactivePedsEnabled;}
+   if(!on&&RP)for(var i=0;i<RP.recs.length;i++)if(RP.recs[i].react||RP.recs[i].pending)rpAbort(RP.recs[i],'disabled');
+   return reactivePedsEnabled;
+  },
+  on:function(fn){if(!RP)rpInit();if(typeof fn==='function')RP.listeners.push(fn);return RP.listeners.length;},
+  events:function(){return RP?RP.events.slice():[];},
+  state:function(){
+   if(!RP)return {initialised:false,enabled:reactivePedsEnabled,version:'v30.38'};
+   var reactions=[],pending=[],cds=0,i,rec;
+   for(i=0;i<RP.recs.length;i++){rec=RP.recs[i];
+    if(gameT<rec.cdUntil)cds++;
+    if(rec.pending)pending.push({npcId:rec.npcId,ix:rec.ix,personality:rec.pers,
+     stimulus:rec.pending.kind,startsIn:Math.round((rec.pending.reactAt-gameT)*10)/10});
+    if(rec.react)reactions.push({npcId:rec.npcId,ix:rec.ix,personality:rec.pers,
+     stimulus:rec.react.kind,reaction:rec.react.type,phase:rec.react.phase,
+     x:Math.round(rec.p.x),z:Math.round(rec.p.z),
+     destX:rec.react.dest?Math.round(rec.react.dest.x):null,
+     destZ:rec.react.dest?Math.round(rec.react.dest.z):null,
+     lx:Math.round(rec.react.lx),lz:Math.round(rec.react.lz),
+     age:Math.round((gameT-rec.react.startT)*10)/10});}
+   var stims=(RP.lastStimuli||[]).map(function(s){return {kind:s.kind,x:Math.round(s.x),z:Math.round(s.z),
+    sev:s.sev,epId:s.epId,debug:!!s.debug};});
+   return {initialised:true,enabled:reactivePedsEnabled,version:'v30.38',
+    counts:RP.counts,stimuli:stims,reactions:reactions,pending:pending,cooldowns:cds,
+    avgTickMs:Math.round(RP.avgTickMs*100)/100,
+    sKey:(S&&S.reactions)?{version:S.reactions.version,enabled:S.reactions.enabled}:null};
+  },
+  /* debug-only: a synthetic stimulus episode at an explicit locus. It
+     exercises the identical perception/reaction path as real stimuli
+     and writes no gameplay state. kind: fight|police|crash|driving */
+  forceStimulus:function(kind,opts){
+   if(!reactivePedsEnabled)return null;
+   if(!RP)rpInit();
+   opts=opts||{};
+   var valid=['fight','police','crash','driving'];
+   if(valid.indexOf(kind)<0)return null;
+   var f=rpFocus();
+   RP.debugStim={kind:kind,
+    x:(typeof opts.x==='number')?opts.x:f.x,z:(typeof opts.z==='number')?opts.z:f.z,
+    sev:opts.severity||2,until:gameT+((typeof opts.dur==='number')?opts.dur:20),
+    id:++RP.epSeq};
+   return RP.debugStim.id;
+  },
+  clearDebug:function(){if(RP)RP.debugStim=null;return true;},
+  tick:function(){rpTick();return !!RP;},
+  debug:function(on){
+   if(!RP)rpInit();
+   if(on&&!RP.overlay){var d=document.createElement('div');
+    d.style.cssText='position:fixed;left:8px;bottom:116px;z-index:99;background:rgba(10,10,14,.82);color:#a0ffd9;font:11px monospace;padding:6px 8px;border-radius:6px;pointer-events:none;max-width:70vw';
+    document.body.appendChild(d);RP.overlay=d;rpOverlayDraw();}
+   if(!on&&RP.overlay){RP.overlay.remove();RP.overlay=null;}
+   return !!RP.overlay;
+  }
+ };
+ setInterval(rpTick,RP_TICK_MS); /* staggered decision tick — NOT a per-frame
+    loop; the shipped walker keeps sole ownership of ped movement */
+})();
+
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
