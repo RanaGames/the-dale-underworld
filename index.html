@@ -14836,6 +14836,488 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
  };
 })();
 
+
+/* ================= v30.36 — LIVING STREETS · STAGE 2 (natural NPC conversations & social behaviour) =================
+   Additive module layered on Living Streets Stage 1 (__LS27) — NO second
+   conversation controller, NO second dialogue engine, NO new update loop
+   of its own beyond one staggered decision tick in the LS/F30 style.
+   Conversations happen BETWEEN the shipped peds LS has parked (WAITING /
+   SOCIALISING at its validated anchors): this layer composes a pair or
+   trio, steps them into a small face-to-face formation using the proven
+   F30 mechanism (write p.tx/p.tz a short step at a time for LS-parked
+   peds only — LS re-pins them every 250 ms, so no tug-of-war and no ped
+   can be dragged off its routine), exchanges a short sequence of lines
+   from a data-driven Northern library, then releases them back to LS.
+   It writes NOTHING else: no Rep / Heat / Tension / Cash, no save data
+   (conversation state is transient; personalities are deterministic and
+   re-derived per run, mirrored read-only into S.conversations), and it
+   never touches aunties / mates / leaders / police / the rival — it only
+   ever reads peds[], exactly like __F30.
+   AUDIT (spec: inspect before building — what already shipped):
+   - Player<->NPC talk ALREADY exists (the S-series social system:
+     findInteract + doInteract('chat'|'bigup'|'swear'|'threaten'|'ctx')
+     on the contextual chips, LINES pools, bubble() speech presentation,
+     per-street memory S.npcMem via npcMemory(areaId), Charm/Front
+     outcomes). This stage does NOT replace any of it. Player Talk below
+     is one guarded wrap of doInteract: the shipped outcomes, counters and
+     gossip all run byte-identical; only the civ CHAT line pool is
+     temporarily widened to a personality/memory-flavoured pool for the
+     duration of the synchronous call, and talking to a ped who is in one
+     of this layer's conversations ends that conversation first (the ped
+     turns to the player — shipped interaction rules win).
+   - LS Stage 1's SOCIALISING was co-location only; this stage adds the
+     actual conversation on top, per the Stage 2 audit notes.
+   - NO recorded voice clips exist (AU-3 was design-only): presentation
+     is the shipped bubble() (which also posts to the side feed) — and
+     only when the conversation is near the player and the shared bubble
+     is free, per the spec's mobile rule (far conversations run logically
+     with no presentation; every line is still recorded in the line log).
+   PERSONALITIES (Stage 4 MUST reuse these exact records — they are
+   exposed on __CV36.personalities()): deterministic per ped index,
+   hash ((ix*41)+17)%100 in the s2PedKind/F30 spirit — friendly <20,
+   talkative <38, confident <54, quiet <70, nervous <86, grumpy else.
+   Across the 22 peds that yields friendly 4 / talkative 4 / confident 3 /
+   quiet 4 / nervous 3 / grumpy 4. Records ride the ped OBJECT
+   (p.__cv36), so a splice in peds[] can never reassign a personality.
+   CONTEXT (spec Feature 3): lines are chosen ONLY from real game state —
+   period from the shipped clock (same formula as LS), weather from WX /
+   __daleP5, police activity from police.mode + police.ai.state, area
+   tension from S.tension, today's recorded incidents from S.crashFeed,
+   street busyness from live ped counts, F30 affiliation via
+   __F30.resolve (greeting flavour ONLY — rivalry shortens and cools a
+   conversation, it can never start hostility). Nothing is invented.
+   SUSPENSION (spec priority): the whole layer stands down under the
+   F30 global conditions (phone open / interception live = freeze;
+   arrest sequence / police chase = all conversations end at once);
+   a member who is downed / fleeing / diving, leaves peds[], enters
+   fighters[], or whose LS routine moves on ends the conversation
+   cleanly and routines resume. Mission / arrest / combat always win.
+   KNOWN LIMITATION (documented, smallest-resolution rule): sustained
+   at-rest FACING. Formation geometry is face-to-face and speakers step
+   toward their listener on each line (the F30 facing-step mechanism),
+   but the shipped walker's parked branch re-aims a stationary ped's
+   mesh every frame (atan2 of a zero offset), so a parked ped's rest
+   facing is the walker's, not this layer's. Fixing that means editing
+   the shipped pedestrian walker — forbidden by the spec (do not replace
+   pedestrian navigation) and out of this stage's additive scope.
+   Feature flag: livingConversationsEnabled (default ON). OFF = all
+   conversations end, no writes, baseline v30.35 behaviour. Failure
+   isolation: any throw disables ONLY this module. Randomness is
+   Math.random ONLY — the seeded rnd() stream is never consumed.
+   Debug: window.__CV36 (overlay OFF by default). Events for later
+   stages (Living Streets Stage 5 memory hooks): conversation-started /
+   conversation-line / conversation-ended are emitted on __CV36.events()
+   and to listeners registered with __CV36.on(fn). */
+(function(){
+ 'use strict';
+ var livingConversationsEnabled=true;
+ var CV=null; /* module state; null until first successful init */
+ var CV_TICK_MS=300, CV_MAX_ACTIVE=2, CV_FORM_R=9, CV_PRESENT_D=700;
+ /* ---------------- dialogue library (data-driven, Northern voice) ---------------- */
+ var CV_OPEN={
+  friendly:["Y'alright, mate? Not seen you in a bit.","Ey up — you look like you could do wi' a brew.","Alright? Grand day for it. Well, nearly.","How's things? You lookin' after yourself?"],
+  talkative:["Ey, you'll never guess what's been goin' on down our street.","Have you heard about — no wait, let me start from t'beginnin'.","I was just sayin' to our kid this mornin' —","Anyway, so there I am, mindin' me own business, right?"],
+  confident:["Walked it in this mornin'. Twenty minutes, door to door.","Told t'gaffer straight — that's how you get things done.","You want owt sortin', you come to me first.","New jacket. Go on, you can say it — smart, eh?"],
+  quiet:["Alright.","…Ey up.","Not bad out, is it.","You waitin' for someone an' all?"],
+  nervous:["Oh — hiya. Sorry, miles away then.","You haven't seen a bus go past, have you?","I keep thinkin' I've forgot summat. Can't think what.","Is it me, or is it busy round here today?"],
+  grumpy:["What weather, eh. Shockin'.","If you're sellin' owt, I'm not buyin'.","Hmph. Queue in that shop's a joke today.","Mind me spot, I've been stood here ages."]};
+ var CV_REPLY={
+  friendly:["Sound, ta. Can't grumble, can we.","Aye, go on then — two minutes.","Ha! You're not wrong there.","Nice one. How's your lot keepin'?"],
+  talkative:["No word of a lie, exactly the same happened to me.","And another thing — have you seen the state of t'roadworks?","That reminds me, I've been meanin' to ask you —","Go on, go on, I'm listenin'."],
+  confident:["Sorted mine already. Easy when you know how.","I'd have had it done in half the time, me.","Leave it wi' me. Consider it handled.","That's nowt — wait till you hear my version."],
+  quiet:["Mm.","Aye.","…Right.","Fair enough."],
+  nervous:["Oh heck. Is that — should I be worried?","I knew it. I just knew summat were up.","Don't say that, I've enough on me plate.","Right. Right. I'll… keep an eye out."],
+  grumpy:["Typical.","Wouldn't surprise me round here.","Aye, well. Nowt new there, is there.","Don't start me off. Don't."]};
+ var CV_TOPIC={
+  street:["Been busy round here lately, hasn't it.","You seen what's goin' on down road?","Our kid reckons it's gettin' worse round here. I dunno.","Shop on t'corner shut early again yesterday.","Can't move for roadworks at minute.","Someone's only gone an' parked right across t'path again.","Quiet on our street last night. Made a nice change.","Bins STILL not been emptied. Disgrace, that."],
+  rain:["Can't be doin' with this weather, me.","Soaked through twice today already.","It'll rain again before t'day's out, you watch.","Roads are like a river down by t'station.","Should've brought a coat. Story of me life."],
+  clear:["Crackin' day, for once.","Sun's actually out. In Rochdale. Imagine that.","Too nice to be stuck inside, this.","Might actually dry me washin' today."],
+  morning:["Just off to work, me. Graft waits for no one.","Kids were a nightmare gettin' out this mornin'.","Bus were late AGAIN. Every single day.","Need a brew before I can face owt else."],
+  evening:["Just headin' home now, thank God.","Long day. Feet are killin' me.","Gonna get a takeaway in, I've decided.","Our lass has got t'tea on. Best get movin'."],
+  late:["Can't sleep, so I thought I'd get some air.","Streets are dead at this time. Peaceful, like.","You out late an' all? Thought it were just me."],
+  police:["Feds have been about a fair bit today.","Seen that police car go past twice now.","Summat's gone off somewhere, way they're drivin'.","Best keep your head down round here today.","Coppers were on t'corner before. Asking questions, like."],
+  tension:["It's gettin' a bit tasty round here lately.","Few lads have been squarin' up near t'shops.","I'd watch yourself round them lots' ends.","There's a right atmosphere on t'estate at minute."],
+  incident:["Heard there were a right smash earlier.","Someone's motor got done over, I heard.","All sorts kickin' off earlier, apparently.","Ambulance went past before, lights on an' everythin'."],
+  busy:["Rammo round here today, innit.","Can't move for folk.","Market day energy, this."],
+  quietst:["Dead round here today.","Hardly seen a soul.","Quiet as owt."],
+  work:["Gaffer's got me on lates all week.","Work's work. Pays t'bills, just about.","I'm only on me break — don't let me gaffer see me.","Finished early for once. Miracle, that."],
+  home:["Just poppin' home for me dinner.","Our street's alright, you know. Folk look out for each other.","Got t'family round Sunday. Full house.","Landlord's been round again about t'fence."],
+  warm:["Your lot are sound by us, you know that.","Drinks are on me next time we're down t'pub.","We look after our own round here. Always have.","Tell your lot I was askin' after 'em."],
+  cool:["…Alright.","Not my ends, these. Just passin' through.","Let's keep it civil, eh.","I've no bother wi' you. Keep it that way."]};
+ var CV_CLOSE=["Sound, catch you later.","Anyway — best get off. Ta-ra.","Right, I'll let you get on.","See you about, then.","Mind how you go.","I'll bump into you again, no doubt.","Ta for that. See you soon.","Go on, I'll not keep you."];
+ var CV_PLAYER={
+  friendly:["Y'alright, mate? Don't think we've spoke before.","Ey up. You from round here, then?","Alright? How's things wi' you?"],
+  talkative:["Ey, have you got a minute? Only, you'll never guess —","Oh, hiya! I was just sayin' to someone —","You'll know this — what's goin' on down road today?"],
+  confident:["Alright. You look like you know where you're goin'.","Word is you're the lad to know round here.","If you need owt, you ask about. Folk know me."],
+  quiet:["Alright?","…Ey up.","Don't know nowt, me. Just sayin' hello."],
+  nervous:["Oh! Hiya. Sorry — you made me jump.","I — I don't know owt, if that's what you're askin'.","Is everythin' alright? You look a bit… purposeful."],
+  grumpy:["What? Oh. Alright, then.","If it's about t'parkin', it weren't me.","Hmph. State of these streets, eh."]};
+ var CV_PLAYER_WARM=["Ey, it's you! Good to see you about.","You're alright, you. Folk round here say so.","Anytime you need owt, you ask me, yeah?"];
+ var CV_PLAYER_COLD=["…You again.","Keep walkin', mate. Go on.","I've heard about you. Not interested."];
+ function cvPersOf(ix){var r=((ix*41)+17)%100;return r<20?'friendly':(r<38?'talkative':(r<54?'confident':(r<70?'quiet':(r<86?'nervous':'grumpy'))));}
+ function cvHour(){var c=clamp((S&&typeof S.clock==='number')?S.clock:300,0,300);return 7+(300-c)/300*17;}
+ function cvPeriod(h){return h<10?'morning':(h<17?'day':(h<22?'evening':'late'));}
+ function cvFocus(){return (typeof footMode!=='undefined'&&footMode)?footMode:player;}
+ function cvSuspendedP(p){return !!(p.down||(p.s2DownT&&p.s2DownT>0)||(p.s2FleeT&&p.s2FleeT>0)||(p.diveT&&p.diveT>0));}
+ function cvGlobalSuspend(){
+  if(typeof phoneOpen!=='undefined'&&phoneOpen)return 'phone';
+  if(typeof arrestSeq!=='undefined'&&arrestSeq)return 'arrest';
+  if(typeof police!=='undefined'&&police&&police.mode==='chase')return 'chase';
+  if(typeof rival!=='undefined'&&rival)return 'rival';
+  return null;
+ }
+ function cvLsOff(){try{return !!(window.__LS27&&window.__LS27.enabled&&!window.__LS27.enabled());}catch(e){return false;}}
+ function cvInit(){
+  CV={convs:[],nextId:1,pairCd:{},recent:[],lineLog:[],events:[],listeners:[],
+      counts:{started:0,ended:0,lines:0,presented:0,byReason:{}},lastStartAt:-99,day:(S?S.day:1),
+      suspendReason:null,avgTickMs:0,tickN:0,overlay:null};
+  if(S&&!S.conversations)S.conversations={version:1,enabled:true,personalities:{}};
+ }
+ function cvEmit(type,conv,extra){
+  var ev={type:type,id:conv?conv.id:0,t:Math.round(gameT*10)/10,
+          members:conv?conv.members.map(function(m){return m.npcId;}):[]};
+  if(extra)for(var k in extra)ev[k]=extra[k];
+  CV.events.push(ev);if(CV.events.length>50)CV.events.shift();
+  for(var i=0;i<CV.listeners.length;i++){try{CV.listeners[i](ev);}catch(e){}}
+ }
+ function cvReconcile(){
+  var i,p;
+  for(i=0;i<peds.length;i++){p=peds[i];if(!p.__cv36){
+   var pers=cvPersOf(i);
+   p.__cv36={npcId:'ped'+i,ix:i,pers:pers,p:p,convo:null,cdUntil:0};
+   if(S&&S.conversations)S.conversations.personalities['ped'+i]=pers;
+  }}
+  for(i=CV.convs.length-1;i>=0;i--){var c=CV.convs[i];
+   for(var j=0;j<c.members.length;j++){if(peds.indexOf(c.members[j].p)<0){cvEnd(c,'despawn');break;}}}
+ }
+ function cvEligible(p,forStart){
+  if(!p||cvSuspendedP(p))return false;
+  var r=p.__cv36;if(!r||r.convo)return false;
+  if(forStart&&gameT<r.cdUntil)return false;
+  var lr=p.__ls27;if(!lr||lr.suspended)return false;
+  if(lr.state!=='WAITING'&&lr.state!=='SOCIALISING')return false;
+  if(forStart&&lr.until&&gameT>lr.until-10)return false; /* routine about to move on */
+  if(typeof fighters!=='undefined'&&fighters&&fighters.length){
+   for(var i=0;i<fighters.length;i++)if(fighters[i].mesh===p.mesh)return false;}
+  return true;
+ }
+ function cvMemberValid(m){
+  var p=m.p;
+  if(peds.indexOf(p)<0)return 'despawn';
+  if(cvSuspendedP(p))return 'state';
+  var lr=p.__ls27;
+  if(!lr||lr.suspended||(lr.state!=='WAITING'&&lr.state!=='SOCIALISING'))return 'routine';
+  if(typeof fighters!=='undefined'&&fighters&&fighters.length){
+   for(var i=0;i<fighters.length;i++)if(fighters[i].mesh===p.mesh)return 'combat';}
+  return null;
+ }
+ function cvStepToward(p,tx,tz,maxStep){
+  var dx=tx-p.x,dz=tz-p.z,d=Math.sqrt(dx*dx+dz*dz);if(d<1.5)return true;
+  var s=Math.min(d,maxStep);p.tx=p.x+dx/d*s;p.tz=p.z+dz/d*s;return d<=maxStep+1.5;
+ }
+ function cvFormation(mems){
+  var cx=0,cz=0,i;for(i=0;i<mems.length;i++){cx+=mems[i].p.x;cz+=mems[i].p.z;}cx/=mems.length;cz/=mems.length;
+  var offs=[[0,0],[16,0],[-16,0],[0,16],[0,-16],[24,24],[-24,-24],[32,0],[0,32]];
+  for(var o=0;o<offs.length;o++){
+   var ox=cx+offs[o][0],oz=cz+offs[o][1],pts=[],ok=true;
+   for(i=0;i<mems.length;i++){
+    var a,px,pz;
+    if(mems.length===2){var q=mems[1-i].p;a=Math.atan2(q.x-mems[i].p.x,q.z-mems[i].p.z);px=ox+Math.sin(a)*CV_FORM_R;pz=oz+Math.cos(a)*CV_FORM_R;}
+    else{a=(Math.PI/2)+i*(Math.PI*2/3);px=ox+Math.sin(a)*10.5;pz=oz+Math.cos(a)*10.5;}
+    if(footBlocked(px,pz)){ok=false;break;}
+    pts.push({x:px,z:pz});
+   }
+   if(ok)return {cx:ox,cz:oz,pts:pts};
+  }
+  return null;
+ }
+ function cvContext(mems){
+  var cx=0,cz=0,i;for(i=0;i<mems.length;i++){cx+=mems[i].p.x;cz+=mems[i].p.z;}cx/=mems.length;cz/=mems.length;
+  var per=cvPeriod(cvHour());
+  var rain=0,wstate='';try{if(typeof WX!=='undefined'&&WX){rain=WX.rain||0;wstate=WX.state||'';}
+   else if(window.__daleP5){var inf=window.__daleP5.info();rain=inf.rain||0;wstate=inf.weather||'';}}catch(e){}
+  var pol=false;try{if(typeof police!=='undefined'&&police){
+   if(police.mode==='chase'||police.mode==='pullover')pol=true;
+   else if(police.ai&&['INVESTIGATE','PURSUE','SEARCH'].indexOf(police.ai.state)>=0&&dist2(cx,cz,police.x,police.z)<800)pol=true;}}catch(e){}
+  var area=null,ten=0;try{area=areaOf(cx,cz);if(area)ten=(S.tension&&S.tension[area.id])||0;}catch(e){}
+  var near=0;for(i=0;i<peds.length;i++)if(dist2(cx,cz,peds[i].x,peds[i].z)<350)near++;
+  var rel='none',fa=null,fb=null;
+  try{if(mems.length>=2&&mems[0].p.__f30&&mems[1].p.__f30){
+   fa=mems[0].p.__f30.factionId;fb=mems[1].p.__f30.factionId;
+   if(fa&&fb){if(window.__F30&&window.__F30.resolve)rel=window.__F30.resolve(fa,fb);else rel=(fa===fb)?'friendly':'neutral';}}}catch(e){}
+  return {period:per,rain:rain,wstate:wstate,police:pol,tension:ten,area:area?area.id:null,
+          busy:near,incident:!!(S.crashFeed&&S.crashFeed.length),rel:rel};
+ }
+ function cvThread(ctx,mems){
+  if(ctx.police)return 'police';
+  if(ctx.rel==='rival')return 'cool';
+  if(ctx.rel==='friendly')return 'warm';
+  if(ctx.tension>=35)return 'tension';
+  if(ctx.incident&&Math.random()<0.6)return 'incident';
+  if(ctx.rain>0.25)return 'rain';
+  if(ctx.period==='morning')return 'morning';
+  if(ctx.period==='evening')return 'evening';
+  if(ctx.period==='late')return 'late';
+  var profs=mems.map(function(m){return (m.p.__ls27||{}).profile;});
+  if(profs.indexOf('worker')>=0&&Math.random()<0.5)return 'work';
+  if(ctx.busy>=5)return 'busy';
+  if(ctx.busy<=2)return 'quietst';
+  if(ctx.wstate==='clear')return 'clear';
+  return 'street';
+ }
+ function cvPick(pool,conv){
+  if(!pool||!pool.length)return null;
+  var i,cand=[];
+  for(i=0;i<pool.length;i++)if(conv.used.indexOf(pool[i])<0&&CV.recent.indexOf(pool[i])<0)cand.push(pool[i]);
+  if(!cand.length)for(i=0;i<pool.length;i++)if(conv.used.indexOf(pool[i])<0)cand.push(pool[i]);
+  if(!cand.length)cand=pool;
+  return cand[Math.floor(Math.random()*cand.length)];
+ }
+ function cvLineFor(conv,turn){
+  var mems=conv.members,sp=mems[turn%mems.length],pers=sp.pers,pool;
+  if(turn===0){pool=CV_OPEN[pers];
+   if(conv.lastOpener){var alt=[];for(var i=0;i<pool.length;i++)if(pool[i]!==conv.lastOpener)alt.push(pool[i]);if(alt.length)pool=alt;}
+   return {sp:sp,line:cvPick(pool,conv),role:'open'};}
+  if(turn===conv.total-1)return {sp:sp,line:cvPick(CV_CLOSE,conv),role:'close'};
+  if(turn===1)return {sp:sp,line:cvPick(CV_REPLY[pers],conv),role:'reply'};
+  pool=CV_TOPIC[conv.thread]||CV_TOPIC.street;
+  var line=cvPick(pool,conv);
+  if(line===null||conv.used.indexOf(line)>=0)line=cvPick(CV_TOPIC.street,conv);
+  return {sp:sp,line:line,role:'topic'};
+ }
+ function cvStart(a,b,third,forced){
+  var mems=[a,b];if(third)mems.push(third);
+  var form=cvFormation(mems);if(!form)return null;
+  var pairKey=[a.npcId,b.npcId].sort().join('|');
+  var pk=CV.pairCd[pairKey];
+  var ctx=cvContext(mems);
+  var total=4;
+  if(a.pers==='talkative'||b.pers==='talkative')total++;
+  if(a.pers==='quiet'&&b.pers==='quiet')total--;
+  if(ctx.rel==='rival')total--;
+  if(third)total++;
+  total=Math.max(3,Math.min(6,total));
+  var conv={id:CV.nextId++,members:mems,form:form,phase:'form',formBy:gameT+8,turn:0,total:total,
+            thread:cvThread(ctx,mems),ctx:ctx,used:[],startedAt:gameT,nextLineAt:0,
+            lastOpener:pk?pk.lastOpener:null,pairKey:pairKey,forced:!!forced};
+  mems.forEach(function(m){m.convo=conv;});
+  CV.convs.push(conv);CV.counts.started++;CV.lastStartAt=gameT;
+  cvEmit('started',conv,{thread:conv.thread,forced:!!forced});
+  return conv;
+ }
+ function cvEnd(conv,reason){
+  var ix=CV.convs.indexOf(conv);if(ix<0)return;
+  CV.convs.splice(ix,1);
+  conv.members.forEach(function(m){if(m.convo===conv)m.convo=null;m.cdUntil=gameT+10+Math.random()*8;});
+  if(conv.pairKey){var pk=CV.pairCd[conv.pairKey]||(CV.pairCd[conv.pairKey]={until:0,lastOpener:null});
+   pk.until=gameT+25+Math.random()*20;if(conv.used.length)pk.lastOpener=conv.used[0];}
+  CV.counts.ended++;CV.counts.byReason[reason]=(CV.counts.byReason[reason]||0)+1;
+  cvEmit('ended',conv,{reason:reason,lines:conv.turn});
+ }
+ function cvEndAll(reason){while(CV.convs.length)cvEnd(CV.convs[CV.convs.length-1],reason);}
+ function cvAdvance(conv){
+  /* FORM: step members toward their formation points (F30 mechanism) */
+  var allIn=true,i,m;
+  for(i=0;i<conv.members.length;i++){m=conv.members[i];
+   var pt=conv.form.pts[i];
+   if(!cvStepToward(m.p,pt.x,pt.z,26))allIn=false;
+   else if(dist2(m.p.x,m.p.z,pt.x,pt.z)>7)allIn=false;
+  }
+  if(conv.phase==='form'){
+   if(allIn||gameT>conv.formBy){conv.phase='talk';conv.nextLineAt=gameT+0.4;}
+   return;
+  }
+  if(gameT<conv.nextLineAt)return;
+  if(conv.turn>=conv.total){cvEnd(conv,'natural');return;}
+  var got=cvLineFor(conv,conv.turn);
+  if(!got||!got.line){cvEnd(conv,'dry');return;}
+  conv.used.push(got.line);
+  CV.recent.push(got.line);if(CV.recent.length>14)CV.recent.shift();
+  /* presentation: near the player only, and only if the shared shipped
+     bubble is free — far conversations exchange logically, logged below */
+  var fx=cvFocus(),presented=false;
+  if(dist2(conv.form.cx,conv.form.cz,fx.x,fx.z)<CV_PRESENT_D&&!(typeof bubbleT!=='undefined'&&bubbleT>0.25)){
+   try{bubble(got.sp.p.mesh,got.line);presented=true;CV.counts.presented++;}catch(e){}
+  }
+  /* the speaker steps toward the listener as they speak (facing step) */
+  var listener=conv.members[(conv.turn+1)%conv.members.length];
+  if(listener&&listener!==got.sp)cvStepToward(got.sp.p,listener.p.x,listener.p.z,3);
+  CV.lineLog.push({t:Math.round(gameT*10)/10,conv:conv.id,npcId:got.sp.npcId,pers:got.sp.pers,
+                   role:got.role,line:got.line,presented:presented});
+  if(CV.lineLog.length>60)CV.lineLog.shift();
+  CV.counts.lines++;
+  cvEmit('line',conv,{npcId:got.sp.npcId,role:got.role,line:got.line,presented:presented});
+  conv.turn++;
+  conv.nextLineAt=gameT+2.0+Math.random()*1.4;
+  if(conv.turn>=conv.total)conv.nextLineAt=gameT+1.6; /* closer lands, then end */
+ }
+ function cvTryStart(){
+  if(CV.convs.length>=CV_MAX_ACTIVE)return;
+  if(gameT-CV.lastStartAt<2.5)return;
+  var cands=[],i,j;
+  for(i=0;i<peds.length;i++)if(cvEligible(peds[i],true))cands.push(peds[i].__cv36);
+  if(cands.length<2)return;
+  /* shuffle so the same pair does not always win */
+  for(i=cands.length-1;i>0;i--){j=Math.floor(Math.random()*(i+1));var t=cands[i];cands[i]=cands[j];cands[j]=t;}
+  for(i=0;i<cands.length;i++){
+   var a=cands[i],best=null,bd=170;
+   for(j=0;j<cands.length;j++){if(j===i)continue;var b=cands[j];
+    var key=[a.npcId,b.npcId].sort().join('|');var pk=CV.pairCd[key];
+    if(pk&&gameT<pk.until)continue;
+    var d=dist2(a.p.x,a.p.z,b.p.x,b.p.z);if(d<bd){bd=d;best=b;}}
+   if(!best)continue;
+   var chance=0.30+((a.pers==='talkative'||best.pers==='talkative')?0.15:0)+((a.pers==='quiet'&&best.pers==='quiet')?-0.12:0);
+   if(Math.random()>chance)continue;
+   var third=null;
+   if(Math.random()<0.3){
+    var bd3=70;
+    for(j=0;j<cands.length;j++){var c3=cands[j];if(c3===a||c3===best)continue;
+     var d3=dist2((a.p.x+best.p.x)/2,(a.p.z+best.p.z)/2,c3.p.x,c3.p.z);if(d3<bd3){bd3=d3;third=c3;}}
+   }
+   if(cvStart(a,best,third,false))return;
+  }
+ }
+ function cvTick(){
+  var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  try{
+   if(!livingConversationsEnabled)return;
+   if(typeof S==='undefined'||!S||!S.playing||S.paused)return;
+   if(typeof peds==='undefined'||!peds.length)return;
+   if(!CV)cvInit();
+   if(S&&!S.conversations)S.conversations={version:1,enabled:true,personalities:{}};
+   cvReconcile();
+   if(S.day!==CV.day){CV.day=S.day;cvEndAll('day');}
+   if(cvLsOff()){cvEndAll('ls-off');CV.suspendReason='living streets off';return;}
+   var gs=cvGlobalSuspend();CV.suspendReason=gs;
+   if(gs==='chase'||gs==='arrest'){cvEndAll('police');return;}
+   /* validate + advance active conversations */
+   for(var i=CV.convs.length-1;i>=0;i--){
+    var conv=CV.convs[i],bad=null;
+    for(var j=0;j<conv.members.length;j++){var v=cvMemberValid(conv.members[j]);if(v){bad=v;break;}}
+    if(bad){cvEnd(conv,bad);continue;}
+    if(!gs)cvAdvance(conv);
+   }
+   if(!gs)cvTryStart();
+   if(CV.overlay)cvOverlayDraw();
+  }catch(e){
+   livingConversationsEnabled=false; /* failure isolation: only this module dies */
+   if(window.console)console.log('[v30.36 conversations] disabled after error: '+(e&&e.message));
+  }
+  if(t0&&CV){var dtms=performance.now()-t0;CV.avgTickMs=CV.tickN?CV.avgTickMs*0.9+dtms*0.1:dtms;CV.tickN++;}
+ }
+ function cvOverlayDraw(){
+  if(!CV||!CV.overlay)return;
+  CV.overlay.textContent='CONVERSATIONS · active '+CV.convs.length+' · started '+CV.counts.started+
+   ' · ended '+CV.counts.ended+' · lines '+CV.counts.lines+' · shown '+CV.counts.presented+
+   (CV.suspendReason?' · held: '+CV.suspendReason:'')+' · tick '+CV.avgTickMs.toFixed(2)+'ms';
+ }
+ /* ---- Player Talk: one guarded wrap of the SHIPPED doInteract. The
+    shipped outcomes run untouched; for a civ 'chat' the spoken line is
+    drawn from the ped's personality pool (plus the street-memory warm /
+    cold pools when S.npcMem for that street is non-zero) by widening
+    LINES.civ for the duration of the synchronous call only. Talking to
+    a ped mid-conversation ends that conversation first. ---- */
+ try{
+  if(typeof doInteract==='function'&&!doInteract.__cv36Wrapped){
+   var cvOrigInteract=doInteract;
+   var cvWrapped=function(kind){
+    try{
+     if(kind==='chat'&&typeof interactNPC!=='undefined'&&interactNPC&&interactNPC.fig&&interactNPC.type==='civ'){
+      var tp=null;for(var i=0;i<peds.length;i++)if(peds[i].mesh===interactNPC.fig){tp=peds[i];break;}
+      if(tp&&tp.__cv36){
+       if(tp.__cv36.convo&&CV)cvEnd(tp.__cv36.convo,'player');
+       var aid='centre';try{var ar=areaOf(tp.x,tp.z);if(ar)aid=ar.id;}catch(e){}
+       var mem=0;try{mem=npcMemory(aid);}catch(e){}
+       var pool=(CV_PLAYER[tp.__cv36.pers]||CV_PLAYER.friendly).slice();
+       if(mem>=1)pool=pool.concat(CV_PLAYER_WARM);else if(mem<=-1)pool=pool.concat(CV_PLAYER_COLD);
+       var saved=LINES.civ;LINES.civ=pool;
+       try{return cvOrigInteract(kind);}finally{LINES.civ=saved;}
+      }
+     }
+    }catch(e){}
+    return cvOrigInteract(kind);
+   };
+   cvWrapped.__cv36Wrapped=true;
+   doInteract=cvWrapped;
+  }
+ }catch(e){}
+ window.__CV36={
+  version:'v30.36',
+  enabled:function(){return livingConversationsEnabled;},
+  setEnabled:function(on){
+   livingConversationsEnabled=!!on;
+   if(S){if(!S.conversations)cvInit();if(S.conversations)S.conversations.enabled=livingConversationsEnabled;}
+   if(!on&&CV)cvEndAll('disabled');
+   return livingConversationsEnabled;
+  },
+  on:function(fn){if(!CV)cvInit();if(typeof fn==='function')CV.listeners.push(fn);return CV.listeners.length;},
+  events:function(){return CV?CV.events.slice():[];},
+  personalities:function(){
+   if(!CV)cvInit();cvReconcile();
+   return peds.map(function(p,i){var r=p.__cv36;var f=p.__f30||null;var lr=p.__ls27||null;
+    var kind='civ';try{kind=s2PedKind(p);}catch(e){}
+    return {npcId:r?r.npcId:('ped'+i),ix:i,personality:r?r.pers:null,kind:kind,
+            factionId:f?f.factionId:null,role:f?f.role:null,lsProfile:lr?lr.profile:null,
+            lsState:lr?lr.state:null,inConversation:!!(r&&r.convo)};});
+  },
+  library:function(){
+   var byCat={open:0,reply:0,topic:0,close:CV_CLOSE.length,player:0},tot=0,k;
+   for(k in CV_OPEN){byCat.open+=CV_OPEN[k].length;tot+=CV_OPEN[k].length;}
+   for(k in CV_REPLY){byCat.reply+=CV_REPLY[k].length;tot+=CV_REPLY[k].length;}
+   for(k in CV_TOPIC){byCat.topic+=CV_TOPIC[k].length;tot+=CV_TOPIC[k].length;}
+   for(k in CV_PLAYER){byCat.player+=CV_PLAYER[k].length;tot+=CV_PLAYER[k].length;}
+   byCat.player+=CV_PLAYER_WARM.length+CV_PLAYER_COLD.length;
+   tot+=CV_CLOSE.length+CV_PLAYER_WARM.length+CV_PLAYER_COLD.length;
+   return {total:tot,byCategory:byCat};
+  },
+  state:function(){
+   if(!CV)return {initialised:false,enabled:livingConversationsEnabled,version:'v30.36'};
+   return {initialised:true,enabled:livingConversationsEnabled,version:'v30.36',
+    period:cvPeriod(cvHour()),suspendReason:CV.suspendReason,
+    counts:CV.counts,pairCooldowns:Object.keys(CV.pairCd).length,
+    avgTickMs:Math.round(CV.avgTickMs*100)/100,
+    sKey:(S&&S.conversations)?{version:S.conversations.version,enabled:S.conversations.enabled,personalities:Object.keys(S.conversations.personalities).length}:null,
+    active:CV.convs.map(function(c){return {id:c.id,phase:c.phase,turn:c.turn,total:c.total,thread:c.thread,
+     startedAt:Math.round(c.startedAt),members:c.members.map(function(m){return {npcId:m.npcId,pers:m.pers,
+      x:Math.round(m.p.x),z:Math.round(m.p.z)};})};}),
+    recentLines:CV.lineLog.slice(-12),
+    events:CV.events.slice(-10)};
+  },
+  /* debug helpers for verification (no gameplay effect beyond starting /
+     hurrying a conversation that eligibility already permits) */
+  forceStart:function(){
+   if(!CV)cvInit();
+   var fx=cvFocus(),cands=[],i;
+   for(i=0;i<peds.length;i++)if(cvEligible(peds[i],false))cands.push(peds[i].__cv36);
+   cands.sort(function(a,b){return dist2(a.p.x,a.p.z,fx.x,fx.z)-dist2(b.p.x,b.p.z,fx.x,fx.z);});
+   for(i=0;i+1<cands.length;i++){
+    var a=cands[i],best=null,bd=170;
+    for(var j=0;j<cands.length;j++){if(j===i)continue;var d=dist2(a.p.x,a.p.z,cands[j].p.x,cands[j].p.z);if(d<bd){bd=d;best=cands[j];}}
+    if(best){
+     var third=null,bd3=70;
+     for(var k=0;k<cands.length;k++){if(cands[k]===a||cands[k]===best)continue;
+      var d3=dist2((a.p.x+best.p.x)/2,(a.p.z+best.p.z)/2,cands[k].p.x,cands[k].p.z);if(d3<bd3){bd3=d3;third=cands[k];}}
+     var c=cvStart(a,best,third,true);if(c)return c.id;}
+   }
+   return null;
+  },
+  advance:function(){if(!CV)return 0;var n=0;
+   for(var i=0;i<CV.convs.length;i++){if(CV.convs[i].phase==='talk'){CV.convs[i].nextLineAt=gameT;n++;}}
+   return n;},
+  tick:function(){cvTick();return !!CV;},
+  debug:function(on){
+   if(!CV)cvInit();
+   if(on&&!CV.overlay){var d=document.createElement('div');
+    d.style.cssText='position:fixed;left:8px;bottom:44px;z-index:99;background:rgba(10,10,14,.82);color:#b7f0c0;font:11px monospace;padding:6px 8px;border-radius:6px;pointer-events:none;max-width:70vw';
+    document.body.appendChild(d);CV.overlay=d;cvOverlayDraw();}
+   if(!on&&CV.overlay){CV.overlay.remove();CV.overlay=null;}
+   return !!CV.overlay;
+  }
+ };
+ setInterval(cvTick,CV_TICK_MS); /* staggered decision tick — NOT a per-frame
+    loop; LS + the shipped walker keep sole ownership of ped movement */
+})();
+
 requestAnimationFrame(loop);
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
