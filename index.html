@@ -17661,6 +17661,202 @@ var realCarSoundEnabled=true;
 /* ================= /RS43 ================= */
 
 
+/* ================= GEOREF DEBUG MAP — Realistic Rochdale Map Expansion, Stage 1 =================
+   Developer-only comparison view for the geographic reference layer
+   (files/geo-reference-v1.json). READ-ONLY VISUALISATION: this module
+   writes no game state, touches no save key, and creates no DOM until it
+   is switched on. OFF by default; toggle from the console/dev surface,
+   mirroring the __LS27 / policeDebug debug pattern:
+
+       __GEOREF.setEnabled(true)    __GEOREF.setEnabled(false)
+
+   When on, a full-screen schematic map (same world frame as the shipped
+   full-screen map: R1_BOUNDS, +X east, -Z north) draws district anchor
+   markers with names + game coords, a gold cross at each anchor's REAL
+   position (inverse nominal transform — the comparison the Stage 1 audit
+   section 10 designs), the tram route + stops (baked from Reference A —
+   files/dale-map-data.json — with each stop's projected position computed
+   by the game's own tramSAt/terminus-rule algorithm, replicating
+   TRAM_STOPS; the tram subsystem's RP/TRAM_STOPS are private to their
+   own nested IIFE and unreachable from here), and a
+   readout panel with the player's current game coords, current district
+   (shipped areaOf), and the nearest anchor + its audited geo-reference
+   displacement. Anchor data below is baked from geo-reference-v1.json at
+   build time — the per-anchor lookup IS the reference layer (audit C1:
+   no single similarity transform fits this piecewise map). Flag off =
+   the module is inert; rollback is removing this block (the strip test
+   restores the base byte-for-byte). */
+(function(){
+ 'use strict';
+ var geoRefEnabled=false;
+ var GR={err:null,on:false,iv:null,cv:null,pn:null,rz:null,drawn:null};
+ var GR_RP=[[-22,74],[10,-40],[28,-110],[26,-152],[16,-124],[0,-100],[500,350],[920,750],[2000,1800],[3200,2900],[4600,3700],[3900,2400],[3170,1500],[4800,2100],[6670,3170],[5900,4700],[4300,5900],[1800,6600],[840,7000],[-600,7600],[-2400,9200],[-3600,10600],[-4450,11880],[-4438,12070],[-4410,12390],[-4376,12720],[-4350,13040],[-4340,13400],[-4420,13410],[-4507,13440],[-4507,13490]];
+ var GR_STOPS=[{"name":"Rochdale Town Centre","x":-9.0,"z":27.8},{"name":"Rochdale Station","x":920.0,"z":750.0},{"name":"Kingsway","x":4276.9,"z":3515.4},{"name":"Newbold","x":3170.0,"z":1500.0},{"name":"Milnrow Edge","x":6670.0,"z":3170.0},{"name":"Slattocks","x":840.0,"z":7000.0},{"name":"Middleton","x":-4450.0,"z":11880.0},{"name":"Manchester City Centre","x":-4507.0,"z":13442.0}];
+ var GR_ANCHORS=[{"id":"centre","label":"Town Centre","name":"Town Centre","kind":"district","x":0,"z":-70,"lat":53.6156,"lon":-2.1594,"disp":42,"verdict":"faithful"},{"id":"townHall","label":"Rochdale Town Hall","name":"Rochdale Town Hall","kind":"landmark","x":-30,"z":-120,"lat":53.6156,"lon":-2.1594,"disp":74,"verdict":"faithful"},{"id":"policeStation","label":"Rochdale Police Station","name":"Rochdale Police Station","kind":"landmark","x":-30,"z":-240,"lat":53.615904,"lon":-2.161159,"disp":148,"verdict":"displaced"},{"id":"rochdaleStation","label":"Rochdale Station","name":"Rochdale Station","kind":"tram-stop","x":920,"z":750,"lat":53.61,"lon":-2.1541,"disp":265,"verdict":"faithful"},{"id":"spotland","label":"Spotland","name":"Spotland","kind":"district","x":-1830,"z":-2670,"lat":53.62083,"lon":-2.18,"disp":1054,"verdict":"displaced"},{"id":"norden","label":"Norden & Bamford","name":"Norden & Bamford","kind":"district","x":-4420,"z":-4000,"lat":53.6262,"lon":-2.214,"disp":1555,"verdict":"displaced"},{"id":"heywood","label":"Heywood","name":"Heywood","kind":"district","x":-6930,"z":4770,"lat":53.59,"lon":-2.219,"disp":211,"verdict":"faithful"},{"id":"deeplish","label":"Milkstone & Deeplish","name":"Milkstone & Deeplish","kind":"district","x":-170,"z":1500,"lat":53.60725,"lon":-2.15208,"disp":588,"verdict":"displaced"},{"id":"safeHouse","label":"Safe House (Ann Street, Deeplish)","name":"Safe House (Ann Street, Deeplish)","kind":"safehouse","x":-220,"z":1828,"lat":53.60725,"lon":-2.15208,"disp":639,"verdict":"displaced"},{"id":"newbold","label":"Newbold","name":"Newbold","kind":"district","x":3170,"z":1500,"lat":53.6134,"lon":-2.1355,"disp":729,"verdict":"compressed"},{"id":"castleton","label":"Castleton","name":"Castleton","kind":"district","x":-3670,"z":3670,"lat":53.586445,"lon":-2.182743,"disp":1232,"verdict":"displaced"},{"id":"kingsway","label":"Kingsway","name":"Kingsway","kind":"district","x":4000,"z":4000,"lat":53.6111,"lon":-2.12369,"disp":1899,"verdict":"displaced"},{"id":"middleton","label":"Middleton","name":"Middleton","kind":"district","x":-4450,"z":11880,"lat":53.5547,"lon":-2.1887,"disp":809,"verdict":"faithful"},{"id":"kingswayStop","label":"Kingsway (tram stop, projected)","name":"Kingsway (tram stop, projected)","kind":"tram-stop","x":4276.9,"z":3515.4,"lat":53.6111,"lon":-2.12369,"disp":null,"verdict":null,"ax":4000,"az":4000},{"id":"manchester","label":"Manchester City Centre","name":"Manchester City Centre","kind":"district","x":-4350,"z":13660,"lat":53.48111,"lon":-2.23722,"disp":7235,"verdict":"compressed"},{"id":"milnrowEdge","label":"Milnrow Edge stop","name":"Milnrow Edge (tram stop)","kind":"tram-stop","x":6670,"z":3170,"lat":53.60811,"lon":-2.11202,"disp":1374,"verdict":"compressed"},{"id":"slattocks","label":"Slattocks stop","name":"Slattocks (tram stop)","kind":"fictional-stop","x":840,"z":7000,"lat":53.5726,"lon":-2.1757,"disp":1688,"verdict":"displaced"},{"id":"manchesterTerminus","label":"Manchester City Centre stop","name":"Manchester City Centre (tram terminus)","kind":"tram-stop","x":-4507,"z":13490,"lat":53.48111,"lon":-2.23722,"disp":7298,"verdict":"compressed"},{"id":"rochdaleTcStop","label":"Rochdale Town Centre stop","name":"Rochdale Town Centre (tram stop)","kind":"tram-stop","x":-22,"z":74,"lat":null,"lon":null,"disp":null,"verdict":"faithful"},{"id":"collegebank","label":"College Bank (sub-anchor)","name":"College Bank (sub-anchor)","kind":"sub-anchor","x":-580,"z":-1420,"lat":null,"lon":null,"disp":null,"verdict":null}];
+ var GR_B={x0:-9800,x1:8800,z0:-6800,z1:15800};
+ var GR_OLAT=53.6156,GR_OLON=-2.1594,GR_MPLAT=111298,GR_MPLON=66231,GR_AS=0.6;
+ function grRealPos(a){
+  if(a.lat==null||a.lon==null)return null;
+  var E=(a.lon-GR_OLON)*GR_MPLON,N=(a.lat-GR_OLAT)*GR_MPLAT;
+  return {x:E/GR_AS,z:-N/GR_AS};
+ }
+ function grNearest(x,z){
+  var best=null,bd=1e18,i,a,dx,dz,d;
+  for(i=0;i<GR_ANCHORS.length;i++){a=GR_ANCHORS[i];dx=x-a.x;dz=z-a.z;d=dx*dx+dz*dz;
+   if(d<bd){bd=d;best=a;}}
+  return best?{a:best,distU:Math.round(Math.sqrt(bd)*10)/10}:null;
+ }
+ function grDistrict(){
+  try{var a=areaOf(player.x,player.z);return a?{id:a.id,name:a.name}:null;}catch(e){return null;}
+ }
+ function grDraw(){
+  if(!GR.cv)return;
+  var ctx=GR.cv.getContext('2d');if(!ctx)return;
+  var W=GR.cv.width,H=GR.cv.height;
+  var s=Math.min(W/(GR_B.x1-GR_B.x0),H/(GR_B.z1-GR_B.z0));
+  var ox=(W-(GR_B.x1-GR_B.x0)*s)/2,oy=(H-(GR_B.z1-GR_B.z0)*s)/2;
+  function MX(x){return ox+(x-GR_B.x0)*s;}
+  function MZ(z){return oy+(z-GR_B.z0)*s;}
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='rgba(6,8,12,0.86)';ctx.fillRect(ox,oy,(GR_B.x1-GR_B.x0)*s,(GR_B.z1-GR_B.z0)*s);
+  ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=1;
+  ctx.strokeRect(ox,oy,(GR_B.x1-GR_B.x0)*s,(GR_B.z1-GR_B.z0)*s);
+  /* district polygons (shipped AREA_POLY) */
+  var i,j,p;var dn={polys:0,roads:0,stops:0,anchors:0};
+  try{
+   for(i=0;i<AREA_POLY.length;i++){p=AREA_POLY[i].pts;if(!p||!p.length)continue;
+    ctx.beginPath();ctx.moveTo(MX(p[0][0]),MZ(p[0][1]));
+    for(j=1;j<p.length;j++)ctx.lineTo(MX(p[j][0]),MZ(p[j][1]));
+    ctx.closePath();ctx.fillStyle='rgba(140,170,255,0.05)';ctx.fill();
+    ctx.strokeStyle='rgba(160,190,255,0.20)';ctx.stroke();dn.polys++;}
+  }catch(e){}
+  /* roads (shipped ROADS; R-class skipped — tram drawn separately) */
+  try{
+   for(i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;p=r.pts;
+    ctx.beginPath();ctx.moveTo(MX(p[0][0]),MZ(p[0][1]));
+    for(j=1;j<p.length;j++)ctx.lineTo(MX(p[j][0]),MZ(p[j][1]));
+    ctx.strokeStyle=r.cls==='A'?'rgba(255,255,255,0.30)':(r.cls==='B'?'rgba(255,255,255,0.18)':'rgba(255,255,255,0.09)');
+    ctx.lineWidth=r.cls==='A'?1.4:1;ctx.stroke();dn.roads++;}
+  }catch(e){}
+  /* tram route + stops (baked from Reference A; stop positions replicate
+     the game's TRAM_STOPS projection — see header) */
+  try{
+   ctx.beginPath();ctx.moveTo(MX(GR_RP[0][0]),MZ(GR_RP[0][1]));
+   for(i=1;i<GR_RP.length;i++)ctx.lineTo(MX(GR_RP[i][0]),MZ(GR_RP[i][1]));
+   ctx.strokeStyle='#f2b705';ctx.lineWidth=2;ctx.stroke();
+   ctx.fillStyle='#f2b705';ctx.font='10px monospace';ctx.textAlign='left';
+   for(i=0;i<GR_STOPS.length;i++){var st=GR_STOPS[i];
+    ctx.fillRect(MX(st.x)-3,MZ(st.z)-3,6,6);
+    ctx.fillText(st.name,MX(st.x)+6,MZ(st.z)+3);dn.stops++;}
+  }catch(e){}
+  /* anchors: game marker + real-position cross + comparison line */
+  ctx.font='10px monospace';
+  for(i=0;i<GR_ANCHORS.length;i++){
+   var a=GR_ANCHORS[i],gx=MX(a.x),gz=MZ(a.z),rp=grRealPos(a);
+   var col=a.verdict==='faithful'?'#57d977':(a.verdict==='compressed'?'#ffc44d':(a.verdict==='displaced'?'#ff6b5e':'#9aa3ad'));
+   if(rp){
+    var rx=MX(rp.x),ry=MZ(rp.z);
+    ctx.strokeStyle='rgba(242,183,5,0.45)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(gx,gz);ctx.lineTo(rx,ry);ctx.stroke();
+    ctx.strokeStyle='#f2b705';
+    ctx.beginPath();ctx.moveTo(rx-5,ry);ctx.lineTo(rx+5,ry);ctx.moveTo(rx,ry-5);ctx.lineTo(rx,ry+5);ctx.stroke();
+   }
+   ctx.fillStyle=col;
+   ctx.beginPath();ctx.moveTo(gx,gz-5);ctx.lineTo(gx+5,gz);ctx.lineTo(gx,gz+5);ctx.lineTo(gx-5,gz);ctx.closePath();ctx.fill();
+   var lab=a.label+' ('+a.x+', '+a.z+')'+(a.disp!=null?' \u0394'+a.disp+'m':'');
+   ctx.fillStyle='rgba(255,255,255,0.92)';
+   ctx.textAlign=(gx>W*0.72)?'right':'left';
+   ctx.fillText(lab,gx+(ctx.textAlign==='right'?-8:8),gz+((i%2)?13:-7));
+   dn.anchors++;
+  }
+  GR.drawn=dn;
+  /* player + line to nearest anchor */
+  var px=MX(player.x),pz=MZ(player.z),nr=grNearest(player.x,player.z);
+  if(nr){ctx.strokeStyle='rgba(255,255,255,0.55)';ctx.setLineDash([4,4]);
+   ctx.beginPath();ctx.moveTo(px,pz);ctx.lineTo(MX(nr.a.x),MZ(nr.a.z));ctx.stroke();ctx.setLineDash([]);}
+  ctx.fillStyle='#ffffff';ctx.beginPath();ctx.arc(px,pz,4,0,6.2832);ctx.fill();
+  ctx.strokeStyle='#57d977';ctx.lineWidth=2;ctx.beginPath();ctx.arc(px,pz,7,0,6.2832);ctx.stroke();
+  ctx.fillStyle='#ffffff';ctx.textAlign='left';ctx.font='bold 11px monospace';
+  ctx.fillText('YOU ('+Math.round(player.x)+', '+Math.round(player.z)+')',px+10,pz-8);
+  /* north arrow + frame note */
+  ctx.fillStyle='rgba(255,255,255,0.85)';ctx.font='bold 12px monospace';ctx.textAlign='right';
+  ctx.fillText('N \u2191',ox+(GR_B.x1-GR_B.x0)*s-8,oy+16);
+  ctx.font='10px monospace';
+  ctx.fillText('gold \u00d7 = real position (nominal transform) \u00b7 \u0394 = audited displacement',ox+(GR_B.x1-GR_B.x0)*s-8,oy+(GR_B.z1-GR_B.z0)*s-8);
+ }
+ function grPanel(){
+  if(!GR.pn)return;
+  var d=grDistrict(),nr=grNearest(player.x,player.z);
+  var lines=[];
+  lines.push('GEOREF DEBUG \u00b7 Map Expansion Stage 1 \u00b7 dev-only, read-only');
+  lines.push('player   x '+Math.round(player.x)+' \u00b7 z '+Math.round(player.z));
+  lines.push('district '+(d?(d.id+' \u2014 '+d.name):'Between\u2026 (no district)'));
+  if(nr){
+   lines.push('nearest anchor  '+nr.a.name+' ('+nr.a.x+', '+nr.a.z+') \u2014 '+nr.distU+' u \u00b7 '+Math.round(nr.distU*GR_AS)+' m @ anchor scale');
+   if(nr.a.disp!=null)lines.push('geo-ref  displacement '+nr.a.disp+' m \u00b7 verdict '+nr.a.verdict+(nr.a.lat!=null?' \u00b7 '+nr.a.lat+', '+nr.a.lon:''));
+   else lines.push('geo-ref  no audited displacement for this anchor (see geo-reference-v1.json)');
+  }
+  lines.push('transform  per-anchor lookup (no global fit \u2014 audit C1) \u00b7 origin Town Hall 53.6156, -2.1594 \u00b7 anchor 0.6 m/u \u00b7 object 0.15 m/u');
+  try{
+   var ks=null;for(var i=0;i<GR_STOPS.length;i++)if(GR_STOPS[i].name==='Kingsway')ks=GR_STOPS[i];
+   if(ks)lines.push('tram  '+GR_STOPS.length+' stops \u00b7 route '+GR_RP.length+' pts \u00b7 Kingsway stop projected at ('+Math.round(ks.x)+', '+Math.round(ks.z)+')');
+  }catch(e){}
+  GR.pn.textContent=lines.join('\n');
+ }
+ function grTick(){try{grDraw();grPanel();}catch(e){GR.err='tick: '+((e&&e.message)||e);}}
+ function grSize(){
+  if(!GR.cv)return;
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  GR.cv.width=Math.round(window.innerWidth*dpr);GR.cv.height=Math.round(window.innerHeight*dpr);
+  GR.cv.style.width=window.innerWidth+'px';GR.cv.style.height=window.innerHeight+'px';
+ }
+ function grOn(){
+  if(GR.on)return true;
+  try{
+   var cv=document.createElement('canvas');cv.id='geoRefCanvas';
+   cv.style.cssText='position:fixed;inset:0;z-index:9990;pointer-events:none;';
+   var pn=document.createElement('div');pn.id='geoRefPanel';
+   pn.style.cssText='position:fixed;left:10px;top:10px;z-index:9991;pointer-events:none;background:rgba(8,10,14,0.88);color:#e8e3d9;border:1px solid rgba(242,183,5,0.55);border-radius:8px;padding:8px 10px;font:11px/1.5 monospace;white-space:pre;max-width:92vw;';
+   document.body.appendChild(cv);document.body.appendChild(pn);
+   GR.cv=cv;GR.pn=pn;grSize();
+   GR.rz=function(){grSize();grTick();};
+   window.addEventListener('resize',GR.rz);
+   GR.iv=setInterval(grTick,250);GR.on=true;grTick();
+   return true;
+  }catch(e){GR.err='on: '+((e&&e.message)||e);grOff();return false;}
+ }
+ function grOff(){
+  if(GR.iv){clearInterval(GR.iv);GR.iv=null;}
+  if(GR.rz){try{window.removeEventListener('resize',GR.rz);}catch(e){}GR.rz=null;}
+  if(GR.cv&&GR.cv.parentNode)GR.cv.parentNode.removeChild(GR.cv);
+  if(GR.pn&&GR.pn.parentNode)GR.pn.parentNode.removeChild(GR.pn);
+  GR.cv=null;GR.pn=null;GR.on=false;
+ }
+ window.__GEOREF={
+  version:'geo-reference-v1',
+  enabled:function(){return geoRefEnabled;},
+  setEnabled:function(on){
+   geoRefEnabled=!!on;
+   if(geoRefEnabled)grOn();else grOff();
+   return geoRefEnabled;
+  },
+  state:function(){
+   var nr=grNearest(player.x,player.z),d=grDistrict(),ks=null,i;
+   for(i=0;i<GR_STOPS.length;i++)if(GR_STOPS[i].name==='Kingsway')ks=GR_STOPS[i];
+   return {enabled:geoRefEnabled,on:GR.on,err:GR.err,
+    overlayInDom:!!document.getElementById('geoRefCanvas'),drawn:GR.drawn,
+    player:{x:Math.round(player.x*10)/10,z:Math.round(player.z*10)/10},
+    district:d?d.id:null,
+    nearest:nr?{id:nr.a.id,name:nr.a.name,distU:nr.distU,displacementM:nr.a.disp,verdict:nr.a.verdict}:null,
+    anchors:GR_ANCHORS.length,stops:GR_STOPS.length,
+    kingswayProjected:ks?{x:ks.x,z:ks.z}:null};
+  },
+  anchors:function(){return GR_ANCHORS.slice();}
+ };
+})();
+/* ================= /GEOREF DEBUG MAP ================= */
+
+
 requestAnimationFrame(loop);
 /* ================= v30.42 PARLEY GATE (in-IIFE splice) =================
    Inserted inside the main script's IIFE, immediately before the
@@ -17740,7 +17936,201 @@ requestAnimationFrame(loop);
     }
   },false);
   window.__GATE42={open:function(){return open;},key:function(){return gk;}};
-}catch(e){}})();
+}catch(e){}})();/* ================================================================
+   v30.44 — SD42 STICK STEERING + HANDBRAKE REPOSITION (appended
+   test layer inside the main script, per house pattern; strips
+   clean). Implements files/DRIVING-HUD-REDESIGN-SPEC.md.
+   ----------------------------------------------------------------
+   USER'S FINAL SCHEME (spec + final reference image govern):
+   - The two STEERING ARROW buttons (bottom-left) are replaced by
+     ONE analog thumbstick: STEERING ONLY. Horizontal drag ->
+     normalized steer -1..+1 (dead zone 0.12, rescaled), release
+     returns to neutral, partial steering supported. The stick
+     writes stickVec.x ONLY (stickVec.y held at 0) — it never
+     touches throttle or brake.
+   - The realistic GAS and BRAKE PEDALS stay exactly as shipped
+     (bottom-right); their handlers are not modified.
+   - The EXISTING handbrake button (#hbBtn, shipped hold() binding
+     -> the real input.hb drift channel) is RELOCATED above the
+     thumbstick, slightly toward centre — left index finger while
+     the left thumb steers. Same function, press-and-hold, amber
+     glow while held, clear gap above the stick.
+   - The existing Horn button moves within the pedals row to sit
+     beside GET OUT (immediately right of the speedometer), per
+     the final reference. Brake/Gas keep the corner.
+   - MULTITOUCH (spec section 5, the critical requirement): every
+     control keeps its own pointerId + pointer capture — the
+     shipped hold() bindings already do this per pedal/button;
+     the stick mirrors the shipped #stick handler. Releasing one
+     control never disturbs the others. Driving inputs are
+     cleared on vehicle exit (falling edge of body.driving), on
+     focus loss / tab hide / orientation change, and the stick
+     self-clears on pointerup/cancel/lostpointercapture.
+   - Driving-only visibility: stick + relocated handbrake render
+     only while body.driving; on exit the walking controls return
+     untouched (v21 on-foot feel is the reference; nothing on
+     foot is modified).
+   - Settings -> "Driving controls" toggles the scheme; choice
+     persists in S.ui.stickDrive (1 = thumbstick, 0 = buttons),
+     serialised with the run by the v30.35 save system, exactly
+     like S.ui.gfx. Default: thumbstick.
+   - Feature flag: stickDriveEnabled (default ON). OFF, or the
+     Buttons scheme, restores v30.38 exactly (arrows back,
+     handbrake back beside Brake, Horn back at the row's end).
+   - Physics/handling: untouched. No second vehicle controller.
+     No renamed or replaced action functions.
+   Debug surface: window.__SD42.
+   ================================================================ */
+var stickDriveEnabled=true; /* SD42 feature flag (default ON for the test) */
+(function(){
+'use strict';
+var SD={version:'v30.44',err:null,scheme:'buttons',pid:null,lastOn:null,wasDriving:false,DEAD:0.12};
+function $(id){return document.getElementById(id);}
+function curScheme(){
+  if(!stickDriveEnabled)return 'buttons';
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.stickDrive===0)return 'buttons';}catch(e){}
+  return 'stick';
+}
+var dsEl=null,knobEl=null,rowState=null,rowBtn=null,hostEl=null;
+function setKnob(dx){if(knobEl)knobEl.style.transform='translate(calc(-50% + '+dx+'px), -50%)';}
+/* ---------- steering stick: mirrors the shipped #stick handler,
+   horizontal axis only; writes stickVec.x, holds stickVec.y at 0 */
+function stickMove(e){
+  var r=dsEl.getBoundingClientRect();
+  var dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2);
+  /* rotated presentation: convert screen delta to game axes, as
+     the shipped stick handler does, so drag-toward-presented-right
+     steers right in both presentations. */
+  if(typeof dispRot==='function'&&dispRot()){var t=dx;dx=dy;dy=-t;}
+  var max=44;
+  if(dx>max)dx=max;if(dx<-max)dx=-max;
+  setKnob(dx);
+  var v=dx/max,av=Math.abs(v),out=0;
+  if(av>SD.DEAD)out=(v<0?-1:1)*((av-SD.DEAD)/(1-SD.DEAD));
+  stickVec.x=out;stickVec.y=0;
+  dsEl.classList.toggle('sd42-on',out!==0);
+}
+function stickEnd(e){
+  if(e&&e.pointerId!==undefined&&SD.pid!==null&&e.pointerId!==SD.pid)return;
+  SD.pid=null;stickVec.x=0;stickVec.y=0;setKnob(0);
+  if(dsEl)dsEl.classList.remove('sd42-on');
+}
+/* ---------- stuck-input clearing (spec sections 5 + 7) ---------- */
+function clearDrivingInputs(){
+  stickEnd(null);
+  try{input.throttle=0;input.brake=false;input.hb=false;input.sL=false;input.sR=false;}catch(e){}
+  ['gasBtn','brakeBtn','hbBtn','steerL','steerR'].forEach(function(id){var el=$(id);if(el)el.classList.remove('held');});
+}
+/* ---------- handbrake + horn placement ---------- */
+function findHorn(){
+  var p=$('pedals');if(!p)return null;
+  for(var i=0;i<p.children.length;i++){var c=p.children[i];if(c.id!=='hbBtn'&&c.textContent&&c.textContent.replace(/\s+/g,'')==='Horn')return c;}
+  return null;
+}
+function placeControls(on){
+  var hb=$('hbBtn'),p=$('pedals');if(!hb||!p||!hostEl)return;
+  if(on){ if(hb.parentNode!==hostEl)hostEl.appendChild(hb); }
+  else{ var br=$('brakeBtn'); if(hb.parentNode!==p)p.insertBefore(hb,br); }
+  var horn=findHorn();if(!horn)return;
+  if(on){ var brk=$('brakeBtn'); if(horn.nextSibling!==brk)p.insertBefore(horn,brk); }
+  else if(p.lastChild!==horn)p.appendChild(horn);
+}
+function refreshRow(){
+  if(!rowState||!rowBtn)return;
+  var sc=curScheme();
+  rowState.textContent=(sc==='stick')?'Thumbstick':'Buttons';
+  rowBtn.textContent=(sc==='stick')?'Use Arrow Buttons':'Use Thumbstick';
+}
+function apply(){
+  var on=curScheme()==='stick';
+  SD.scheme=on?'stick':'buttons';
+  if(SD.lastOn!==on){SD.lastOn=on;document.body.classList.toggle('sd42-stick',on);placeControls(on);}
+  var driving=document.body.classList.contains('driving');
+  if(driving&&!SD.wasDriving){ try{stickVec.x=0;stickVec.y=0;}catch(e){} } /* entering: drop stale walking stick */
+  if(!driving&&SD.wasDriving)clearDrivingInputs(); /* exiting (incl. arrest): clear all driving inputs */
+  SD.wasDriving=driving;
+  refreshRow();
+}
+function init(){
+  var st=document.createElement('style');st.id='sd42Style';
+  st.textContent=[
+   /* steering thumbstick — dark graphite, gold ring, metallic knob */
+   '#dStick42{position:absolute;left:calc(14px + var(--sal));bottom:calc(16px + var(--sab));width:calc(clamp(104px,17vmin,128px) * var(--ctlF));height:calc(clamp(104px,17vmin,128px) * var(--ctlF));border-radius:50%;background:radial-gradient(circle at 50% 36%,rgba(74,79,88,.92),rgba(20,22,26,.95) 70%);border:1px solid rgba(232,179,58,.55);box-shadow:inset 0 2px 10px rgba(0,0,0,.55),inset 0 -10px 20px rgba(0,0,0,.5),0 4px 14px rgba(0,0,0,.4);display:none;pointer-events:auto;touch-action:none;opacity:var(--h24op);}',
+   '#dStick42.sd42-on{box-shadow:inset 0 2px 10px rgba(0,0,0,.55),inset 0 -10px 20px rgba(0,0,0,.5),0 4px 14px rgba(0,0,0,.4),0 0 18px rgba(232,179,58,.35);border-color:rgba(232,179,58,.9);}',
+   '#dStickKnob42{position:absolute;left:50%;top:50%;width:calc(52px * var(--ctlF));height:calc(52px * var(--ctlF));border-radius:50%;background:radial-gradient(circle at 42% 32%,#f2f3f5,#a7adb6 46%,#5b6068 80%,#3a3e45);border:1px solid rgba(0,0,0,.55);box-shadow:0 3px 10px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.5);transform:translate(-50%,-50%);pointer-events:none;}',
+   '.sd42-tri{position:absolute;font-size:10px;line-height:1;color:rgba(232,179,58,.5);pointer-events:none;}',
+   '.sd42-tri.n{top:5px;left:50%;transform:translateX(-50%);}.sd42-tri.s{bottom:5px;left:50%;transform:translateX(-50%);}.sd42-tri.w{left:6px;top:50%;transform:translateY(-50%);}.sd42-tri.e{right:6px;top:50%;transform:translateY(-50%);}',
+   'body.driving.sd42-stick #dStick42{display:block;}',
+   'body.driving.sd42-stick #steerBtns{display:none;}',
+   /* handbrake relocated: above the stick, toward centre, clear gap;
+      renders only while driving (it lives outside #pedals now) */
+   'body.sd42-stick #hbBtn{position:absolute;left:calc(14px + var(--sal) + (clamp(104px,17vmin,128px) * var(--ctlF)) * 0.30);bottom:calc(36px + var(--sab) + (clamp(104px,17vmin,128px) * var(--ctlF)) * 1.35);display:none;z-index:6;}',
+   'body.driving.sd42-stick #hbBtn{display:block;}',
+   'body.sd42-stick #hbBtn.held{background:rgba(255,140,30,.88);color:#14100a;box-shadow:0 0 18px rgba(255,150,40,.9),0 0 36px rgba(255,90,20,.45);}'
+  ].join('\n');
+  document.head.appendChild(st);
+  hostEl=($('stick')&&$('stick').parentNode)||document.body;
+  dsEl=document.createElement('div');dsEl.id='dStick42';
+  dsEl.setAttribute('aria-label','Steering thumbstick — drag left or right to steer');
+  dsEl.innerHTML='<span class="sd42-tri n">▲</span><span class="sd42-tri s">▼</span><span class="sd42-tri w">◀</span><span class="sd42-tri e">▶</span><div id="dStickKnob42"></div>';
+  hostEl.appendChild(dsEl);knobEl=$('dStickKnob42');
+  dsEl.addEventListener('pointerdown',function(e){e.preventDefault();SD.pid=e.pointerId;try{dsEl.setPointerCapture(SD.pid);}catch(err){} stickMove(e);});
+  dsEl.addEventListener('pointermove',function(e){if(e.pointerId===SD.pid)stickMove(e);});
+  dsEl.addEventListener('pointerup',stickEnd);
+  dsEl.addEventListener('pointercancel',stickEnd);
+  dsEl.addEventListener('lostpointercapture',stickEnd);
+  /* interruption clearing: focus loss / tab hide / orientation change */
+  window.addEventListener('blur',function(){if(document.body.classList.contains('driving'))clearDrivingInputs();});
+  document.addEventListener('visibilitychange',function(){if(document.hidden&&document.body.classList.contains('driving'))clearDrivingInputs();});
+  window.addEventListener('resize',function(){if(document.body.classList.contains('driving'))clearDrivingInputs();});
+  /* ----- Settings row ----- */
+  var panel=$('settingsPanel'),card=panel?panel.querySelector('.card'):null;
+  if(card&&!$('sd42SetBtn')){
+    var anchor=card.querySelector('[data-close]');
+    var row=document.createElement('div');row.className='rowline';row.style.marginTop='14px';
+    row.innerHTML='<span>Driving controls</span><b id="sd42SetState">Thumbstick</b>';
+    var btn=document.createElement('button');btn.className='btn ghost';btn.id='sd42SetBtn';btn.type='button';btn.textContent='Use Arrow Buttons';
+    var note=document.createElement('p');note.className='small';
+    note.textContent='Thumbstick: an analog stick at bottom-left steers the car, with the handbrake above it — hold gas on the pedals and the handbrake together for drifts. The gas and brake pedals stay on the right. Buttons: the original steering arrows, with the handbrake back in the pedal row. Kept with your run, like the other settings.';
+    if(anchor){card.insertBefore(row,anchor);card.insertBefore(btn,anchor);card.insertBefore(note,anchor);}
+    else{card.appendChild(row);card.appendChild(btn);card.appendChild(note);}
+    rowState=$('sd42SetState');rowBtn=btn;
+    btn.addEventListener('click',function(){
+      try{
+        if(typeof S==='undefined'||!S)return;
+        if(!S.ui||typeof S.ui!=='object')S.ui={};
+        S.ui.stickDrive=(curScheme()==='stick')?0:1;
+      }catch(e){}
+      apply();
+    });
+  }
+  apply();
+  setInterval(apply,250);
+}
+window.__SD42={
+  version:'v30.44',
+  enabled:function(){return stickDriveEnabled;},
+  setEnabled:function(on){stickDriveEnabled=!!on;apply();return stickDriveEnabled;},
+  scheme:function(){return SD.scheme;},
+  state:function(){
+    try{var hb=$('hbBtn'),horn=findHorn(),p=$('pedals');
+      return {version:SD.version,enabled:stickDriveEnabled,scheme:SD.scheme,err:SD.err,dead:SD.DEAD,
+      stickPid:SD.pid,
+      stickVec:{x:stickVec.x,y:stickVec.y},
+      input:{throttle:input.throttle,brake:!!input.brake,hb:!!input.hb,sL:!!input.sL,sR:!!input.sR},
+      hbParent:hb?(hb.parentNode===p?'pedals':(hb.parentNode===hostEl?'host':'other')):'missing',
+      hornIndex:(horn&&p)?Array.prototype.indexOf.call(p.children,horn):-1,
+      uiPref:(typeof S!=='undefined'&&S&&S.ui)?(S.ui.stickDrive===undefined?'(unset)':S.ui.stickDrive):'(no S)'};}
+    catch(e){return {version:SD.version,err:String(e&&e.message||e)};}
+  }
+};
+try{init();}
+catch(e){
+  stickDriveEnabled=false;SD.err=String(e&&e.message||e);
+  try{document.body.classList.remove('sd42-stick');placeControls(false);}catch(e2){}
+}
+})();
+
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
  isPlaying:function(){return !!(S&&S.playing);},
@@ -18166,7 +18556,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3043={version:'v30.43'};</script>
+<script>window.__V3044={version:'v30.44'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
