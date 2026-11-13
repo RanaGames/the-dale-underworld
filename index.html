@@ -17441,6 +17441,85 @@ var realCarEnabled=true;
 })();
 
 requestAnimationFrame(loop);
+/* ================= v30.42 PARLEY GATE (in-IIFE splice) =================
+   Inserted inside the main script's IIFE, immediately before the
+   startup/menu bridge — the position every in-scope module uses, after the
+   final findInteract wrapper (LC), so this wrap is the outermost.
+   User's words: "make it so the chat options don't pop up unless u click
+   the person or something — it blocks the whole view without having an
+   option to turn off."
+   Behaviour: proximity alone NEVER opens the social chip panel (CHAT /
+   BIG-UP / SWEAR-DISS / THREATEN / context chip). In range, only the
+   shipped Interact prompt shows (the ✋ cluster button, whose visibility
+   the hud24 tick mirrors from the bar's display). The panel opens ONLY on
+   a deliberate tap of that prompt — the shipped code has no tap-on-the-NPC
+   path, so the prompt tap is the sole opener. It closes on an option
+   choice, a second prompt tap, or walking out of range, and never reopens
+   on re-approach: reopening always needs a fresh tap. All doInteract /
+   leaderInteract outcomes are untouched — the chips keep their shipped
+   handlers; this layer only gates the bar's show path. The S3 steal /
+   carjack chip is a separate offer and is never gated. */
+(function(){try{
+  var bar=document.getElementById('interactBar');
+  var nb=document.getElementById('h24InteractBtn');
+  var fb=document.getElementById('fightBtns');
+  if(!bar||!nb||!fb||typeof findInteract!=='function')return;
+  var SOCIAL=['chip_chat','chip_bigup','chip_swear','chip_threaten','chip_ctx'];
+  var open=false,gk=null;
+  function $(id){return document.getElementById(id);}
+  function keyOf(){
+    var n=interactNPC;if(!n)return null;
+    return n.type+'|'+((n.fig&&n.fig.uuid)||'x');
+  }
+  function stealVisible(){
+    var sc=$('chip_steal');
+    return !!(sc&&sc.style.display!=='none');
+  }
+  function hideSocial(){SOCIAL.forEach(function(id){var c=$(id);if(c)c.style.display='none';});}
+  function showSocial(){SOCIAL.forEach(function(id){var c=$(id);if(c)c.style.display='';});}
+  var _fi=findInteract;
+  findInteract=function(){
+    _fi();
+    try{
+      var k=keyOf();
+      if(!k){open=false;gk=null;return;}
+      if(stealVisible())return; /* the car is the live offer: shipped bar stands */
+      if(k!==gk){gk=k;open=false;} /* fresh approach or target switch: closed */
+      if(!open){
+        /* prompt-only: keep the bar 'flex' so the hud24 tick shows the
+           Interact prompt, with every social chip hidden — the bar is an
+           empty zero-height strip and covers nothing. */
+        bar.style.display='flex';
+        hideSocial();
+      }
+    }catch(e){}
+  };
+  /* The Interact prompt tap is the panel's only opener. Capture phase on
+     the cluster: this runs before the hud24 forwarder on the button itself
+     (which would fire the context action directly), and stopPropagation
+     keeps that forwarder out of both the open tap and the close tap. */
+  fb.addEventListener('click',function(e){
+    if(e.target!==nb)return;
+    if(stealVisible())return;
+    var k=keyOf();
+    if(!k||k!==gk)return;
+    e.stopPropagation();
+    e.preventDefault();
+    open=!open;
+    if(open){bar.style.display='flex';showSocial();}
+    else hideSocial();
+  },true);
+  /* Choosing an option closes the panel (the chip's own shipped handler
+     runs first — this bubble listener on the bar only tidies up after). */
+  bar.addEventListener('click',function(e){
+    var t=e.target;
+    if(t&&t.closest&&t.closest('#chip_chat,#chip_bigup,#chip_swear,#chip_threaten,#chip_ctx')){
+      open=false;
+      hideSocial();
+    }
+  },false);
+  window.__GATE42={open:function(){return open;},key:function(){return gk;}};
+}catch(e){}})();
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
  isPlaying:function(){return !!(S&&S.playing);},
@@ -17866,7 +17945,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3041={version:'v30.41'};</script>
+<script>window.__V3042={version:'v30.42'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
@@ -17949,6 +18028,70 @@ body.feed41-shut #sideFeed .feedItem:not(.pin){display:none;}
 }
 </style>
 
+<!-- ================= v30.42 LANDSCAPE PARITY + PARLEY GATE (appended layer) =================
+     Two user reports, one build:
+     (1) "One's on landscape, one's portrait" — corrected by the user: the
+         PORTRAIT-HELD (rotated) presentation is the good one; the NATIVE
+         LANDSCAPE presentation is the defective one. Cause, measured: the
+         landscape-compact tier loses to the later hud24 stylesheet wherever
+         hud24's specificity is higher (44px bar buttons vs the rotated 36px,
+         238px TASKS card vs 196px, 19px pill values vs 17px), while the
+         rotated twins were written with html.dale-rot prefixes that outrank
+         hud24; and two landscape rules key off the chrome-reduced dvh/% —
+         #fightBtns' max-height:calc(100dvh - 240px) collapses the action
+         cluster into a single bottom row marching left over the HP/ST dock
+         at real phone heights (~332px), and the feed's Alerts button (the
+         feed's second child) descends onto the bottom-anchored joystick.
+         The rules below sit inside the shipped landscape media query only —
+         the rotated presentation is untouched — and give landscape the
+         rotated frame's arrangement: compact bar tier, 196px tasks card,
+         stacked narrow HP/ST dock clear of the cluster, the cluster keeping
+         its 150px stack cap at any frame height, Alerts beside the Feed tab.
+     (2) "Make it so the chat options don't pop up unless u click the
+         person" — the parley gate: separate file fix42-gate.js, spliced
+         INSIDE the main script's IIFE before the startup/menu bridge
+         (findInteract & friends are IIFE-scoped; a tail script cannot
+         reach them). -->
+<style id="fix42-land-css">
+@media (orientation:landscape) and (max-height:540px){
+  /* top bar: the rotated twins' compact tier (36px buttons, 17px values) */
+  #hud .bar{padding-top:calc(4px + var(--sat));}
+  #hud .bar .iconBtn{width:36px;height:36px;font-size:17px;}
+  #hud .bar .pill .v{font-size:calc(17px * var(--hudF));}
+  /* TASKS card: the rotated presented width */
+  #hud #tasksPanel{width:calc(196px * var(--hudF));}
+  /* top-left cluster: the rotated presented measure (62% of presented height) */
+  #hud #h24TL{max-width:62vh;}
+  /* HP/ST dock: the rotated arrangement — two stacked pills, narrow and
+     centred, ending well left of the action cluster */
+  #hud #hpDock{flex-direction:column;width:min(340px,44vh);}
+  #hud #hpDock .hpRow{flex:none;}
+  /* action cluster: the rotated stack cap (150px) at ANY frame height —
+     never the dvh-collapsed single bottom row */
+  #hud #fightBtns{max-height:150px;}
+  /* feed: Alerts rides beside the Feed tab (the rotated frame keeps the
+     stack — its 390px presented height clears the joystick; a short
+     landscape frame does not). Slim feed keeps the stack: the row cannot
+     fit its 150px. */
+  body:not(.ui-feed-0) #hud #h24HistBtn{position:absolute;left:100px;top:0;}
+}
+</style>
+<script>
+/* v30.42 — menu-glyph parity: hud24's one-time relabel turns the pause
+   button into a second hamburger (☰), duplicating the stash drawer's ≡.
+   The button's shipped glyph is the gear (⚙ = Menu). In the rotated
+   presentation the button sits off the presented edge (pre-existing,
+   user-accepted reference — untouched); in native landscape all three bar
+   buttons are on screen, so restore the gear there only: one hamburger
+   (the drawer), one gear (the menu), one camera. */
+(function(){try{
+  var pb=document.getElementById('pauseBtn');if(!pb)return;
+  function sync(){pb.textContent=document.documentElement.classList.contains('dale-rot')?'☰':'⚙';}
+  sync();
+  window.addEventListener('resize',sync);
+  window.addEventListener('orientationchange',sync);
+}catch(e){}})();
+</script>
 </body>
 </html>
 </body>
