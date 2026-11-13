@@ -5071,7 +5071,24 @@ function heatMult(){
  if(S.outfit.Head==='bala')m*=0.55;
  return Math.max(.35,m);
 }
-function addHeat(n){S.heat=clamp(S.heat+n*heatMult(),0,100);if(S.heat>=100)busted('Heat maxed — the area flooded with police and you got lifted.');}
+function addHeat(n){S.heat=clamp(S.heat+n*heatMult(),0,100);if(S.heat>=100)policeHeatDispatch();}
+/* POLICE INTEGRITY FIX (v30.41): Heat maxed is a RADIO REPORT, not an
+   arrest. The old line ran busted() the instant Heat crossed 100 — custody
+   with the only unit anywhere on the map and the FSM never involved, which
+   is the reported "called, then instantly arrested, never chased" bug
+   (probe-proven: custody at a unit distance of 11,923u, zero FSM
+   transitions logged). Now the report feeds the shipped pursuit machinery:
+   mode='chase' is adopted by policeAISync as PURSUE with the player's
+   position as the last known position; the unit still has to travel, get
+   eyes on, close in and run the controlled arrest sequence — and the
+   player can run, hide and break contact exactly as designed. Custody
+   outcomes below are untouched. */
+function policeHeatDispatch(){
+ if(!S||!S.playing||custody||arrestSeq)return;
+ if(police.mode==='chase'||police.mode==='pullover')return;
+ police.mode='chase';
+ toast('🚨 Heat maxed — you\u2019re all over the police radio. They\u2019re coming for you now.');
+}
 function addTension(areaId,n){
  var a=areaById(areaId);var jacket=clothById(S.outfit.Jacket);
  if(jacket.tag===GANG_TAG[areaId])n*=1.8;
@@ -5369,7 +5386,7 @@ var stickVec={x:0,y:0};
  $('camBtn').onclick=function(){if(!S||!S.playing||S.paused)return;cycleCamView();}; /* v30.6: element-based tap like the other HUD buttons · v30.9: cycles STREET → CLOSE → CLASSIC → HIGH → FAR → AERIAL */
  $('phonePowerBtn').onclick=function(){setPhonePower(!phoneIsOn());};
  $('resumeBtn').onclick=function(){S.paused=false;$('pauseScreen').classList.remove('on');};
- $('restartBtn').onclick=function(){$('pauseScreen').classList.remove('on');startDay(true);};
+ $('restartBtn').onclick=function(){$('pauseScreen').classList.remove('on');S.paused=false;startDay(true);};
  $('muteBtn').onclick=function(){S.muted=!S.muted;$('muteBtn').textContent=S.muted?'Sound: Off':'Sound: On';if(engGain)engGain.gain.value=0;};
  $('endDayBtn').onclick=function(){endDay();};
  $('acceptBtn').onclick=acceptCall;
@@ -7905,7 +7922,7 @@ function startIncident(other){
 function resolveIncidentStay(){
  incident=null;$('incidentBox').style.display='none';
  var rec=ensureRecord(S.car);
- if(totalUnits()>0&&Math.random()<.35){arrest(['Stock found in the car at a crash scene']);return;}
+ if(totalUnits()>0&&Math.random()<.35){police.mode='chase';addHeat(14);toast('🚨 They\u2019ve found stock in the car — police are moving in!');crashFeed('Stayed: stock found — officers moving in');return;} /* v30.41: was a direct arrest() at the scene with the unit anywhere on the map; now the response enters the shipped pursuit path — the player waited for the officers, and the FSM catch + controlled sequence does the arrest with the officer present (possession charges are still added by arrest() itself from the seized stock) */
  if(rec.dodgy){exposeDodgy(rec,'crash scene');return;}
  if(rec.insDays>0&&!rec.dodgy){S.cash=Math.max(0,S.cash-60);rec.premiumUp=true;toast('Details swapped. Insurance excess −£60, no marker. Premium rises next renewal.');crashFeed('Stayed: insurance dealt with it (−£60 excess)');}
  else if(rec.insDays<=0){S.fines+=180;toast('No insurance at a crash: £180 fine'+(Math.random()<.4?' + car impounded':''));if(Math.random()<.4)impoundCar(S.car,250);crashFeed('Stayed: fined £180, no insurance');}
@@ -7937,7 +7954,7 @@ function updateIncident(dt){
    $('incidentBox').style.display='none';
    var inc=incident;incident=null;
    if(d<70){resolveIncidentStay();}
-   else if(fighters.length){arrest(['Arrested at a crash-scene fight']);}
+   else if(fighters.length){police.mode='chase';addHeat(18);toast('Police arrived — and you\u2019re mid-fight. It\u2019s on!');crashFeed('Police arrived during a crash-scene fight — pursuit');} /* v30.41: was a direct arrest() with the unit never moved to the scene; now it enters the shipped pursuit path like the flee branch beside it, and any arrest runs the controlled sequence with the officer present */
    else{addMarker(S.car,'Hit-and-run / failed to stop after collision');police.mode='chase';addHeat(18);toast('Police arrived as you fled — chase on!');crashFeed('Police arrived during escape — chase + marker');}
  }
 }
@@ -8039,6 +8056,25 @@ var aunties=[];
  /* Neighbourhood Watch signs */
  [{x:-280,z:1452},{x:3052,z:1423},{x:-276,z:1560}].forEach(function(p){var lb=makeLabel('NW','rgba(255,210,63,1)');lb.scale.set(30,6,1);lb.position.set(p.x,16,p.z);scene.add(lb);});
 })();
+/* POLICE INTEGRITY FIX (v30.41): a completed witness report DISPATCHES
+   the patrol to investigate the report position. Until now a finished call
+   only added a marker/complaint — no unit ever moved, so "CALLING POLICE…"
+   was theatre and the only real terminus of a crime spree was the Heat
+   bust. The report position becomes the last known position and the
+   shipped INVESTIGATE movement drives the unit there to look. It is NOT a
+   live tracker: leave before the unit arrives and it finds an empty
+   street, looks, times out and returns to patrol. If it clocks the player
+   there with pursuit-grade Heat, shipped detection escalates to PURSUE
+   itself. 'Vague' reports stay report-only — that is their designed
+   weakness, and leaving the street still downgrades a call to vague. */
+function policeReportDispatch(why){
+ if(!S||!S.playing||custody||arrestSeq||S.releaseGrace>0)return;
+ if(police.mode!=='wander')return;
+ var ai=police.ai||policeAIInit(police);
+ if(ai.state!=='PATROL'&&ai.state!=='RETURN')return;
+ ai.lkp.x=player.x;ai.lkp.z=player.z;
+ if(policeSetState(police,'INVESTIGATE',why)){ai.invLookT=0;ai.invT=0;}
+}
 function updateAunties(dt,speed){
  aunties.forEach(function(a){
    a.cd-=dt;
@@ -8064,8 +8100,8 @@ function updateAunties(dt,speed){
        a.stage=0;a.label.visible=false;hideProg();a.cd=45;
        var quality=(speed<40||footMode)?'plate':((attentionVal()>50||totalFlex()>16)?'desc':'vague');
        if(a.watch&&quality==='desc')quality='plate';
-       if(quality==='plate'){addMarker(S.car,'Witness: resident, '+a.street);complain(a.street,'plate');addHeat(8);toast('👵 She got your PLATE — witness marker added');}
-       else if(quality==='desc'){S.descInterest={area:(areaOf(player.x,player.z)||{}).id,t:90};complain(a.street,'desc');toast('👵 She described the car + outfit — police interest up round here for a bit');}
+       if(quality==='plate'){addMarker(S.car,'Witness: resident, '+a.street);complain(a.street,'plate');addHeat(8);policeReportDispatch('witness plate report');toast('👵 She got your PLATE — witness marker added');}
+       else if(quality==='desc'){S.descInterest={area:(areaOf(player.x,player.z)||{}).id,t:90};complain(a.street,'desc');policeReportDispatch('witness description');toast('👵 She described the car + outfit — police interest up round here for a bit');}
        else complain(a.street,'vague');
      }
    }
@@ -8814,9 +8850,12 @@ function updateGame(dt,realDt){
    else driftT=Math.max(0,driftT-dt*2);
    /* surfaces style */
    if(!surf&&speedNow()>60&&Math.random()<dt*.4)shake=Math.max(shake,2.5);
-   /* player figure beside car when parked */
-   player.fig.visible=speedNow()<14&&!confront;
-   if(player.fig.visible){player.fig.position.set(player.x+16,0,player.z+8);animateFigure(player.fig,dt,0,false,false);}
+   /* BUGFIX v30.40: the driver figure must never render in driving mode.
+      The old line (fig visible when speedNow()<14) popped the character
+      out beside the car on EVERY slow-down, crawl and stop while the
+      player was still driving. The figure is shown by the on-foot
+      branch only (enterFoot / the foot walker) — nowhere else. */
+   player.fig.visible=false;
    /* wheels: spin with forward speed; front pivots show the ACTUAL applied
       front-wheel steer angle (steerAng from the physics step) */
    /* front pivots live in the mesh's local frame (nose -Z), so the visual
@@ -8845,7 +8884,7 @@ function updateGame(dt,realDt){
    if(surf&&mp>lim-6&&mp<lim+6&&Math.random()<dt*.2)styleEvent('legit','cruising at limit');
    /* ban enforcement */
    if(S.banDays>0&&speedNow()>40&&!crew.some(function(c){return c.withYou&&c.def.role==='WHEELMAN';})){
-     if(dist2(player.x,player.z,police.x,police.z)<210&&Math.random()<dt*.4)arrest(['Driving while disqualified (ban day '+S.banDays+')']);
+     if(police.mode==='wander'&&dist2(player.x,player.z,police.x,police.z)<210&&Math.random()<dt*.4){police.mode='chase';addHeat(14);toast('🚨 Spotted driving while disqualified — pursuit!');} /* v30.41: was a direct arrest() from up to 210u away with no stop and no sequence; now being spotted starts the shipped pursuit and the FSM does any arrest with the officer present */
    }
  }
  /* ---------- TRAFFIC ---------- */
@@ -9487,7 +9526,7 @@ function policeAISync(dt){
      else if(ai.susNext==='INVESTIGATE'){ai.invLookT=0;policeSetState(police,'INVESTIGATE','checking it out');}
      else policeSetState(police,'RETURN','nothing in it');
    }
-   if(ai.state==='INVESTIGATE'&&(ai.invLookT>POLICE_AI_CFG.investigateLookT||ai.t>POLICE_AI_CFG.investigateT)){
+   if(ai.state==='INVESTIGATE'&&(ai.invLookT>POLICE_AI_CFG.investigateLookT||(ai.t>POLICE_AI_CFG.investigateT&&dist2(police.x,police.z,ai.lkp.x,ai.lkp.z)<60))){ /* v30.41: the wall-clock timeout only bites once the unit has ARRIVED near the LKP — investigateT (7s at the 150 investigate pace ≈ 1,050u of reach) was tuned before the R1 map made the world 4x bigger, so cross-map reports self-cancelled en route and no response ever arrived */
      ai.invLookT=0;policeSetState(police,'RETURN','investigation done — nothing arrestable');
    }
    if(ai.state==='RETURN'&&ai.t>POLICE_AI_CFG.returnT)policeSetState(police,'PATROL','back on patrol');
@@ -17455,8 +17494,22 @@ setInterval(function(){if(!music.started)return;
       if(i>=steps){clearInterval(t);try{c.pause();}catch(e){}var tmp=music.cur;music.cur=music.nxt;music.nxt=tmp;music.xf=false;musicApply();}},100);}
 },250);
 /* autoplay rules: music starts only on the player's first tap/click while in the menu layer */
-document.addEventListener('pointerdown',function(){if(document.body.classList.contains('in-game'))return;if(!music.started)musicStart();});
-document.addEventListener('click',function(){if(document.body.classList.contains('in-game'))return;if(!music.started)musicStart();});
+/* v30.41: first-touch-anywhere unlock — the earliest start mobile
+   browsers allow. Capture phase, so no element can swallow the gesture
+   before it lands; covers pointer + touch + click. Every path funnels
+   into the idempotent musicStart(), so PLAY (or any later tap) can
+   never double-start or restart the track. The unlock disarms itself
+   once the track is confirmed playing; while play() keeps being
+   rejected it stays armed for the next gesture. A muted player is
+   never started by a stray tap (the shipped Mute setting wins). */
+var __musicUnlockArmed=true;
+function __musicUnlock(){if(!__musicUnlockArmed)return;
+  if(document.body.classList.contains('in-game'))return;
+  if(music.muted)return;
+  if(!music.started)musicStart();
+  setTimeout(function(){if(music.started&&music.cur&&!music.cur.paused){__musicUnlockArmed=false;
+    ['pointerdown','touchstart','touchend','click'].forEach(function(t){document.removeEventListener(t,__musicUnlock,true);});}},700);}
+['pointerdown','touchstart','touchend','click'].forEach(function(t){document.addEventListener(t,__musicUnlock,true);});
 
 /* ---------- lightweight rain over the cover art ---------- */
 var reduced=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -17543,6 +17596,7 @@ syncMusic();
 window.__daleBoot.onReady(function(){
   setTimeout(function(){
     boot.classList.add('gone');showMenu();
+    try{musicStart();}catch(e){} /* v30.41: attempt the menu music the moment the game loads. Where autoplay is blocked the play() promise rejects, musicStart's own catch resets started=false, and the first-touch unlock (EDIT B) remains armed — so this costs nothing where it cannot work. */
     if(freshStart)openIntro();
     setTimeout(function(){boot.style.display='none';},500);
   },250);
@@ -17811,6 +17865,90 @@ buildSettings();initFeed();syncSet();
 setInterval(tick,250);
 })();
 </script>
+<!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
+<script>window.__V3041={version:'v30.41'};</script>
+<style id="fix41-tasks-css">
+html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
+body.tasks-collapsed #h24ObjLine{display:none;}
+</style>
+<style id="fix41-feed-css">
+body #sideFeed{transition:left .18s ease,opacity .6s ease;}
+body.feed41-dim #sideFeed{opacity:.35;}
+body.feed41-shut #sideFeed .feedItem:not(.pin){display:none;}
+#feed41Btn{pointer-events:auto;align-self:flex-start;background:rgba(7,11,15,.74);border:1px solid rgba(255,255,255,.16);color:var(--ink);border-radius:999px;font-family:'Barlow Condensed';font-size:12px;letter-spacing:.08em;padding:4px 14px;min-height:44px;min-width:44px;cursor:pointer;opacity:var(--h24op);}
+#feed41Btn:active{transform:scale(.94);}
+#feed41Btn.feed41-alert{border-color:rgba(229,72,77,.75);color:#ffb3b8;animation:feed41Pulse 1s ease-in-out infinite;}
+@keyframes feed41Pulse{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,0);}50%{box-shadow:0 0 0 3px rgba(229,72,77,.35);}}
+@media (prefers-reduced-motion:reduce){#feed41Btn.feed41-alert{animation:none;}}
+</style>
+<script>
+/* v30.41 FIX 3 — feed collapse tab + idle auto-fade (presentation only;
+   the shipped feed, its timers and the h24 alert capture are untouched) */
+(function(){try{
+ var f=document.getElementById('sideFeed');if(!f)return;
+ var KEY='dale.hudPrefs.v1';
+ var shut=false,lastAct=Date.now();
+ function readStored(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{};}catch(e){return{};}}
+ function writePref(){try{var p=readStored();p.h41feed=shut;localStorage.setItem(KEY,JSON.stringify(p));}catch(e){}}
+ try{var _sv=window.savePrefs;
+  if(typeof _sv==='function'&&!_sv.__f41){var w=function(u){_sv(u);writePref();};w.__f41=true;window.savePrefs=w;}
+ }catch(e){}
+ shut=readStored().h41feed===true;
+ var btn=document.createElement('button');
+ btn.id='feed41Btn';btn.type='button';btn.setAttribute('aria-label','Feed — collapse or expand');
+ function paint(){document.body.classList.toggle('feed41-shut',shut);btn.textContent=shut?'💬 Feed ▸':'💬 Feed ▾';if(!shut)btn.classList.remove('feed41-alert');}
+ btn.addEventListener('click',function(){shut=!shut;lastAct=Date.now();document.body.classList.remove('feed41-dim');paint();writePref();});
+ f.insertBefore(btn,f.firstChild);
+ paint();
+ var hb=document.getElementById('h24HistBtn');
+ if(hb)hb.addEventListener('click',function(){btn.classList.remove('feed41-alert');});
+ var mo=new MutationObserver(function(muts){
+  var fresh=false,alert=false;
+  for(var i=0;i<muts.length;i++){var adds=muts[i].addedNodes;
+   for(var j=0;j<adds.length;j++){var n=adds[j];
+    if(n.classList&&n.classList.contains('feedItem')&&!n.classList.contains('pin')){fresh=true;
+     if((n.dataset&&(n.dataset.h24pol||n.dataset.h24mis))||n.classList.contains('h24-pol')||n.classList.contains('anpr'))alert=true;}}}
+  if(fresh){lastAct=Date.now();document.body.classList.remove('feed41-dim');
+   if(shut&&alert)btn.classList.add('feed41-alert');}
+ });
+ mo.observe(f,{childList:true});
+ setInterval(function(){if(!shut&&Date.now()-lastAct>12000)document.body.classList.add('feed41-dim');},2000);
+ window.__FEED41={shut:function(){return shut;},toggle:function(){btn.click();},btn:btn};
+}catch(e){}})();
+</script>
+<style id="fix41-steal-css">
+#fightBtns #chip_steal{width:auto;min-width:0;height:44px;border-radius:999px;line-height:42px;background:rgba(30,24,8,.72);border:1px solid rgba(232,179,58,.6);color:#f3e3b3;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);}
+@media (orientation:landscape) and (max-height:540px){#fightBtns #chip_steal{height:38px;line-height:36px;}}
+@media (max-width:540px){html.dale-rot #fightBtns #chip_steal{height:38px;line-height:36px;}}
+</style>
+<script>
+/* v30.41 FIX 4 — relocate #chip_steal into the action cluster (same node,
+   same handler, same show/hide conditions — presentation only) */
+(function(){try{
+ var chip=document.getElementById('chip_steal');
+ var fb=document.getElementById('fightBtns');
+ if(!chip||!fb)return;
+ var gb=document.getElementById('h24GetInBtn');
+ if(gb&&gb.parentNode===fb)fb.insertBefore(chip,gb.nextSibling);
+ else fb.appendChild(chip);
+ window.__FIX41_STEAL={chip:chip,parent:function(){return chip.parentNode&&chip.parentNode.id;}};
+}catch(e){}})();
+</script>
+<style id="fix41-menu-css">
+#interactBar{left:50% !important;right:auto !important;top:calc(100px + var(--sat)) !important;bottom:auto !important;transform:translateX(-50%) !important;width:316px;max-width:94vw;flex-direction:row;flex-wrap:wrap;justify-content:center;gap:5px;}
+#interactBar .btn{width:calc(50% - 3px);text-align:center;}
+#interactBar #chip_ctx{width:100%;}
+#fightBtns #h24GetInBtn{width:auto;min-width:0;height:44px;border-radius:999px;font-size:13px;line-height:42px;padding:0 15px;}
+@media (orientation:landscape) and (max-height:540px){
+  #interactBar{width:316px;max-width:94vw;}
+  #fightBtns #h24GetInBtn{height:38px;line-height:36px;font-size:12px;}
+}
+@media (max-width:540px){
+  html.dale-rot #interactBar{left:50% !important;right:auto !important;top:calc(100px + var(--sat)) !important;transform:translateX(-50%) !important;width:316px;max-width:94vw;}
+  html.dale-rot #fightBtns #h24GetInBtn{height:38px;line-height:36px;font-size:12px;}
+}
+</style>
+
 </body>
 </html>
 </body>
