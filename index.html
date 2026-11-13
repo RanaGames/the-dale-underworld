@@ -17192,6 +17192,337 @@ var npcMemoryEnabled=true; /* spec S3 feature flag (default ON) */
  setInterval(nmTick,NM_TICK_MS); /* 1 s housekeeping — NOT a per-frame loop;
     all records are created by event hooks, never by this tick */
 })();
+/* ================= v30.45 — LIVING STREETS · STAGE 6 (neighbourhood atmosphere, full integration & optimization) =================
+   FINAL Phase 1 stage. Additive integration layer over the five shipped
+   Living Streets stages — __LS27 routines, __CV36 conversations, __EN37
+   encounters, __RP38 reactions, __NM39 memory — plus the shipped save
+   system (__SAVE35). It adds NO ped, NO controller, NO clock, NO update
+   loop of its own kind: one staggered 500 ms decision tick in the family
+   rhythm, and it writes exactly ONE field on foreign records — the
+   p.__ls27.until dwell, extended through the stack's own hold idiom
+   (EN37's enHold / RP38's rpHold are the shipped precedents).
+   WHAT IT DOES:
+   (1) §3 PRIORITY LADDER, made executable. Per ped, per tick, claims are
+       read from the layers' own primary records (p.__cv36.convo,
+       p.__en37, p.__rp38.react/pending, p.__ls27 state, shipped
+       down/flee/dive/fighters[] states) and the owner resolved by the
+       spec ladder: shipped mission/police/combat/witness (1-4) >
+       reaction (5) > encounter (6) > conversation (7) > routine (8).
+       The one ladder violation the shipped stack still had is closed:
+       a conversation member's LS27 dwell could expire mid-conversation,
+       flipping the member to TRAVELLING, which __CV36 reads as member
+       invalid ('routine') and ends the conversation early — routine (8)
+       pre-empting conversation (7). LS6 holds claimed peds' dwells
+       (conversation + encounter members) at gameT+6 while the claim
+       persists, exactly as EN37/RP38 already hold their own. Holds are
+       capped, refreshed only while claimed, and lapse naturally — no
+       stuck peds, no suspend/resume loops. Double-claims between the
+       ambient layers are counted in a conflict ledger (they resolve
+       through the layers' own designed yields: RP38 aborts 'claimed',
+       EN37 drops 'claimed' members); LS6 observes and reports rather
+       than rewriting a prior stage's eligibility.
+   (2) §4/§5/§6/§8 ATMOSPHERE. District classes derive from shipped
+       AREAS ids (commercial = centre/kingsway/manchester/middleton —
+       the same set LS27's anchor builder treats as commercial; quiet =
+       norden; estate = the residential rest). Periods map onto the
+       REAL clock (07:00-24:00, 300 s day — morning <10, day <17,
+       evening <22, late >=22; the spec's 06:00 start and overnight
+       hours do not exist in this game and the clock is NOT extended).
+       NO ambient audio assets exist in this game, so per the spec's
+       own rule nothing is invented: ambience is PROCEDURAL, built once
+       from a generated noise buffer through the game's existing
+       WebAudio context (AC — created by the shipped start gesture, so
+       autoplay rules are inherited, never fought): a low traffic bed,
+       a wind bed with a slow LFO, a sparse commercial chatter burble
+       and a rain patter layer driven by the shipped WX. Gains are
+       crossfaded per tick by district class x period x weather; loop
+       sources are created ONCE and never restarted; <=5 sources;
+       master gate follows S.playing / S.paused / document.hidden /
+       S.muted (the shipped mute). Adaptive degradation follows §11's
+       order: with S.ui.gfx = Balanced the chatter bed (extra
+       environmental audio, rung 1) is shed first.
+   (3) §12 SAVE AUDIT (audit only — the save layer is not modified):
+       __LS6.auditSave() inspects __SAVE35.inspect() + __NM39.sectionInfo():
+       managed section versions, the livingStreets profile count, the
+       npcMemory section size (it rides NM39's setItem interceptor, so
+       it is measured at its own surface), and a transient-leak check —
+       conversations / encounters / reactions / atmosphere state must
+       never appear in a save collect. Findings are reported, not fixed.
+   (4) §14 DIAGNOSTICS: window.__LS6 (overlay OFF by default) — civilian
+       census, per-layer activity, current neighbourhood + class,
+       schedule period, arbitration ledger, active audio sources, every
+       LS layer's own avgTickMs, feature-flag status.
+   DEFERRED, honestly (recorded, not faked): §7 ambient animation
+   variety beyond what shipped animateFigure/CV36 facing already give —
+   the figures are posed by the shipped walker and there is no
+   gesture channel that does not fight it; §8's conversation-length /
+   sheltered-anchor preferences live inside __CV36/__LS27 internals,
+   which an additive stage does not rewrite (weather awareness ships
+   in the audio beds + diagnostics instead); §9 chains are MEASURED
+   (a reaction by a recently-conversing ped is counted as an emergent
+   chain) rather than scripted, per the spec's own "never a hardcoded
+   demo".
+   SAVES: transient state only — S.atmosphere is an append-only
+   in-memory mirror like S.conversations/encounters/reactions and is
+   never collected by __SAVE35 (verified by the leak check above).
+   Feature flag: livingAtmosphereEnabled (default ON). OFF = holds
+   stop, ambience fades out, baseline v30.44 behaviour. Failure
+   isolation: any throw disables ONLY this module. Randomness is
+   Math.random ONLY — the seeded rnd() stream is never consumed. */
+(function(){
+ 'use strict';
+ var livingAtmosphereEnabled=true;
+ var A6=null;
+ var LS6_TICK_MS=500, LS6_HOLD_TO=6;
+ /* district classes from shipped AREAS ids (LS27's commercial set) */
+ var LS6_CLASS={centre:'commercial',kingsway:'commercial',manchester:'commercial',middleton:'commercial',norden:'quiet'};
+ var LS6_DISTRICT={
+  commercial:{label:'Commercial street',traffic:0.50,chatter:0.50,wind:0.22},
+  estate:{label:'Residential estate',traffic:0.20,chatter:0.12,wind:0.30},
+  quiet:{label:'Quiet residential',traffic:0.09,chatter:0.05,wind:0.36}};
+ var LS6_PERIOD_F={morning:0.8,day:1.0,evening:0.85,late:0.35};
+ function ls6Hour(){var c=clamp((S&&typeof S.clock==='number')?S.clock:300,0,300);return 7+(300-c)/300*17;}
+ function ls6Period(h){return h<10?'morning':(h<17?'day':(h<22?'evening':'late'));}
+ function ls6Surf(n){try{return window[n]||null;}catch(e){return null;}}
+ function ls6State(n){var s=ls6Surf(n);if(!s||!s.state)return null;try{return s.state();}catch(e){return null;}}
+ function ls6Enabled(n){var s=ls6Surf(n);if(!s||!s.enabled)return null;try{return !!s.enabled();}catch(e){return null;}}
+ function ls6ClassOf(areaId){return (areaId&&LS6_CLASS[areaId])?LS6_CLASS[areaId]:'estate';}
+ function ls6AreaId(x,z){try{var a=areaOf(x,z);return a?(a.id||null):null;}catch(e){return null;}}
+ function ls6Init(){
+  A6={claims:{},owners:{},conflictPeds:{},recentConvo:{},
+      counts:{holds:0,holdTicks:0,conflicts:0,resolutions:0,chains:0,byPair:{}},
+      lastConflict:null,lastChain:null,period:ls6Period(ls6Hour()),day:(S?S.day:1),
+      audio:{built:false,nodes:null,mix:{traffic:0,wind:0,chatter:0,rain:0},burble:1,sources:0,degraded:0,err:null},
+      avgTickMs:0,tickN:0,overlay:null};
+  if(S&&!S.atmosphere)S.atmosphere={version:1,enabled:true};
+ }
+ /* ---------------- §3 arbitration ---------------- */
+ function ls6Claims(p){
+  var c={shipped:false,reaction:false,encounter:false,conversation:false,routine:null,suspended:false};
+  if(p.down||(p.s2DownT&&p.s2DownT>0)||(p.s2FleeT&&p.s2FleeT>0)||(p.diveT&&p.diveT>0))c.shipped=true;
+  if(!c.shipped&&typeof fighters!=='undefined'&&fighters){
+   for(var i=0;i<fighters.length;i++)if(fighters[i].mesh===p.mesh){c.shipped=true;break;}}
+  var rr=p.__rp38;if(rr&&(rr.react||rr.pending))c.reaction=true;
+  if(p.__en37)c.encounter=true;
+  if(p.__cv36&&p.__cv36.convo)c.conversation=true;
+  var lr=p.__ls27;if(lr){c.routine=lr.state;c.suspended=!!lr.suspended;}
+  return c;
+ }
+ function ls6Owner(c){
+  if(c.shipped)return 'shipped';
+  if(c.reaction)return 'reaction';
+  if(c.encounter)return 'encounter';
+  if(c.conversation)return 'conversation';
+  if(c.routine&&c.routine!=='SUSPENDED')return 'routine';
+  return 'idle';
+ }
+ function ls6Arbitrate(){
+  var owners={},i,p,c,own;
+  for(i=0;i<peds.length;i++){
+   p=peds[i];c=ls6Claims(p);own=ls6Owner(c);
+   owners[own]=(owners[own]||0)+1;
+   if(c.conversation)A6.recentConvo[i]=gameT;
+   /* §9 emergence measure: a reaction from a ped that was conversing
+      within the last 10 game-s is a chain link, counted not scripted */
+   if(c.reaction&&A6.recentConvo[i]!==undefined&&(gameT-A6.recentConvo[i])<=10&&A6.lastChainIx!==i){
+    A6.counts.chains++;A6.lastChainIx=i;
+    A6.lastChain={t:Math.round(gameT*10)/10,npcId:'ped'+i};}
+   /* ladder hold: routine (8) yields to encounter (6) / conversation (7).
+      The enHold/rpHold idiom — extend the dwell LS27 itself set. */
+   if((c.conversation||c.encounter)&&!c.shipped){
+    var lr=p.__ls27;
+    if(lr&&!lr.suspended&&(lr.state==='WAITING'||lr.state==='SOCIALISING')){
+     if(lr.until<gameT+LS6_HOLD_TO){lr.until=gameT+LS6_HOLD_TO;A6.counts.holds++;}
+     A6.counts.holdTicks++;
+    }
+   }
+   /* conflict ledger: two ambient layers claiming one ped at once */
+   var layers=[];if(c.reaction)layers.push('reaction');if(c.encounter)layers.push('encounter');if(c.conversation)layers.push('conversation');
+   if(layers.length>=2){
+    var key=layers.join('+');
+    if(!A6.conflictPeds[i]){A6.counts.conflicts++;A6.counts.byPair[key]=(A6.counts.byPair[key]||0)+1;
+     A6.lastConflict={t:Math.round(gameT*10)/10,npcId:'ped'+i,pair:key};}
+    A6.conflictPeds[i]=key;
+   }else if(A6.conflictPeds[i]){delete A6.conflictPeds[i];A6.counts.resolutions++;}
+  }
+  A6.owners=owners;
+ }
+ /* ---------------- §4/§5/§6/§8 procedural ambience ---------------- */
+ function ls6NoiseBuffer(){
+  var len=AC.sampleRate*2,buf=AC.createBuffer(1,len,AC.sampleRate),d=buf.getChannelData(0),last=0;
+  for(var i=0;i<len;i++){var w=Math.random()*2-1;last=(last+0.02*w)/1.02;d[i]=last*3.2;}
+  return buf;
+ }
+ function ls6AudioBuild(){
+  var au=A6.audio;
+  try{
+   var buf=ls6NoiseBuffer();
+   var master=AC.createGain();master.gain.value=0;master.connect(AC.destination);
+   function bed(type,freq,q,rate){
+    var src=AC.createBufferSource();src.buffer=buf;src.loop=true;src.playbackRate.value=rate;
+    var f=AC.createBiquadFilter();f.type=type;f.frequency.value=freq;f.Q.value=q;
+    var g=AC.createGain();g.gain.value=0;
+    src.connect(f);f.connect(g);g.connect(master);src.start();
+    return {src:src,f:f,g:g};
+   }
+   var traffic=bed('lowpass',220,0.4,1.0);
+   var wind=bed('bandpass',480,0.5,0.62);
+   var chatter=bed('bandpass',950,0.8,1.73);
+   var rain=bed('highpass',2600,0.4,1.31);
+   var lfo=AC.createOscillator();lfo.frequency.value=0.07;
+   var lfoG=AC.createGain();lfoG.gain.value=130;lfo.connect(lfoG);lfoG.connect(wind.f.frequency);lfo.start();
+   au.nodes={master:master,traffic:traffic,wind:wind,chatter:chatter,rain:rain,lfo:lfo};
+   au.sources=5;au.built=true;
+  }catch(e){au.err=String(e&&e.message||e);au.built=false;}
+ }
+ function ls6AudioTick(){
+  var au=A6.audio;if(!au)return;
+  if(typeof AC==='undefined'||!AC)return;
+  if(!au.built){
+   if(livingAtmosphereEnabled&&AC.state==='running'&&S&&S.playing)ls6AudioBuild();
+   if(!au.built)return;
+  }
+  var n=au.nodes;if(!n)return;
+  var on=livingAtmosphereEnabled&&S&&S.playing&&!S.paused&&!S.muted&&!(typeof document!=='undefined'&&document.hidden);
+  var areaId=ls6AreaId(player.x,player.z),cls=ls6ClassOf(areaId),prof=LS6_DISTRICT[cls];
+  var per=LS6_PERIOD_F[A6.period]||1;
+  var rain=0;try{if(typeof WX!=='undefined'&&WX)rain=WX.rain||0;}catch(e){}
+  /* adaptive degradation (§11 order): Balanced graphics sheds the
+     chatter bed first — extra environmental audio goes before anything */
+  var gfxBal=false;try{gfxBal=!!(S&&S.ui&&S.ui.gfx==='Balanced');}catch(e){}
+  au.degraded=gfxBal?1:0;
+  if(Math.random()<0.35)au.burble=0.55+Math.random()*0.9; /* sparse chatter burble */
+  var tgt={
+   traffic:on?prof.traffic*0.085*per:0,
+   wind:on?(prof.wind+rain*0.10)*0.045*per:0,
+   chatter:(on&&!au.degraded)?prof.chatter*0.05*per*au.burble*(1-0.55*rain):0,
+   rain:on?rain*0.07*per:0};
+  var t=AC.currentTime;
+  for(var k in tgt){
+   au.mix[k]+=(tgt[k]-au.mix[k])*0.3; /* per-tick crossfade — areas blend, loops never restart */
+   try{n[k].g.gain.setTargetAtTime(au.mix[k],t,0.4);}catch(e){}
+  }
+  try{n.master.gain.setTargetAtTime(on?0.9:0,t,0.4);}catch(e){}
+ }
+ /* ---------------- §12 save audit (read-only) ---------------- */
+ function ls6SaveAudit(){
+  var out={ranAt:Math.round(gameT*10)/10,ok:true,issues:[],sections:{},transientKeysInSave:[],livingStreetsProfiles:0,npcMemorySectionBytes:0,storedBytes:-1};
+  try{
+   var sv=ls6Surf('__SAVE35'),st=(sv&&sv.inspect)?sv.inspect():null,i,k;
+   if(!st){out.ok=false;out.issues.push('SAVE35.inspect unavailable');}
+   else{
+    var sec=st.sections||{};
+    for(k in sec)out.sections[k]={version:sec[k].version,bytes:JSON.stringify(sec[k]).length};
+    if(sec.livingStreets&&sec.livingStreets.data&&sec.livingStreets.data.profiles)
+     out.livingStreetsProfiles=Object.keys(sec.livingStreets.data.profiles).length;
+    for(k in sec)if(sec[k].version!==1){out.ok=false;out.issues.push('section '+k+' has version '+sec[k].version);}
+    var txt=JSON.stringify(st);
+    var transient=['conversations','encounters','reactions','atmosphere'];
+    for(i=0;i<transient.length;i++)if(txt.indexOf('"'+transient[i]+'":')>=0)out.transientKeysInSave.push(transient[i]);
+    if(out.transientKeysInSave.length){out.ok=false;out.issues.push('transient LS keys inside save collect: '+out.transientKeysInSave.join(','));}
+   }
+   var nm=ls6Surf('__NM39');
+   if(nm&&nm.sectionInfo)out.npcMemorySectionBytes=nm.sectionInfo().bytes;
+   try{var raw=localStorage.getItem('dale.save.v1');out.storedBytes=raw?raw.length:0;}catch(e){}
+  }catch(e){out.ok=false;out.issues.push(String(e&&e.message||e));}
+  return out;
+ }
+ /* ---------------- tick ---------------- */
+ function ls6Tick(){
+  var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  try{
+   if(!A6)ls6Init();
+   if(S&&!S.atmosphere)S.atmosphere={version:1,enabled:livingAtmosphereEnabled};
+   if(S&&S.day!==A6.day){A6.day=S?S.day:A6.day;A6.recentConvo={};A6.conflictPeds={};A6.lastChainIx=-1;}
+   A6.period=ls6Period(ls6Hour());
+   if(livingAtmosphereEnabled&&typeof S!=='undefined'&&S&&S.playing&&!S.paused&&typeof peds!=='undefined'&&peds.length)ls6Arbitrate();
+   ls6AudioTick();
+   if(A6.overlay)ls6OverlayDraw();
+  }catch(e){
+   livingAtmosphereEnabled=false; /* failure isolation: only this module dies */
+   try{if(A6&&A6.audio&&A6.audio.nodes)A6.audio.nodes.master.gain.value=0;}catch(e2){}
+   if(window.console)console.log('[v30.45 living-atmosphere] disabled after error: '+(e&&e.message));
+  }
+  if(t0&&A6){var dtms=performance.now()-t0;A6.avgTickMs=A6.tickN?A6.avgTickMs*0.9+dtms*0.1:dtms;A6.tickN++;}
+ }
+ function ls6Counts(){
+  var cv=ls6State('__CV36'),en=ls6State('__EN37'),rp=ls6State('__RP38'),nm=ls6State('__NM39'),ls=ls6State('__LS27');
+  var memNpcs=0,memRecs=0;
+  if(nm&&nm.npcs){for(var k in nm.npcs){memNpcs++;memRecs+=nm.npcs[k].count||0;}}
+  return {civ:(typeof peds!=='undefined'&&peds)?peds.length:0,
+   routines:ls?ls.counts:null,
+   conversations:cv&&cv.active?cv.active.length:0,
+   encounters:en&&en.active?en.active.length:0,
+   reactions:rp&&rp.reactions?rp.reactions.length:0,
+   reactionsPending:rp&&rp.pending?rp.pending.length:0,
+   memoryNpcs:memNpcs,memoryRecords:memRecs,
+   aiMs:{ls27:ls?ls.avgTickMs:null,cv36:cv?cv.avgTickMs:null,en37:en?en.avgTickMs:null,
+         rp38:rp?rp.avgTickMs:null,nm39:nm?nm.avgTickMs:null,ls6:A6?Math.round(A6.avgTickMs*100)/100:0}};
+ }
+ function ls6DistrictCensus(){
+  var out={},anchors={commercial:0,estate:0,quiet:0},i;
+  var ls=ls6Surf('__LS27');
+  try{if(ls&&ls.anchors){var a=ls.anchors();for(i=0;i<a.length;i++){/* anchor class from its area id */
+    anchors[ls6ClassOf(a[i].area)]++;}}}catch(e){}
+  if(typeof peds!=='undefined'&&peds)for(i=0;i<peds.length;i++){
+   var cl=ls6ClassOf(ls6AreaId(peds[i].x,peds[i].z));out[cl]=(out[cl]||0)+1;}
+  return {pedsByClass:out,anchorsByClass:anchors};
+ }
+ function ls6OverlayDraw(){
+  if(!A6||!A6.overlay)return;
+  var c=ls6Counts(),areaId=(typeof player!=='undefined'&&player)?ls6AreaId(player.x,player.z):null;
+  A6.overlay.textContent='ATMOSPHERE · '+A6.period+' · '+(areaId||'?')+' ('+ls6ClassOf(areaId)+')'+
+   ' · civ '+c.civ+' · conv '+c.conversations+' · enc '+c.encounters+' · react '+c.reactions+
+   ' · mem '+c.memoryRecords+' · holds '+A6.counts.holds+' · conflicts '+A6.counts.conflicts+
+   ' · audio '+A6.audio.sources+' src · tick '+A6.avgTickMs.toFixed(2)+'ms';
+ }
+ window.__LS6={
+  version:'v30.45',
+  enabled:function(){return livingAtmosphereEnabled;},
+  setEnabled:function(on){
+   livingAtmosphereEnabled=!!on;
+   if(S){if(!S.atmosphere)S.atmosphere={version:1,enabled:livingAtmosphereEnabled};S.atmosphere.enabled=livingAtmosphereEnabled;}
+   if(!on&&A6&&A6.audio&&A6.audio.nodes){try{A6.audio.nodes.master.gain.value=0;}catch(e){}}
+   return livingAtmosphereEnabled;
+  },
+  state:function(){
+   if(!A6)ls6Init();
+   var c=ls6Counts(),areaId=(typeof player!=='undefined'&&player)?ls6AreaId(player.x,player.z):null;
+   return {initialised:true,enabled:livingAtmosphereEnabled,version:'v30.45',
+    period:A6.period,hour:Math.round(ls6Hour()*10)/10,day:A6.day,
+    neighbourhood:{area:areaId,districtClass:ls6ClassOf(areaId),label:LS6_DISTRICT[ls6ClassOf(areaId)].label},
+    census:c,districts:ls6DistrictCensus(),owners:A6.owners,
+    arbitration:{holds:A6.counts.holds,holdTicks:A6.counts.holdTicks,conflicts:A6.counts.conflicts,
+     resolutions:A6.counts.resolutions,byPair:A6.counts.byPair,lastConflict:A6.lastConflict,
+     chains:A6.counts.chains,lastChain:A6.lastChain,holdTo:LS6_HOLD_TO},
+    audio:{built:A6.audio.built,sources:A6.audio.sources,degraded:A6.audio.degraded,err:A6.audio.err,
+     mix:{traffic:Math.round(A6.audio.mix.traffic*1000)/1000,wind:Math.round(A6.audio.mix.wind*1000)/1000,
+          chatter:Math.round(A6.audio.mix.chatter*1000)/1000,rain:Math.round(A6.audio.mix.rain*1000)/1000}},
+    flags:{livingStreets:ls6Enabled('__LS27'),conversations:ls6Enabled('__CV36'),encounters:ls6Enabled('__EN37'),
+     reactivePeds:ls6Enabled('__RP38'),npcMemory:ls6Enabled('__NM39'),atmosphere:livingAtmosphereEnabled,
+     saveSystem:ls6Enabled('__SAVE35')},
+    sKey:(S&&S.atmosphere)?{version:S.atmosphere.version,enabled:S.atmosphere.enabled}:null};
+  },
+  auditSave:function(){return ls6SaveAudit();},
+  tick:function(){ls6Tick();return !!A6;},
+  /* debug fixture (verification only, family pattern): shorten one ped's
+     LS27 dwell to stage the routine-expiry race the ladder hold closes */
+  debugSetDwell:function(ix,secs){
+   if(typeof peds==='undefined'||!peds[ix]||!peds[ix].__ls27)return false;
+   peds[ix].__ls27.until=gameT+(secs||0);return true;
+  },
+  debug:function(on){
+   if(!A6)ls6Init();
+   if(on&&!A6.overlay){var d=document.createElement('div');
+    d.style.cssText='position:fixed;left:8px;bottom:116px;z-index:99;background:rgba(10,10,14,.82);color:#a8d8ff;font:11px monospace;padding:6px 8px;border-radius:6px;pointer-events:none;max-width:70vw';
+    document.body.appendChild(d);A6.overlay=d;ls6OverlayDraw();}
+   if(!on&&A6.overlay){A6.overlay.remove();A6.overlay=null;}
+   return !!A6.overlay;
+  }
+ };
+ setInterval(ls6Tick,LS6_TICK_MS); /* staggered integration tick — NOT a
+    per-frame loop; the shipped walker keeps sole ownership of movement */
+})();
 
 /* ================= v30.40 TEST — REAL CAR MODEL (BMW M5 CS GLB) ON THE STARTER SALOON =================
    A TEST layer, built exactly on the house GLB pattern (v30.5 tracksuit /
