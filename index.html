@@ -19039,6 +19039,391 @@ catch(e){
 }
 })();
 
+/* ================= MP TEST — MULTIPLAYER PROOF =================
+   His go (2026-11-13): a minimal multiplayer TEST for The Dale —
+   two to four phones in one Rochdale, seeing each other walk and
+   drive, and able to fight. This is NOT the multiplayer programme
+   (the parked private crew world stays parked); it is a proof that
+   rides the existing Kings & Dice server as a dumb relay.
+
+   Shape — the pattern every stage uses: ONE flagged layer over the
+   frozen core. Flag: multiplayerTestEnabled, DEFAULT OFF. With the
+   flag off the layer is inert: no socket, no stand-ins, and the
+   four wrapped combat functions pass straight through, so single
+   player behaviour is the shipped behaviour. Nothing is written
+   to the save file — the display name and server override live in
+   a localStorage pref (dale.mpTest.v1), stand-ins are runtime
+   objects only.
+
+   Transport: wss://kings-and-dice-server.onrender.com/dale
+   (path-dispatched relay in src/dale.js — rooms by short code,
+   cap 4, frames relayed verbatim, NO server validation: this is
+   client-trusted, test-grade trust, exactly like the brief).
+
+   Presence: own state at ~10 Hz — mode (foot/car), position, the
+   figure's and the car's mesh headings, hp, downed, blocking.
+   Each peer is a stand-in built from shipped pieces (makeFigure +
+   makeLabel for the name; a primitive box car for driving).
+
+   FIGHTING — remote players are REAL fighters here:
+   · The stand-in joins combatHostiles() (wrapped), so the shipped
+     targeting, combatResolveContact range/arc/LOS test, per-swing
+     hit registry and the bat's wide-arc extra all treat it exactly
+     like a crash fighter (it even shares the 'fighter' hitReg key,
+     so one swing takes at most one fighter-class target, as
+     shipped, with the bat arc as the one extra).
+   · combatApplyHit is wrapped: a registered hit on a stand-in does
+     NOT write hp/Heat/Tension locally (a remote player is not an
+     NPC crime victim and the police are not synced). It computes
+     the swing's raw damage from the shipped tables (WEAPONS x
+     chain profile x F5W x heavy x f5HitScale x arc factor), plays
+     the shipped feedback (sfxHit, hitstop, knock slide, stagger
+     flinch) and sends dale:hit to the owner.
+   · A swing start (combatStartSwing / f5StartHeavy, wrapped)
+     broadcasts dale:attack. On receipt, the defender runs the
+     shipped range/arc check against its own player and remembers
+     the verdict; when the matching dale:hit lands, the defender
+     runs combatPlayerHit — the shipped block/parry/dodge/poise
+     resolution — applies the effective damage to S.hp exactly
+     like the shipped fighter/rival callers do, and broadcasts
+     dale:hp with the outcome (ack + effective damage).
+   · HP is OWNER-AUTHORITATIVE: a stand-in's displayed hp/downed
+     only ever mirrors the owner's dale:hp / dale:state reports.
+   · Downed: knockdown (pReact.kdT) mirrors as downed. A remote hit
+     that takes the player to 0 resolves through robbery() — the
+     shipped on-foot fight-loss outcome (robbed, hp 55, limp away)
+     — after a dale:hp{hp:0,downed:true} pulse so the room sees
+     the KO before the recovery.
+   Driving: the remote car is a visual stand-in only. It is NOT in
+   the traffic array and NOT a PARKED_SOLID — the shipped collision
+   treats moving traffic and parked cars through two different
+   systems and neither accepts a foreign body cheaply (traffic cars
+   are AI-driven from their own road binding; parked solids are
+   static OBBs baked against the map). Bolting the remote car into
+   either would be a collision rebuild, out of scope for the test:
+   you can drive through your mate's car. Reported, not hidden.
+   Out of scope entirely: Line/economy/police/tram/combat-vs-NPC
+   sync; ambient traffic stays local per client (parked design).
+   ================================================================ */
+(function(){
+'use strict';
+var multiplayerTestEnabled=false;
+var MP_URL_DEFAULT='wss://kings-and-dice-server.onrender.com';
+var MP_PREF_KEY='dale.mpTest.v1';
+var MP={
+ on:false,ws:null,id:null,room:null,status:'off',name:'',url:MP_URL_DEFAULT,
+ peers:{},pending:{},intentional:false,reconnectT:null,
+ lastHp:-1,lastDown:null,sent:{},recv:{},
+};
+var MP_COLORS=[0x3f7fbf,0xbf3f3f,0x3fbf5f,0xbfa03f];
+var MP_SKINS=[0x8a5a3b,0xc9a189,0xa06a42,0x6e4530];
+function mpPref(){
+ try{var p=JSON.parse(localStorage.getItem(MP_PREF_KEY)||'{}');return p&&typeof p==='object'?p:{};}catch(e){return {};}
+}
+function mpSavePref(){
+ try{localStorage.setItem(MP_PREF_KEY,JSON.stringify({name:MP.name,url:MP.url===MP_URL_DEFAULT?undefined:MP.url}));}catch(e){}
+}
+MP.name=mpPref().name||'';
+MP.url=mpPref().url||MP_URL_DEFAULT;
+function mpCount(bucket,type){bucket[type]=(bucket[type]||0)+1;}
+function mpSend(obj){
+ if(!MP.ws||MP.ws.readyState!==1)return false;
+ try{MP.ws.send(JSON.stringify(obj));mpCount(MP.sent,obj.type);return true;}catch(e){return false;}
+}
+function mpMyPos(){
+ if(typeof footMode!=='undefined'&&footMode)return{x:footMode.x,z:footMode.z};
+ return{x:player.x,z:player.z};
+}
+/* ---------- stand-ins ---------- */
+function mpPeerColor(id){
+ var h=0;for(var i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))>>>0;
+ return MP_COLORS[h%MP_COLORS.length];
+}
+function mpMakeCar(color){
+ var g=new THREE.Group();
+ var mat=new THREE.MeshLambertMaterial({color:color});
+ var dark=new THREE.MeshLambertMaterial({color:0x14161a});
+ var body=new THREE.Mesh(new THREE.BoxGeometry(16,7,36),mat);body.position.y=6.5;g.add(body);
+ var cab=new THREE.Mesh(new THREE.BoxGeometry(14,6,18),dark);cab.position.set(0,12.5,-1);g.add(cab);
+ [[-8,-12],[8,-12],[-8,12],[8,12]].forEach(function(w){
+  var wh=new THREE.Mesh(new THREE.CylinderGeometry(4.4,4.4,3,10),dark);
+  wh.rotation.z=Math.PI/2;wh.position.set(w[0],4.4,w[1]);g.add(wh);
+ });
+ g.visible=false;scene.add(g);return g;
+}
+function mpAddPeer(id,name,state,hpMsg){
+ if(MP.peers[id]||id===MP.id)return;
+ var col=mpPeerColor(id);
+ var fig=makeFigure(col,0x141519,MP_SKINS[Math.abs(id.length+id.charCodeAt(2)||0)%MP_SKINS.length]);
+ fig.visible=false;scene.add(fig);
+ var label=makeLabel(name||'Player','rgba(140,200,255,1)','\uD83D\uDC64');
+ label.scale.set(72,18,1);label.visible=false;scene.add(label);
+ var p={peerId:id,mpRemote:true,name:name||'Player',
+  x:state?state.x:0,z:state?state.z:0,tx:state?state.x:0,tz:state?state.z:0,
+  figRot:state?state.fr:0,carRot:state?state.cr:0,rotCur:state?state.fr:0,
+  mode:state?state.mode:'foot',hp:hpMsg?hpMsg.hp:100,maxHp:100,down:false,blocking:false,
+  mesh:fig,label:label,carG:mpMakeCar(col),dmg:10,aiArch:'thug',
+  kdT:0,protectT:0,staggerT:0,blockStunT:0,stunImmuneT:0,counterT:0,stam:100,stamMax:100,
+  lastMoveX:0,lastMoveZ:0,seen:Date.now()};
+ if(hpMsg){p.hp=hpMsg.hp;p.down=!!hpMsg.downed;}
+ MP.peers[id]=p;
+}
+function mpRemovePeer(id){
+ var p=MP.peers[id];if(!p)return;
+ try{scene.remove(p.mesh);scene.remove(p.label);scene.remove(p.carG);}catch(e){}
+ delete MP.peers[id];delete MP.pending[id];
+}
+function mpClearPeers(){for(var id in MP.peers)mpRemovePeer(id);}
+/* ---------- hp broadcast (owner-authoritative) ---------- */
+function mpBroadcastHp(extra){
+ if(!S)return;
+ var down=(typeof pReact!=='undefined'&&(pReact.kdT>0))||S.hp<=0;
+ var msg={type:'dale:hp',hp:Math.max(0,Math.round(S.hp)),maxHp:100,downed:down};
+ if(extra){for(var k in extra)msg[k]=extra[k];}
+ MP.lastHp=msg.hp;MP.lastDown=down;
+ mpSend(msg);
+}
+function mpSendState(){
+ if(!S||!S.playing)return;
+ var pos=mpMyPos(),foot=!!(typeof footMode!=='undefined'&&footMode);
+ var down=(typeof pReact!=='undefined'&&(pReact.kdT>0))||S.hp<=0;
+ mpSend({type:'dale:state',name:MP.name,mode:foot?'foot':'car',
+  x:pos.x,z:pos.z,
+  fr:(player.fig?player.fig.rotation.y:0),cr:(player.mesh?player.mesh.rotation.y:0),
+  hp:Math.round(S.hp),downed:down,blk:!!(typeof combat!=='undefined'&&combat.blocking)});
+ if(Math.round(S.hp)!==MP.lastHp||down!==MP.lastDown)mpBroadcastHp();
+}
+/* ---------- combat: receiving ---------- */
+function mpOnAttack(msg){
+ var p=MP.peers[msg.from];if(!p)return;
+ p.tx=msg.x;p.tz=msg.z; /* their swing position is their position */
+ if(p.mesh)p.mesh.userData.atkT=msg.heavy?.42:.32;
+ /* the shipped range/arc test, against MY player, with a latency
+    allowance on top of the shipped numbers (state is 10 Hz) */
+ var me=mpMyPos();
+ var d=Math.hypot(me.x-msg.x,me.z-msg.z);
+ var bearing=Math.atan2(me.x-msg.x,me.z-msg.z);
+ var ad=Math.abs(combatAngDiff(bearing,msg.face));
+ var inRange=d<=COMBAT.hitRange+26&&(d<=22||ad<=COMBAT.hitArc/2+0.25);
+ MP.pending[msg.from]={t:Date.now(),inRange:inRange,swingId:msg.swingId};
+}
+function mpOnHit(msg){
+ if(msg.target!==MP.id)return;
+ if(!S||!S.playing||S.paused)return;
+ if(typeof custody!=='undefined'&&custody)return;
+ var p=MP.peers[msg.from];
+ var pend=MP.pending[msg.from];
+ if(pend&&!pend.inRange){delete MP.pending[msg.from];return;} /* whiffed on this client — no damage */
+ delete MP.pending[msg.from];
+ var attacker=p||{x:msg.x||0,z:msg.z||0};
+ var ed=combatPlayerHit(attacker,!!msg.heavy,msg.dmg); /* shipped block/parry/dodge/poise resolution */
+ if(ed>0){
+  S.hp-=ed;sfx('hit');
+  if(S.hp<0){ /* mirrors the shipped fighter/rival callers: hp<0 is the KO */
+   S.hp=0;mpBroadcastHp(); /* the room sees the KO first */
+   robbery(); /* shipped on-foot fight-loss outcome: robbed, hp 55, limp away */
+  }
+  updateHUD();
+ }
+ mpBroadcastHp({ack:msg.swingId,eff:ed});
+}
+/* ---------- socket ---------- */
+function mpSetStatus(txt){MP.status=txt;mpSyncUi();}
+function mpConnect(roomCode){
+ if(MP.ws){try{MP.ws.close();}catch(e){}MP.ws=null;}
+ MP.intentional=false;MP.on=true;multiplayerTestEnabled=true;
+ var url=MP.url+'/dale?name='+encodeURIComponent(MP.name)+(roomCode?'&room='+encodeURIComponent(roomCode):'');
+ mpSetStatus(roomCode?'joining '+roomCode:'creating room');
+ var ws;
+ try{ws=new WebSocket(url);}catch(e){mpSetStatus('connect failed');mpScheduleReconnect(roomCode);return;}
+ MP.ws=ws;
+ ws.onopen=function(){mpSetStatus('connected');};
+ ws.onmessage=function(ev){
+  var msg;try{msg=JSON.parse(ev.data);}catch(e){return;}
+  if(!msg||typeof msg.type!=='string')return;
+  mpCount(MP.recv,msg.type);
+  if(msg.type==='dale:welcome'){
+   MP.id=msg.id;MP.room=msg.room;
+   mpClearPeers();
+   (msg.peers||[]).forEach(function(pr){mpAddPeer(pr.id,pr.name,pr.state,pr.hp);});
+   mpSetStatus('in room '+msg.room);
+   MP.lastHp=-1;MP.lastDown=null;mpBroadcastHp();
+  }
+  else if(msg.type==='dale:peer-joined'){mpAddPeer(msg.id,msg.name,null,null);mpSetStatus('in room '+MP.room);}
+  else if(msg.type==='dale:peer-left'){mpRemovePeer(msg.id);}
+  else if(msg.type==='dale:state'){
+   var p=MP.peers[msg.from];if(!p){mpAddPeer(msg.from,msg.name,null,null);p=MP.peers[msg.from];}
+   if(p){p.tx=msg.x;p.tz=msg.z;p.mode=msg.mode;p.figRot=msg.fr;p.carRot=msg.cr;
+    p.hp=msg.hp;p.down=!!msg.downed;p.blocking=!!msg.blk;p.seen=Date.now();}
+  }
+  else if(msg.type==='dale:hp'){
+   var q=MP.peers[msg.from];if(q){q.hp=msg.hp;q.maxHp=msg.maxHp||100;q.down=!!msg.downed;}
+  }
+  else if(msg.type==='dale:attack'){mpOnAttack(msg);}
+  else if(msg.type==='dale:hit'){mpOnHit(msg);}
+  else if(msg.type==='dale:error'){mpSetStatus('server: '+(msg.code||'error'));}
+ };
+ ws.onclose=function(){
+  MP.ws=null;
+  if(MP.intentional){MP.on=false;multiplayerTestEnabled=false;mpClearPeers();mpSetStatus('off');}
+  else if(MP.on){mpSetStatus('reconnecting');mpScheduleReconnect(MP.room);}
+ };
+ ws.onerror=function(){try{ws.close();}catch(e){}};
+}
+function mpScheduleReconnect(roomCode){
+ if(MP.reconnectT||!MP.on)return;
+ MP.reconnectT=setTimeout(function(){MP.reconnectT=null;if(MP.on&&!MP.ws)mpConnect(roomCode);},3000);
+}
+function mpDisconnect(){
+ MP.intentional=true;MP.on=false;multiplayerTestEnabled=false;
+ if(MP.reconnectT){clearTimeout(MP.reconnectT);MP.reconnectT=null;}
+ if(MP.ws){try{MP.ws.send(JSON.stringify({type:'dale:leave'}));}catch(e){}try{MP.ws.close();}catch(e){}MP.ws=null;}
+ mpClearPeers();MP.room=null;MP.id=null;mpSetStatus('off');mpSyncUi();
+}
+function mpEnsureName(){
+ if(MP.name)return true;
+ var n=window.prompt('Your display name for the multiplayer test:','Player');
+ if(n===null)return false;
+ MP.name=String(n).replace(/\s+/g,' ').trim().slice(0,24)||'Player';
+ mpSavePref();return true;
+}
+/* ---------- combat wraps (pass-through while off) ---------- */
+var mpOrigHostiles=combatHostiles;
+combatHostiles=function(){
+ var list=mpOrigHostiles();
+ if(MP.on){
+  for(var pid in MP.peers){var p=MP.peers[pid];
+   if(p&&!p.down&&p.hp>0)list.push({o:p,isRival:false});}
+ }
+ return list;
+};
+var mpOrigApplyHit=combatApplyHit;
+combatApplyHit=function(h,f5Factor){
+ if(MP.on&&h&&h.o&&h.o.mpRemote){
+  var w=WEAPONS[S.weapon];
+  var prof=combat.curHit||COMBAT.chain[S.weapon][0],ci=combat.curIdx||0,o=h.o;
+  var dmg=w.dmg*prof.dmg*F5W[S.weapon].dmg*(combat.f5Heavy?F5.heavyDmgMul:1)*f5HitScale()*(f5Factor||1);
+  dmg=Math.round(dmg*10)/10;
+  sfxHit(ci,S.weapon);
+  combat.hitStopT=COMBAT.hitStop[ci];combat.hitStopPair={a:null,b:o};
+  combatKnockSlide(o,Math.atan2(o.x-player.x,o.z-player.z),w.knock*prof.knock);
+  if(o.mesh)o.mesh.userData.stagT=prof.stag;
+  toast(w.name+' hit!');
+  mpSend({type:'dale:hit',target:o.peerId,swingId:combat.swingId,dmg:dmg,
+   weapon:S.weapon,ci:ci,heavy:!!combat.f5Heavy,x:player.x,z:player.z});
+  return;
+ }
+ return mpOrigApplyHit(h,f5Factor);
+};
+function mpBroadcastSwing(){
+ if(!MP.on)return;
+ var pos=mpMyPos();
+ mpSend({type:'dale:attack',swingId:combat.swingId,weapon:S.weapon,ci:combat.curIdx,
+  heavy:!!combat.f5Heavy,x:pos.x,z:pos.z,face:combatFaceAng()});
+}
+var mpOrigStartSwing=combatStartSwing;
+combatStartSwing=function(){var r=mpOrigStartSwing();if(r)mpBroadcastSwing();return r;};
+var mpOrigStartHeavy=f5StartHeavy;
+f5StartHeavy=function(){var r=mpOrigStartHeavy();if(r)mpBroadcastSwing();return r;};
+/* mates never swing at a remote player (they are not NPC hostiles) */
+var mpOrigMateOK=combatMateStrikeOK;
+combatMateStrikeOK=function(t){if(t&&t.mpRemote)return false;return mpOrigMateOK(t);};
+/* ---------- tick: state out, stand-ins rendered ---------- */
+setInterval(function(){
+ if(!MP.on)return;
+ try{mpSendState();}catch(e){}
+ if(!S||!S.playing)return;
+ var now=Date.now();
+ for(var pid in MP.pending){if(now-MP.pending[pid].t>2500)delete MP.pending[pid];}
+ for(var id in MP.peers){
+  var p=MP.peers[id];if(!p)continue;
+  var dx=p.tx-p.x,dz=p.tz-p.z,dist=Math.hypot(dx,dz);
+  var step=Math.min(dist,dist*0.45+2);
+  if(dist>0.01){p.x+=dx/dist*step;p.z+=dz/dist*step;}
+  var spd=dist>0.01?step*10:0;
+  var driving=p.mode==='car';
+  p.mesh.visible=!driving;
+  p.carG.visible=driving;
+  if(driving){
+   p.carG.position.set(p.x,0,p.z);p.carG.rotation.y=p.carRot;
+   p.label.position.set(p.x,40,p.z);
+  }else{
+   p.mesh.position.set(p.x,0,p.z);
+   var dd=combatAngDiff(p.figRot,p.rotCur);p.rotCur+=dd*0.5;
+   p.mesh.rotation.y=p.rotCur;
+   p.mesh.rotation.z=p.down?Math.PI/2:0;
+   if(!p.down)animateFigure(p.mesh,0.1,Math.min(spd,140),true,false);
+   p.label.position.set(p.x,37,p.z);
+  }
+  p.label.visible=true;
+ }
+},100);
+/* ---------- UI: settings row + HUD chip ---------- */
+function mpPeerCount(){var n=0;for(var k in MP.peers)n++;return n;}
+function mpSyncUi(){
+ var st=document.getElementById('mpSetState');
+ if(st)st.textContent=MP.on?(MP.room?('Room '+MP.room+' · '+(mpPeerCount()+1)+' in'):MP.status):'Off';
+ var chip=document.getElementById('mpChip');
+ if(chip){
+  chip.style.display=MP.on?'flex':'none';
+  var t=document.getElementById('mpChipText');
+  if(t)t.textContent='MP TEST · '+(MP.room?('Room '+MP.room):MP.status)+' · '+(mpPeerCount()+1)+' player'+(mpPeerCount()?'s':'');
+ }
+}
+function mpBuildUi(){
+ try{
+  if(!document.getElementById('mpChip')){
+   var chip=document.createElement('div');chip.id='mpChip';
+   chip.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);left:50%;transform:translateX(-50%);z-index:9990;display:none;align-items:center;gap:10px;background:rgba(8,12,16,.88);border:1px solid #c9a227;border-radius:999px;padding:6px 8px 6px 14px;font:600 13px "Barlow Condensed",sans-serif;color:#eef1f4;letter-spacing:.04em;';
+   var span=document.createElement('span');span.id='mpChipText';span.textContent='MP TEST';
+   var lv=document.createElement('button');lv.id='mpChipLeave';lv.textContent='Leave';
+   lv.style.cssText='background:#7a1f1f;color:#fff;border:0;border-radius:999px;padding:5px 12px;font:700 12px "Barlow Condensed",sans-serif;cursor:pointer;';
+   lv.addEventListener('click',function(){mpDisconnect();});
+   chip.appendChild(span);chip.appendChild(lv);document.body.appendChild(chip);
+  }
+  var anchor=document.getElementById('setGfxBtn');
+  if(anchor&&anchor.parentNode&&!document.getElementById('mpCreateBtn')){
+   var parent=anchor.parentNode;
+   var row=document.createElement('div');row.className='rowline';row.style.marginTop='14px';
+   row.innerHTML='<span>Multiplayer test</span><b id="mpSetState">Off</b>';
+   var btns=document.createElement('div');
+   btns.style.cssText='display:flex;gap:8px;margin-top:8px;';
+   var mk=function(id,label,fn){
+    var b=document.createElement('button');b.className='btn ghost';b.id=id;b.textContent=label;
+    b.addEventListener('click',fn);btns.appendChild(b);return b;
+   };
+   mk('mpCreateBtn','Create room',function(){if(mpEnsureName())mpConnect(null);});
+   mk('mpJoinBtn','Join room',function(){
+    if(!mpEnsureName())return;
+    var code=window.prompt('Room code:','');
+    if(code)mpConnect(String(code).toUpperCase().replace(/[^A-Z0-9]/g,''));
+   });
+   mk('mpLeaveBtn','Leave',function(){mpDisconnect();});
+   if(anchor.nextSibling)parent.insertBefore(row,anchor.nextSibling);else parent.appendChild(row);
+   if(row.nextSibling)parent.insertBefore(btns,row.nextSibling);else parent.appendChild(btns);
+  }
+  mpSyncUi();
+ }catch(e){}
+}
+var mpUiTries=0;
+var mpUiTimer=setInterval(function(){mpBuildUi();if(document.getElementById('mpCreateBtn')||++mpUiTries>40)clearInterval(mpUiTimer);},500);
+setInterval(mpSyncUi,1000);
+window.__MP={
+ version:'mp-test-1',
+ enabled:function(){return MP.on;},
+ flag:function(){return multiplayerTestEnabled;},
+ state:function(){return {on:MP.on,id:MP.id,room:MP.room,status:MP.status,name:MP.name,
+  peers:mpPeerCount(),sent:MP.sent,recv:MP.recv};},
+ peers:function(){var out=[];for(var id in MP.peers){var p=MP.peers[id];
+  out.push({id:id,name:p.name,x:Math.round(p.x),z:Math.round(p.z),tx:Math.round(p.tx),tz:Math.round(p.tz),
+   mode:p.mode,hp:p.hp,down:p.down});}return out;},
+ connect:function(code){if(mpEnsureName())mpConnect(code||null);},
+ disconnect:function(){mpDisconnect();},
+ setName:function(n){MP.name=String(n||'Player').slice(0,24);mpSavePref();},
+ setUrl:function(u){MP.url=String(u||MP_URL_DEFAULT);mpSavePref();}
+};
+})();
+/* ================= /MP TEST ================= */
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
  isPlaying:function(){return !!(S&&S.playing);},
@@ -19464,7 +19849,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3047={version:'v30.47'};</script>
+<script>window.__V3048={version:'v30.48'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
