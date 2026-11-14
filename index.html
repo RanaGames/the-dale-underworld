@@ -8949,7 +8949,7 @@ function updateGame(dt,realDt){
       out beside the car on EVERY slow-down, crawl and stop while the
       player was still driving. The figure is shown by the on-foot
       branch only (enterFoot / the foot walker) — nowhere else. */
-   player.fig.visible=false;
+   if(!footMode)player.fig.visible=false;
    /* wheels: spin with forward speed; front pivots show the ACTUAL applied
       front-wheel steer angle (steerAng from the physics step) */
    /* front pivots live in the mesh's local frame (nose -Z), so the visual
@@ -21422,7 +21422,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3054={version:'v30.54'};</script>
+<script>window.__V3055={version:'v30.55'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
