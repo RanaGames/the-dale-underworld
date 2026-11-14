@@ -20058,6 +20058,299 @@ var policeIntelEnabled=true; /* P2S4 feature flag (default ON) */
 })();
 /* ================= /P2S4 POLICE (__P51) ================= */
 
+/* ================= PHASE 2 STAGE 5 — CONTEXTUAL INTERACTIONS (__I52) =================
+   Spec: files/PHASE2-STAGE5-INTERACTIONS-SPEC.md + the binding Neo audit
+   notes at its end. This layer is the §2 ADAPTER the spec asks for: it
+   formalises a candidate/priority model OVER the shipped interaction
+   system. It adds NO scanner, NO handler and NO action of its own — every
+   action still runs through the shipped paths, byte-for-byte.
+
+   §1 AUDIT (shipped, deliberately untouched):
+   - ONE proximity scan exists: findInteract(), called per frame from the
+     main loop, wrapped in order by S3 (steal/carjack candidates), the
+     leader-car layer (cruising brothers un-talkable) and the v30.42
+     PARLEY GATE (outermost, presentation). NPC resolution inside it is
+     nearest-with-slack: peds/aunties at face distance (<44u), mates at
+     +10 slack, rival and leaders at +16 — the informal priority this
+     stage formalises.
+   - The prompt surface: #interactBar + the #ctxChip context label; the
+     hud24 tick mirrors the bar's display onto the ✋ Interact button
+     (whose shipped forwarder fires chip_ctx.click()); the GATE makes a
+     prompt tap open the social panel instead (capture + stopPropagation),
+     so one tap never both opens the panel AND fires the context action.
+   - The social panel (CHAT / BIG-UP / SWEAR-DISS / THREATEN / context
+     chip) IS the §5 contextual menu for NPCs. Vehicles have their own
+     shipped offers: chip_steal (S3 steal / carjack, a self-labelled
+     button in the action cluster) and the GET IN button (hud24 tick:
+     'own' = the exact E-key/proximity entry conditions incl. the v20
+     leftCar hysteresis — stepped >=34u clear + exitT > 0.8 s — 'steal'
+     = S3's nearer takeable car). Shops/property are button-driven
+     screens (#sideBtns, lot/fence flows), NOT proximity prompts — per
+     §5's own rule no candidates are invented for them. Mission-critical
+     prompt candidates (§3 tier 1) do not exist in the shipped prompt
+     system (the Line runs on the phone + pins) — the tier is in the
+     model, unpopulated, and that is stated rather than faked.
+   - §7 control context is CSS-complete as shipped: body.onfoot /
+     body.driving (toggled from footMode) show/hide the combat buttons,
+     pedals and cluster — verified, not modified.
+   - §6 guards as shipped: findInteract requires footMode; custody sets
+     S.paused and overlays; every shipped handler re-reads the CURRENT
+     target at execution (doInteract uses the live interactNPC, S3's
+     doSteal re-checks s3Target, entry re-checks distance + lock).
+
+   THIS LAYER ADDS (flag contextPromptEnabled, default ON; pref rides the
+   save as S.ui.contextPrompt, D50/P51 idiom; OFF = fully inert):
+   - §2/§3 CANDIDATES: on one 150 ms tick it reads ONLY shipped outputs
+     (interactNPC, s3Target / chip_steal, window.__h24GetInMode) and
+     builds candidate records {id, kind, tier, targeted, label, dist,
+     available, actions}. Tiers are the spec's: NPC conversation 4,
+     vehicle 5 (tiers 1–3/6–8 unpopulated — see audit). `targeted` marks
+     the candidate the shipped targeted scan is currently offering as
+     primary; resolution = targeted first, then lowest tier, then
+     nearest — which reproduces the shipped winner in every state,
+     including S3's displacement (a nearer takeable car IS the directly
+     targeted interactable, §3 tier 3 in effect) and NPC-over-own-car
+     (tier 4 beats 5, matching the shipped prompt emphasis).
+   - §4 ONE MAIN PROMPT: a small passive pill at the head of the action
+     cluster naming the selected candidate with the actual target name
+     where the game has one — "Leader Parley · CHICO", "Banter · Daz",
+     "Sort a Deal", "🚗 Get In — your <car>" (vehicle steal/carjack keep
+     their own shipped labelled chip, so the pill stands down while it
+     is the live offer). pointer-events:none — it can never intercept a
+     touch (§9) and carries no handler (§6: zero new activation paths,
+     zero double-activation surface).
+   - §8 SELECTION HOLD: the pill's selection changes only when a new
+     candidate identity persists for 2 consecutive ticks (~300 ms) and
+     clears only after 2 ticks with no selection — brief winner flicker
+     between near-equal NPCs never reaches the player's eye. The hold is
+     at the prompt layer only, deliberately: the shipped targeting (and
+     the parley gate keyed to it) stays authoritative at tap time, and
+     re-keying it is exactly the disturbance the stage brief forbids.
+   - §10: no per-frame work, no world scan — O(1) shipped-output reads
+     plus at most 3 distance computations per tick; the pill's DOM is
+     written only when its text or visibility actually changes.
+   - §11: runtime-only state; the sole save footprint is the pref.
+   Debug surface: window.__I52 (candidates / selected / state / drive). */
+var contextPromptEnabled=true; /* P2S5 feature flag (default ON) */
+(function(){
+ var I52={version:'p2s5-1',err:null,ticks:0,labelWrites:0,selections:[]};
+ var HOLD=2; /* ticks a new selection must persist (~300 ms at 150 ms) */
+ var labelEl=null,lastTxt=null,lastVis=null;
+ var cur=null,pendId=null,pendN=0,missN=0;
+ function $(id){return document.getElementById(id);}
+ function i52On(){
+  if(!contextPromptEnabled)return false;
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.contextPrompt===0)return false;}catch(e){}
+  return true;
+ }
+ function npcName(n){
+  try{
+   if(n.type==='leader'&&n.leaderRef&&n.leaderRef.def&&n.leaderRef.def.name)return n.leaderRef.def.name;
+   if(n.type==='mate'&&n.crewRef&&n.crewRef.def&&n.crewRef.def.name)return n.crewRef.def.name;
+   if(n.type==='rival'&&typeof rival!=='undefined'&&rival&&rival.areaId&&typeof AREAS!=='undefined'){
+    for(var i=0;i<AREAS.length;i++)if(AREAS[i].id===rival.areaId)return AREAS[i].gang;
+   }
+  }catch(e){}
+  return null;
+ }
+ function buildCandidates(){
+  var out=[];
+  var onFoot=(typeof footMode!=='undefined'&&!!footMode);
+  var fx=onFoot?footMode.x:0,fz=onFoot?footMode.z:0;
+  var st=null;
+  try{st=(typeof s3Target!=='undefined')?s3Target:null;}catch(e){}
+  if(!st&&window.__S3&&window.__S3.target){try{st=window.__S3.target();}catch(e){}}
+  var stealEl=$('chip_steal');
+  var stealLive=!!(st&&stealEl&&stealEl.style.display!=='none');
+  if(st){
+   var vehId='veh:'+(st.kind==='traffic'?('traf:'+((st.traf&&st.traf.mesh)?st.traf.mesh.uuid:'x')):('spare:'+((st.spare&&st.spare.mesh)?st.spare.mesh.uuid:'x')));
+   out.push({id:vehId,kind:(st.kind==='traffic'?'carjack':'steal'),tier:5,targeted:stealLive,
+    label:stealEl?(stealEl.textContent||''):'',dist:(typeof st.d==='number')?Math.round(st.d):null,available:stealLive});
+  }
+  var n=null;
+  try{n=(typeof interactNPC!=='undefined')?interactNPC:null;}catch(e){}
+  if(n){
+   var nx=n.x,nz=n.z;
+   if(nx===undefined&&n.fig){nx=n.fig.position.x;nz=n.fig.position.z;}
+   var cc=$('ctxChip'),ctx=cc?(cc.textContent||''):'';
+   var nm=npcName(n);
+   out.push({id:'npc:'+n.type+'|'+((n.fig&&n.fig.uuid)||'x'),kind:'npc',npcType:n.type,tier:4,
+    targeted:!stealLive,label:ctx+(nm?(' · '+nm):''),name:nm,ctx:ctx,
+    dist:(nx!==undefined&&onFoot&&typeof dist2==='function')?Math.round(dist2(fx,fz,nx,nz)):null,
+    available:!stealLive,actions:['chat','bigup','swear','threaten','ctx']});
+  }
+  var gm='';
+  try{gm=window.__h24GetInMode||'';}catch(e){}
+  if(gm==='own'&&onFoot&&typeof carPark!=='undefined'&&carPark&&typeof CARS!=='undefined'){
+   out.push({id:'veh:own',kind:'own',tier:5,targeted:false,
+    label:'🚗 Get In — your '+((CARS[S.car]&&CARS[S.car].name)||S.car),
+    dist:(typeof dist2==='function')?Math.round(dist2(fx,fz,carPark.x,carPark.z)):null,available:true});
+  }
+  return out;
+ }
+ function resolve(cands){
+  var i,c;
+  for(i=0;i<cands.length;i++){c=cands[i];if(c.targeted&&c.available)return c;}
+  var best=null;
+  for(i=0;i<cands.length;i++){c=cands[i];if(!c.available)continue;
+   if(!best||c.tier<best.tier||(c.tier===best.tier&&(c.dist||1e9)<(best.dist||1e9)))best=c;}
+  return best;
+ }
+ function labelContextOk(){
+  /* the pill shows only while a tap on the prompt cluster is meaningful:
+     playing, unpaused, not in custody, on foot, panel closed (the open
+     panel is itself the menu), and the steal chip not the live offer
+     (it is already a labelled prompt). */
+  try{
+   if(typeof S==='undefined'||!S||!S.playing||S.paused)return false;
+   if(typeof custody!=='undefined'&&custody)return false;
+   if(typeof footMode==='undefined'||!footMode)return false;
+   if(window.__GATE42&&window.__GATE42.open())return false;
+   var sc=$('chip_steal');if(sc&&sc.style.display!=='none')return false;
+   return true;
+  }catch(e){return false;}
+ }
+ function ensureLabel(){
+  if(labelEl)return labelEl;
+  var fb=$('fightBtns');if(!fb)return null;
+  labelEl=document.createElement('div');labelEl.id='i52Prompt';
+  labelEl.style.cssText='pointer-events:none;display:none;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;letter-spacing:.06em;padding:5px 11px;border-radius:999px;background:rgba(30,24,8,.78);border:1px solid rgba(232,179,58,.6);color:#f3e3b3;white-space:nowrap;max-width:62vw;overflow:hidden;text-overflow:ellipsis;box-shadow:0 4px 14px rgba(0,0,0,.4);';
+  fb.insertBefore(labelEl,fb.firstChild);
+  return labelEl;
+ }
+ function showLabel(txt){
+  var el=ensureLabel();if(!el)return;
+  var vis=!!txt;
+  if(vis!==lastVis){el.style.display=vis?'block':'none';lastVis=vis;I52.labelWrites++;}
+  if(vis&&txt!==lastTxt){el.textContent=txt;lastTxt=txt;I52.labelWrites++;}
+  if(!vis)lastTxt=null;
+ }
+ function tick(){
+  I52.ticks++;
+  try{
+   if(!i52On()){cur=null;pendId=null;pendN=0;missN=0;showLabel(null);return;}
+   var sel=resolve(buildCandidates());
+   if(!sel){
+    pendId=null;pendN=0;
+    if(cur){missN++;if(missN>=HOLD){cur=null;missN=0;}}
+   }else{
+    missN=0;
+    if(!cur){cur=sel;noteSelection(sel);}
+    else if(sel.id===cur.id){cur=sel;pendId=null;pendN=0;}
+    else{
+     if(pendId===sel.id)pendN++;else{pendId=sel.id;pendN=1;}
+     if(pendN>=HOLD){cur=sel;pendId=null;pendN=0;noteSelection(sel);}
+    }
+   }
+   showLabel((cur&&labelContextOk())?cur.label:null);
+  }catch(e){I52.err=String(e&&e.message||e);}
+ }
+ function noteSelection(sel){
+  I52.selections.push({id:sel.id,kind:sel.kind,label:sel.label});
+  if(I52.selections.length>8)I52.selections.shift();
+ }
+ setInterval(tick,150);
+ /* ---- Settings row (D50/P51 idiom: row + toggle + note before [data-close]) ---- */
+ function i52SyncUi(){
+  var st=$('i52SetState'),b=$('i52SetBtn'),on=i52On();
+  if(st)st.textContent=on?'On':'Off';
+  if(b)b.textContent=on?'Turn Off':'Turn On';
+ }
+ function i52BuildUi(){
+  try{
+   if($('i52SetBtn'))return;
+   var panel=$('settingsPanel'),card=panel?panel.querySelector('.card'):null;
+   if(!card)return;
+   var anchor=card.querySelector('[data-close]');
+   var row=document.createElement('div');row.className='rowline';row.style.marginTop='14px';
+   row.innerHTML='<span>Context prompt</span><b id="i52SetState">On</b>';
+   var btn=document.createElement('button');btn.className='btn ghost';btn.id='i52SetBtn';btn.type='button';btn.textContent='Turn Off';
+   var note=document.createElement('p');note.className='small';
+   note.textContent='Stage 5 smart context: the Interact prompt names who or what it will use — “Leader Parley · CHICO”, “Banter · Daz”, “Get In — your car” — so one glance tells you what a tap does. Every interaction itself is the shipped one, untouched: same panel, same outcomes, same car entry. Kept with your run, like the other settings.';
+   if(anchor){card.insertBefore(row,anchor);card.insertBefore(btn,anchor);card.insertBefore(note,anchor);}
+   else{card.appendChild(row);card.appendChild(btn);card.appendChild(note);}
+   btn.addEventListener('click',function(){
+    try{
+     if(typeof S==='undefined'||!S)return;
+     if(!S.ui||typeof S.ui!=='object')S.ui={};
+     var on=!i52On();
+     S.ui.contextPrompt=on?1:0;
+     contextPromptEnabled=on;
+     i52SyncUi();
+    }catch(e){}
+   });
+   i52SyncUi();
+  }catch(e){}
+ }
+ var i52UiTries=0;
+ var i52UiTimer=setInterval(function(){i52BuildUi();if($('i52SetBtn')||++i52UiTries>40)clearInterval(i52UiTimer);},500);
+ setInterval(i52SyncUi,1000);
+ /* ---- test surface (the __POLICE_HARNESS idiom): reads/drives the REAL
+    shipped interaction state so the sandbox can verify this layer ---- */
+ var D52={
+  place:function(x,z){
+   if(typeof footMode==='undefined'||!footMode)return false;
+   footMode.x=x;footMode.z=z;footMode.vx=0;footMode.vz=0;
+   if(player&&player.fig)player.fig.position.set(x,0,z);
+   return true;
+  },
+  exitCar:function(){
+   var b=$('exitCarBtn');if(b){b.click();return true;}
+   return false;
+  },
+  leaders:function(){
+   var out=[];
+   try{leaders.forEach(function(L){out.push({id:L.def?L.def.id:'?',name:L.def?L.def.name:'?',x:Math.round(L.x),z:Math.round(L.z),state:L.state,inCar:!!L.inCar});});}catch(e){}
+   return out;
+  },
+  aunties:function(){
+   var out=[];
+   try{aunties.forEach(function(a){out.push({x:Math.round(a.x),z:Math.round(a.z),street:a.street||null});});}catch(e){}
+   return out;
+  },
+  spares:function(){
+   var out=[];
+   try{s3Spares.forEach(function(sp){out.push({key:sp.key,own:!!sp.own,x:Math.round(sp.mesh.position.x),z:Math.round(sp.mesh.position.z)});});}catch(e){}
+   return out;
+  },
+  snap:function(){
+   var chips={};
+   ['chip_chat','chip_bigup','chip_swear','chip_threaten','chip_ctx','chip_steal'].forEach(function(id){var c=$(id);chips[id]=c?((c.style.display==='none')?'none':'show'):'absent';});
+   var bar=$('interactBar');
+   return {
+    playing:!!(typeof S!=='undefined'&&S&&S.playing),paused:!!(typeof S!=='undefined'&&S&&S.paused),
+    custody:!!(typeof custody!=='undefined'&&custody),
+    foot:(typeof footMode!=='undefined'&&footMode)?{x:Math.round(footMode.x),z:Math.round(footMode.z),reason:footMode.reason,leftCar:!!footMode.leftCar,exitT:Math.round((footMode.exitT||0)*100)/100}:null,
+    carPark:(typeof carPark!=='undefined'&&carPark)?{x:Math.round(carPark.x),z:Math.round(carPark.z)}:null,
+    npc:(typeof interactNPC!=='undefined'&&interactNPC)?{type:interactNPC.type,name:npcName(interactNPC)}:null,
+    ctx:(function(){var c=$('ctxChip');return c?c.textContent:null;})(),
+    s3:(typeof s3Target!=='undefined'&&s3Target)?{kind:s3Target.kind,d:Math.round(s3Target.d),key:s3Target.spare?s3Target.spare.key:(s3Target.traf?s3Target.traf.key:null)}:null,
+    getInMode:(typeof window!=='undefined'&&window.__h24GetInMode)||'',
+    gateOpen:(window.__GATE42&&window.__GATE42.open)?window.__GATE42.open():null,
+    gateKey:(window.__GATE42&&window.__GATE42.key)?window.__GATE42.key():null,
+    bar:bar?(bar.style.display||''):null,chips:chips,
+    social:(typeof S!=='undefined'&&S&&S.social)?{talks:S.social.talks,swears:S.social.swears}:null,
+    cash:(typeof S!=='undefined'&&S)?S.cash:null,
+    car:(typeof S!=='undefined'&&S)?S.car:null,ride:!!(typeof S!=='undefined'&&S&&S.ride)
+   };
+  }
+ };
+ window.__I52={
+  version:I52.version,
+  enabled:function(){return i52On();},
+  setEnabled:function(b){contextPromptEnabled=!!b;try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={};S.ui.contextPrompt=b?1:0;}}catch(e){}i52SyncUi();return i52On();},
+  candidates:function(){return i52On()?buildCandidates():[];},
+  selected:function(){return i52On()?resolve(buildCandidates()):null;},
+  state:function(){return {ticks:I52.ticks,labelWrites:I52.labelWrites,err:I52.err,
+   label:(labelEl&&lastVis)?lastTxt:null,labelVisible:!!lastVis,
+   held:cur?{id:cur.id,kind:cur.kind,label:cur.label}:null,
+   selections:I52.selections.slice()};},
+  drive:D52
+ };
+})();
+/* ================= /P2S5 INTERACTIONS (__I52) ================= */
+
+
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
  isPlaying:function(){return !!(S&&S.playing);},
@@ -20483,7 +20776,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3051={version:'v30.51'};</script>
+<script>window.__V3052={version:'v30.52'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
