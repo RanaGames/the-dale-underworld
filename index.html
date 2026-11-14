@@ -19631,6 +19631,432 @@ var enhancedDrivingEnabled=true; /* P2S3 feature flag (default ON) */
  };
 })();
 /* ================= /P2S3 DRIVING (__D50) ================= */
+/* ================= PHASE 2 STAGE 4 — INTELLIGENT POLICE (__P51) =================
+   Spec: files/PHASE2-STAGE4-POLICE-SPEC.md (complete 20-section version) +
+   the binding Neo audit notes at its end. Stage 4 ONLY — no Stage 5 work.
+   The shipped police system is the foundation; this layer is an appended,
+   flag-gated refinement. It creates NO second police controller, NO second
+   wanted system, NO new crime category and NO new reporting path.
+
+   AUDIT OF THE SHIPPED BASELINE (inspected in the base, deliberately kept):
+   - One FSM for the Rochdale unit (Police AI Overhaul Stage 1, v30.13):
+     PATROL/SUSPICIOUS/INVESTIGATE/PURSUE/SEARCH/ARREST/CUSTODY/RETURN with
+     a validated transition table (POLICE_TRANSITIONS); invalid transitions
+     are refused and counted. police.mode ('wander'/'pullover'/'chase')
+     stays the legacy mirror other systems read; the FSM is authoritative.
+   - Detection (S4): budgeted policeSense (0.12 s stagger, never per-frame),
+     range 270, FOV half-angle 1.35, point-blank 44, true LOS via the
+     shipped combatLOS segment-vs-AABB test against buildings[] — nothing
+     is seen through buildings. Suspicion signals and the pursuit-grade
+     Heat>=32 rule are shipped values. Post-release grace blocks detection.
+   - Dispatch legs (S5), all shipped: sight (policeDetect), radio adoption
+     (a shipped path sets mode='chase' — ANPR stolen / incident / crash —
+     and policeAISync adopts it as PURSUE with the player as the LKP),
+     aunty reports -> policeReportDispatch -> INVESTIGATE at the report
+     position (v30.41: NOT a live tracker; vague reports stay report-only),
+     Heat max -> policeHeatDispatch -> chase (v30.41: a radio report, never
+     an instant arrest). Crime reporting exists ONLY via s2Witness, aunty
+     snitching and street complaints (complain()).
+   - Pursuit (S6/S7): the unit hunts the LKP through policeNavMove
+     (heading-smoothed at turnRate, building-slide via policeMove /
+     footBlocked, holds the 24u standoff, bounded stuck audit every 0.9 s:
+     side-step detour first, out-of-sight road re-place only after repeated
+     failure and never in the player's view). Pace is the shipped
+     rubber-band (clamp 205..292 by distance, foot cap 168) — never raised
+     here. Catch clock needs fresh sight (<1.2 s) + close range + low
+     player speed; eligibility re-checks LOS at the arrest instant.
+   - Search (S8): sight lost > 2.5 s -> SEARCH over 5 LKP offset points
+     (footBlocked-adjusted), 9 s bound -> policeDisengage applies the
+     shipped lose outcomes exactly once (Heat -22 + plate marker). Heat is
+     NOT cleared on losing visual contact — only on full disengagement,
+     as designed.
+   - ANPR (S9): runScan with anprBusy + anprCd guards; stolen -> pursuit,
+     documents/markers -> pullover; plate is NOT driver identity (roadside
+     outcomes stay roadside); markers are consumed at booking (v30.1) so a
+     record cannot re-arm after release. carRecords ride the save (v30.35).
+   - Arrest (S11/S12): policeArrestCheck (playing / custody / sequence /
+     lock / paused / officer pursuing / range 33 / LOS), the arrestLock
+     transaction lock, policeBeginArrest reserving the interaction, the
+     controlled 0.95 s policeSeqTick at standoff (abort > 110u releases
+     the lock; custody-by-another-path releases the lock), then the FROZEN
+     arrest() custody suite — booking from actual events, evidence counted
+     once and consumed, release restores controls at the station with a
+     25 s releaseGrace. Direct shipped arrest paths (attacking an officer,
+     heavy police-car collision, stocked pullover stop) are design, kept.
+   - The city unit (police2, X-2) is anchor wander + the same behind-car
+     ANPR scan; it has an ai record but no FSM behaviour — chase handoff
+     between units is OUT OF SCOPE by design (X-2 S6.2), so S7 multi-unit
+     pursuit offsets / S10 coordination have no second pursuer to apply to
+     and are recorded as a conflict/deferral, not silently built.
+   - Saves (S15): all AI state is runtime-only (u.ai); Heat/Tension/Rep/
+     Cash/ANPR/complaints ride the shipped save; a loaded run restarts
+     every officer at PATROL under existing rules. Nothing here serialises
+     navigation paths, incidents or runtime objects.
+   - Debug (S16): the shipped policeDebug overlay shows state/LKP/seen/
+     nav/Heat/grace/lock/eligibility fails — but no incident ID, no
+     detection source, no stuck-recovery count, no AI update timing.
+
+   THIS LAYER ADDS (flag policeIntelEnabled, default ON; pref rides the
+   save as S.ui.policeIntel, SD42/D50 idiom; OFF = every hook below is a
+   pure pass-through and behaviour is the shipped build byte-for-byte):
+   - S5 INCIDENT LEDGER: the three authoritative dispatch entries are
+     wrapped (policeReportDispatch / policeHeatDispatch / policeStartPursuit)
+     plus a policeSetState observer for the radio-adoption PURSUE entry.
+     A dispatch that actually takes effect opens an incident {id, source,
+     why, position, area, t0, phase, pursuitGrade}; the S3 conceptual
+     states map onto the shipped FSM as incident PHASES, read-only:
+     RESPONDING (INVESTIGATE, still travelling to the report position),
+     INVESTIGATING (arrived / looking), PURSUING, SEARCHING, ATTEMPTING
+     ARREST (ARREST state / sequence live), then closed with a resolution
+     (investigated-clear / disengaged / custody / superseded / replaced /
+     expired). A pursuit-grade incident supersedes a routine one in the
+     ledger only — the FSM already escalates itself. DUPLICATE GATE: a
+     witness report for the SAME incident (same active witness incident,
+     <= 25 game-s old, report position within 150u of the incident
+     position, response still under way) is counted as a duplicate and
+     does not re-dispatch — it cannot re-point the LKP or restart the
+     investigation clock. Every other report passes through untouched,
+     so the v30.41 dispatch legs are preserved exactly.
+   - S7 CORNER BRAKING: policeNavMove is wrapped; for the Rochdale unit
+     in PURSUE / SEARCH / INVESTIGATE (never while a stuck detour is
+     steering), the commanded speed is scaled by heading error to the
+     target — full pace when aligned (error <= 0.25 rad), easing to
+     x0.62 at >= 1.75 rad — so the unit brakes into sharp turns instead
+     of overshooting. The wrap can only ever REDUCE the shipped command,
+     never raise it; standoff, turn rate and the rubber-band are shipped.
+   - S6/S16 STUCK ACCOUNTING: the layer's slow tick watches the shipped
+     ai.nav signal and counts side-step detours and out-of-sight
+     re-places, so recovery attempts are visible (read-only).
+   - S11 ARREST AUDIT + SEQUENCE WATCHDOG: policeTryArrest /
+     policeBeginArrest are wrapped to record every attempt (ok / refused
+     + the shipped eligibility reason) and its outcome (custody /
+     aborted). The watchdog observes arrestSeq on the slow tick: if the
+     sequence value has not advanced across 3 ticks while the game is
+     playing and unpaused (a genuine stall — in normal play the shipped
+     policeSeqTick advances it every frame), it re-drives the SHIPPED
+     policeSeqTick (captured reference) in 0.1 s steps. It adds no new
+     arrest path and changes no consequence; it exists so a sequence can
+     never leave the player frozen behind a stalled arrest.
+   - S14/S16: the layer runs ONE 250 ms interval (no per-frame work);
+     updatePolice is wrapped with an OPT-IN timing measurement (armed
+     via __P51.measure(true)) so AI update cost can be read honestly.
+     __P51.debugText() carries the S16 panel content the shipped overlay
+     lacks: incident ID, detection source, stuck attempts, arrest audit,
+     custody status, AI update time. The shipped overlay is untouched.
+   - S15: the ledger, counters and audit are runtime-only module state;
+     the sole save footprint is the S.ui.policeIntel pref.
+   - TEST SURFACE: __P51.drive mirrors the shipped __POLICE_HARNESS
+     idiom — it drives the REAL (wrapped) functions so the sandbox can
+     verify this layer, including a deliberate policeSeqTick sabotage
+     hook used only to prove the watchdog rescue. It has no gameplay
+     effect unless explicitly called from a harness/console. */
+var policeIntelEnabled=true; /* P2S4 feature flag (default ON) */
+(function(){
+ var P51={version:'p2s4-1',err:null,
+  dupWindow:25,dupRange:150,
+  cornerStart:.25,cornerFull:1.75,cornerCut:.38,
+  nextId:1,active:null,history:[],dups:0,superseded:0,
+  brakeEvents:0,arrests:[],pendingArrest:null,seqSeen:false,
+  guardFires:0,lastSeqT:null,seqStall:0,
+  stuckDetours:0,stuckReplaces:0,lastNav:'',
+  measure:false,updUs:0,updN:0,updMax:0,tickN:0};
+ var lastBrake={a:0,f:1};
+ function p51On(){
+  if(!policeIntelEnabled)return false;
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.policeIntel===0)return false;}catch(e){}
+  return true;
+ }
+ function p51Dist(x1,z1,x2,z2){var dx=x2-x1,dz=z2-z1;return Math.sqrt(dx*dx+dz*dz);}
+ function p51Area(){try{if(typeof areaOf==='function'&&typeof player!=='undefined'&&player){var a=areaOf(player.x,player.z);return a?a.id:null;}}catch(e){}return null;}
+ function p51Close(inc,how){
+  if(!inc||inc.resolution)return;
+  inc.resolution=how;inc.phase='closed';inc.tEnd=(typeof gameT==='number')?gameT:0;
+  P51.history.push(inc);if(P51.history.length>12)P51.history.shift();
+  if(P51.active===inc)P51.active=null;
+ }
+ function p51Open(src,why,x,z,pursuitGrade){
+  var cur=P51.active;
+  if(cur){
+   if(cur.pursuitGrade)return cur; /* a live pursuit incident absorbs later sources; a routine report never displaces it */
+   if(pursuitGrade){p51Close(cur,'superseded');P51.superseded++;}
+   else p51Close(cur,'replaced');
+  }
+  var inc={id:P51.nextId++,src:src,why:why||'',x:x,z:z,area:p51Area(),
+   t0:(typeof gameT==='number')?gameT:0,phase:'dispatched',pursuitGrade:!!pursuitGrade,dups:0,resolution:null,tEnd:0,sawPursuit:false};
+  P51.active=inc;return inc;
+ }
+ /* Incident phase is a READ MODEL over the shipped FSM state, derived at
+    read time (never a second state machine): RESPONDING / INVESTIGATING
+    split on distance to the report position and the shipped invLookT. */
+ function p51Phase(inc){
+  try{
+   if(!inc||inc.resolution)return 'closed';
+   if(typeof police==='undefined'||!police||!police.ai)return inc.phase||'dispatched';
+   var ai=police.ai,st=ai.state;
+   if(st==='PURSUE')return 'pursuing';
+   if(st==='SEARCH')return 'searching';
+   if(st==='ARREST'||(typeof arrestSeq!=='undefined'&&arrestSeq))return 'arresting';
+   if(st==='INVESTIGATE')return (p51Dist(police.x,police.z,inc.x,inc.z)>60&&(ai.invLookT||0)<=0)?'responding':'investigating';
+   return 'dispatched';
+  }catch(e){return inc?(inc.phase||'dispatched'):'dispatched';}
+ }
+ /* ---- S5: incident ledger — dispatch entry wraps ---- */
+ var reportShip=policeReportDispatch;
+ policeReportDispatch=function(why){
+  if(p51On()){
+   try{
+    var inc=P51.active;
+    var ph=p51Phase(inc);
+    if(inc&&!inc.pursuitGrade&&inc.src.indexOf('witness')===0
+       &&(ph==='dispatched'||ph==='responding'||ph==='investigating')
+       &&(gameT-inc.t0)<=P51.dupWindow
+       &&p51Dist(player.x,player.z,inc.x,inc.z)<=P51.dupRange){
+     inc.dups++;P51.dups++;inc.why=why||inc.why;
+     return; /* duplicate of the incident already being answered: counted, not re-dispatched */
+    }
+   }catch(e){}
+  }
+  var stBefore=(typeof police!=='undefined'&&police&&police.ai)?police.ai.state:null;
+  var r=reportShip(why);
+  if(p51On()){
+   try{
+    if(stBefore!=='INVESTIGATE'&&police.ai&&police.ai.state==='INVESTIGATE'&&police.mode==='wander')
+     p51Open((''+why).indexOf('plate')>=0?'witness-plate':'witness-desc',why,player.x,player.z,false);
+   }catch(e){}
+  }
+  return r;
+ };
+ var heatShip=policeHeatDispatch;
+ policeHeatDispatch=function(){
+  var wasChase=(typeof police!=='undefined'&&police&&(police.mode==='chase'||police.mode==='pullover'));
+  var r=heatShip();
+  if(p51On()&&!wasChase){
+   try{if(police.mode==='chase')p51Open('heat-max','Heat maxed — radio dispatch',player.x,player.z,true);}catch(e){}
+  }
+  return r;
+ };
+ var startShip=policeStartPursuit;
+ policeStartPursuit=function(why){
+  var r=startShip(why);
+  if(p51On()){
+   try{if(police.ai&&police.ai.state==='PURSUE')p51Open('sight',why||'sight pursuit',player.x,player.z,true);}catch(e){}
+  }
+  return r;
+ };
+ var setStateShip=policeSetState;
+ policeSetState=function(u,next,why){
+  var r=setStateShip(u,next,why);
+  if(p51On()&&r){
+   try{
+    if(u===police&&next==='PURSUE'&&why&&(''+why).indexOf('radio report')===0
+       &&(!P51.active||!P51.active.pursuitGrade))
+     p51Open('radio',why,player.x,player.z,true);
+   }catch(e){}
+  }
+  return r;
+ };
+ /* ---- S7: corner braking via the policeNavMove wrap ---- */
+ var navShip=policeNavMove;
+ policeNavMove=function(u,dt,tx,tz,spd){
+  if(p51On()&&spd>0){
+   try{
+    if(u===police&&u.ai){
+     var ai=u.ai;
+     if((ai.state==='PURSUE'||ai.state==='SEARCH'||ai.state==='INVESTIGATE')&&!(ai.detourT>0)){
+      var dx=tx-u.x,dz=tz-u.z,d=Math.sqrt(dx*dx+dz*dz);
+      if(d>30){
+       var want=Math.atan2(dx,dz),df=want-ai.hdg;
+       while(df>Math.PI)df-=2*Math.PI;while(df<-Math.PI)df+=2*Math.PI;
+       var a=Math.abs(df);
+       if(a>P51.cornerStart){
+        var f=1-Math.min(1,(a-P51.cornerStart)/(P51.cornerFull-P51.cornerStart))*P51.cornerCut;
+        if(f<1){spd=spd*f;P51.brakeEvents++;lastBrake.a=Math.round(a*100)/100;lastBrake.f=Math.round(f*100)/100;}
+       }
+      }
+     }
+    }
+   }catch(e){}
+  }
+  return navShip(u,dt,tx,tz,spd);
+ };
+ /* ---- S11: arrest audit wraps ---- */
+ function p51Audit(kind,ok,fail){
+  var e={t:(typeof gameT==='number')?Math.round(gameT*10)/10:0,kind:kind,ok:!!ok,fail:ok?'':(fail||''),outcome:null};
+  P51.arrests.push(e);if(P51.arrests.length>8)P51.arrests.shift();
+  return e;
+ }
+ var tryShip=policeTryArrest;
+ policeTryArrest=function(reasons){
+  var ok=tryShip(reasons);
+  if(p51On()){
+   try{p51Audit('try',ok,(typeof police!=='undefined'&&police&&police.ai)?police.ai.lastElgFail:'');}catch(e){}
+  }
+  return ok;
+ };
+ var beginShip=policeBeginArrest;
+ policeBeginArrest=function(reasons){
+  var ok=beginShip(reasons);
+  if(p51On()){
+   try{var e=p51Audit('begin',ok,'');if(ok){P51.pendingArrest=e;P51.seqSeen=false;}}catch(e2){}
+  }
+  return ok;
+ };
+ /* ---- S14: opt-in updatePolice timing (armed only via __P51.measure) ---- */
+ var updShip=updatePolice;
+ updatePolice=function(dt){
+  if(P51.measure){
+   var t0=performance.now();
+   var r=updShip(dt);
+   var us=(performance.now()-t0)*1000;
+   P51.updUs+=us;P51.updN++;if(us>P51.updMax)P51.updMax=us;
+   return r;
+  }
+  return updShip(dt);
+ };
+ /* ---- slow tick: lifecycle, stuck accounting, sequence watchdog ---- */
+ var seqTickShip=policeSeqTick; /* captured: the watchdog re-drives the SHIPPED sequence function */
+ function p51Tick(){
+  try{
+   if(!p51On())return;
+   P51.tickN++;
+   if(typeof police==='undefined'||!police)return;
+   var ai=police.ai;
+   if(ai&&typeof ai.nav==='string'&&ai.nav!==P51.lastNav){
+    if(ai.nav.indexOf('side-step detour')>=0)P51.stuckDetours++;
+    else if(ai.nav.indexOf('re-placed on a road')>=0)P51.stuckReplaces++;
+    P51.lastNav=ai.nav;
+   }
+   if(P51.pendingArrest){
+    if(typeof arrestSeq!=='undefined'&&arrestSeq)P51.seqSeen=true;
+    if(typeof custody!=='undefined'&&custody){P51.pendingArrest.outcome='custody';P51.pendingArrest=null;}
+    else if(P51.seqSeen&&!(typeof arrestSeq!=='undefined'&&arrestSeq)){P51.pendingArrest.outcome='aborted';P51.pendingArrest=null;}
+   }
+   var inc=P51.active;
+   if(inc){
+    var ph2=p51Phase(inc);
+    if(ph2==='pursuing'||ph2==='searching'||ph2==='arresting')inc.sawPursuit=true;
+    if(typeof custody!=='undefined'&&custody)p51Close(inc,'custody');
+    else if(ai&&(ai.state==='RETURN'||ai.state==='PATROL'))p51Close(inc,inc.sawPursuit?'disengaged':'investigated-clear');
+    else inc.phase=ph2;
+    if(P51.active===inc&&(typeof gameT==='number')&&(gameT-inc.t0)>300)p51Close(inc,'expired');
+   }
+   if(typeof arrestSeq!=='undefined'&&arrestSeq&&typeof S!=='undefined'&&S&&S.playing&&!S.paused
+      &&!(typeof custody!=='undefined'&&custody)){
+    if(P51.lastSeqT===arrestSeq.t)P51.seqStall++;else{P51.seqStall=0;P51.lastSeqT=arrestSeq.t;}
+    if(P51.seqStall>=3){P51.seqStall=0;P51.guardFires++;
+     /* bounded burst of the SHIPPED tick (<=0.4 game-s per detection) so a
+        genuine stall drains in a few detections, not one call per detect */
+     for(var gi=0;gi<4&&(typeof arrestSeq!=='undefined'&&arrestSeq)&&!(typeof custody!=='undefined'&&custody);gi++){try{seqTickShip(.1);}catch(e){break;}}
+     P51.lastSeqT=(typeof arrestSeq!=='undefined'&&arrestSeq)?arrestSeq.t:null;}
+   }else{P51.lastSeqT=null;P51.seqStall=0;}
+  }catch(e){P51.err=String(e&&e.message||e);}
+ }
+ setInterval(p51Tick,250);
+ /* ---- Settings row (SD42/D50 idiom: row + toggle + note before [data-close]) ---- */
+ function p51SyncUi(){
+  var st=document.getElementById('p51SetState'),b=document.getElementById('p51SetBtn'),on=p51On();
+  if(st)st.textContent=on?'On':'Off';
+  if(b)b.textContent=on?'Turn Off':'Turn On';
+ }
+ function p51BuildUi(){
+  try{
+   if(document.getElementById('p51SetBtn'))return;
+   var panel=$('settingsPanel'),card=panel?panel.querySelector('.card'):null;
+   if(!card)return;
+   var anchor=card.querySelector('[data-close]');
+   var row=document.createElement('div');row.className='rowline';row.style.marginTop='14px';
+   row.innerHTML='<span>Intelligent police</span><b id="p51SetState">On</b>';
+   var btn=document.createElement('button');btn.className='btn ghost';btn.id='p51SetBtn';btn.type='button';btn.textContent='Turn Off';
+   var note=document.createElement('p');note.className='small';
+   note.textContent='Stage 4 police refinements: every report becomes a logged incident, so a repeat report of the same incident does not restart the response; the unit brakes for corners on the way instead of overshooting them; and every arrest is audited so a nicking applies exactly once, with a watchdog that finishes the arrest sequence if the game ever stalls mid-arrest. Detection, Heat, custody and release work exactly as before. Kept with your run, like the other settings.';
+   if(anchor){card.insertBefore(row,anchor);card.insertBefore(btn,anchor);card.insertBefore(note,anchor);}
+   else{card.appendChild(row);card.appendChild(btn);card.appendChild(note);}
+   btn.addEventListener('click',function(){
+    try{
+     if(typeof S==='undefined'||!S)return;
+     if(!S.ui||typeof S.ui!=='object')S.ui={};
+     var on=!p51On();
+     S.ui.policeIntel=on?1:0;
+     policeIntelEnabled=on;
+     p51SyncUi();
+    }catch(e){}
+   });
+   p51SyncUi();
+  }catch(e){}
+ }
+ var p51UiTries=0;
+ var p51UiTimer=setInterval(function(){p51BuildUi();if(document.getElementById('p51SetBtn')||++p51UiTries>40)clearInterval(p51UiTimer);},500);
+ setInterval(p51SyncUi,1000);
+ function p51IncSummary(inc){
+  if(!inc)return null;
+  return {id:inc.id,src:inc.src,why:inc.why,phase:p51Phase(inc),pursuitGrade:inc.pursuitGrade,
+   x:Math.round(inc.x),z:Math.round(inc.z),area:inc.area,dups:inc.dups,
+   age:(typeof gameT==='number')?Math.round((gameT-inc.t0)*10)/10:0,resolution:inc.resolution};
+ }
+ /* ---- test surface (the __POLICE_HARNESS idiom): drives the REAL
+    wrapped functions so the sandbox can verify this layer ---- */
+ var savedSeqTick=null;
+ var D51={
+  report:function(why){policeReportDispatch(why);return D51.live();},
+  heat:function(n){addHeat(n);return D51.live();},
+  setMode:function(m){police.mode=m;return police.mode;},
+  setState:function(s,why){return policeSetState(police,s,why||'p51-drive');},
+  setSeen:function(){if(police.ai){police.ai.seen=true;police.ai.lastSeenT=gameT;}return D51.live();},
+  place:function(ux,uz,px,pz){police.x=ux;police.z=uz;player.x=px;player.z=pz;police.mesh.position.set(ux,0,uz);return D51.live();},
+  blocked:function(x,z){return footBlocked(x,z);},
+  navFrom:function(x,z,hdg,state,tx,tz,spd,dt){
+   if(!police.ai)policeAIInit(police);
+   police.x=x;police.z=z;police.ai.hdg=hdg;police.ai.state=state;police.ai.detour=null;police.ai.detourT=0;police.ai.chkT=0;
+   policeNavMove(police,dt,tx,tz,spd);
+   return {moved:Math.round(p51Dist(x,z,police.x,police.z)*100)/100,x:Math.round(police.x*10)/10,z:Math.round(police.z*10)/10};
+  },
+  tryArrest:function(){return policeTryArrest(['P51 drive — test arrest']);},
+  sabotageSeq:function(on){
+   if(on){if(!savedSeqTick)savedSeqTick=policeSeqTick;policeSeqTick=function(){};}
+   else if(savedSeqTick){policeSeqTick=savedSeqTick;savedSeqTick=null;}
+   return on?'sabotaged':'restored';
+  },
+  live:function(){
+   var ai=police.ai;
+   return {state:ai?ai.state:null,mode:police.mode,lkp:ai?{x:Math.round(ai.lkp.x),z:Math.round(ai.lkp.z)}:null,
+    seen:ai?ai.seen:null,nav:ai?ai.nav:'',
+    ux:Math.round(police.x),uz:Math.round(police.z),px:Math.round(player.x),pz:Math.round(player.z),
+    heat:Math.round(S.heat),grace:Math.round(S.releaseGrace*10)/10,playing:S.playing,paused:S.paused,
+    custody:!!custody,seq:!!arrestSeq,seqT:arrestSeq?Math.round(arrestSeq.t*100)/100:null,
+    arrests:S.record?S.record.arrests:0,cash:S.cash,gameT:Math.round(gameT*10)/10};
+  }
+ };
+ window.__P51={
+  version:P51.version,
+  drive:D51,
+  enabled:function(){return p51On();},
+  setEnabled:function(b){policeIntelEnabled=!!b;try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={};S.ui.policeIntel=b?1:0;}}catch(e){}p51SyncUi();return p51On();},
+  params:function(){return {dupWindow:P51.dupWindow,dupRange:P51.dupRange,cornerStart:P51.cornerStart,cornerFull:P51.cornerFull,cornerCut:P51.cornerCut};},
+  state:function(){return {active:p51IncSummary(P51.active),
+   history:P51.history.map(p51IncSummary),dups:P51.dups,superseded:P51.superseded,
+   brakeEvents:P51.brakeEvents,lastBrake:{a:lastBrake.a,f:lastBrake.f},
+   stuckDetours:P51.stuckDetours,stuckReplaces:P51.stuckReplaces,
+   arrests:P51.arrests.slice(),guardFires:P51.guardFires,ticks:P51.tickN,
+   updAvgUs:P51.updN?Math.round(P51.updUs/P51.updN):0,updMaxUs:Math.round(P51.updMax*10)/10,updN:P51.updN,
+   err:P51.err};},
+  measure:function(b){P51.measure=!!b;if(b){P51.updUs=0;P51.updN=0;P51.updMax=0;}return P51.measure;},
+  debugText:function(){
+   var inc=P51.active,ai=(typeof police!=='undefined'&&police)?police.ai:null;
+   var last=P51.arrests.length?P51.arrests[P51.arrests.length-1]:null;
+   return 'POLICE STAGE 4 DEBUG (dev)\n'
+    +'Incident: '+(inc?('#'+inc.id+' · '+inc.src+' · '+inc.phase+' · at '+Math.round(inc.x)+','+Math.round(inc.z)+' · "'+inc.why+'"'):'none active')
+    +' · duplicates suppressed '+P51.dups+' · superseded '+P51.superseded+'\n'
+    +'Officer: '+(ai?ai.state:'no AI')+' · detection source: '+(inc?inc.src:(ai&&ai.seen?'sight':'—'))
+    +' · LKP '+(ai?Math.round(ai.lkp.x)+','+Math.round(ai.lkp.z):'—')+' · seen '+(ai?(ai.seen?'YES':'no'):'—')+'\n'
+    +'Heat '+(typeof S!=='undefined'&&S?Math.round(S.heat):'—')+' · custody: '+((typeof custody!=='undefined'&&custody)?'IN CUSTODY':(typeof arrestSeq!=='undefined'&&arrestSeq)?'ARREST SEQUENCE':'—')
+    +' · arrest lock '+((typeof arrestLock!=='undefined'&&arrestLock.held)?('HELD by '+arrestLock.owner):'free')+'\n'
+    +'Stuck recovery: detours '+P51.stuckDetours+' · re-places '+P51.stuckReplaces+' · nav: '+(ai?ai.nav:'—')+'\n'
+    +'Last arrest attempt: '+(last?(last.kind+' '+(last.ok?'begun':('refused — '+last.fail))+(last.outcome?(' -> '+last.outcome):'')):'none')+' · watchdog rescues '+P51.guardFires+'\n'
+    +'Police AI update: '+(P51.measure?('avg '+(P51.updN?Math.round(P51.updUs/P51.updN):0)+'us · max '+(Math.round(P51.updMax*10)/10)+'us over '+P51.updN+' calls'):'not measured (call __P51.measure(true))');
+  }
+ };
+})();
+/* ================= /P2S4 POLICE (__P51) ================= */
 
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
@@ -20057,7 +20483,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3050={version:'v30.50'};</script>
+<script>window.__V3051={version:'v30.51'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
