@@ -1547,7 +1547,8 @@ window.addEventListener('unhandledrejection',function(e){var r=e&&e.reason;var t
 var WORLD={w:2600,h:2000};
 
 var AREAS=[
- {id:'norden',   name:'Norden & Bamford',    short:'Norden',     x:-600,z:-740, gang:'Norden Crew',      color:'#7fb069'},
+ {id:'norden',   name:'Norden',             short:'Norden',     x:-600,z:-740, gang:'Norden Crew',      color:'#7fb069'},
+ {id:'bamford',  name:'Bamford',            short:'Bamford',    x:-633,z:-712, gang:'Norden Crew',      color:'#7fb069'},
  {id:'spotland', name:'Spotland',            short:'Spotland',   x:-520,z:-390, gang:'Spotland Firm',    color:'#a3aab3'},
  {id:'heywood',  name:'Heywood',             short:'Heywood',    x:-1010,z:60,  gang:'Heywood Firm',      color:'#b088d8'},
  {id:'centre',   name:'Town Centre',         short:'Town Centre',x:0,   z:-70,  gang:'Exchange Crew',     color:'#f4a259'},
@@ -1699,7 +1700,7 @@ var SPOTS=[
  {area:'spotland', street:'Spotland Road', x:-390,z:-297},
  {area:'spotland', street:'Ings Lane, Spotland', x:-535,z:-293},
  {area:'spotland', street:'Edenfield Road, Spotland', x:-505,z:-440},
- {area:'norden', street:'Bamford Road, Norden', x:-640,z:-704},
+ {area:'bamford', street:'Bamford Road, Norden', x:-640,z:-704},
  {area:'norden', street:'Norden Road, Bamford', x:-580,z:-764},
  {area:'castleton', street:'Manchester Road, Castleton', x:-652,z:572},
  {area:'castleton', street:'Queensway, Castleton', x:-645,z:470},
@@ -1760,13 +1761,14 @@ var SAFE={x:100,z:668,area:'deeplish'}; /* MAP REBUILD §10: safe house, Ann Str
 var R1_ANCHORS=[
  {id:'centre',    ox:0,    oz:-70,  dx:0,     dz:0},
  {id:'collegebank',ox:-560,oz:-205, dx:-20,   dz:-1215},
- {id:'spotland',  ox:-520, oz:-390, dx:-1310, dz:-2280},
- {id:'norden',    ox:-600, oz:-740, dx:-3820, dz:-3260},
+ {id:'spotland',  ox:-520, oz:-390, dx:-1754, dz:-580},
+ {id:'norden',    ox:-600, oz:-740, dx:-5427, dz:-1226},
+ {id:'bamford',   ox:-633, oz:-712, dx:-4938, dz:629},
  {id:'heywood',   ox:-1010,oz:60,   dx:-5920, dz:4710},
- {id:'deeplish',  ox:150,  oz:340,  dx:-320,  dz:1160},
- {id:'newbold',   ox:580,  oz:215,  dx:2590,  dz:1285},
- {id:'castleton', ox:-650, oz:570,  dx:-3020, dz:3100},
- {id:'kingsway',  ox:330,  oz:760,  dx:3670,  dz:3240},
+ {id:'deeplish',  ox:150,  oz:340,  dx:658,   dz:1209},
+ {id:'newbold',   ox:580,  oz:215,  dx:2058,  dz:193},
+ {id:'castleton', ox:-650, oz:570,  dx:-1927, dz:4838},
+ {id:'kingsway',  ox:330,  oz:760,  dx:3612,  dz:75},
  {id:'middleton', ox:-640, oz:2280, dx:-3810, dz:9600},
  {id:'manchester',ox:-540, oz:4060, dx:-3810, dz:9600}
 ];
@@ -1781,7 +1783,7 @@ var R1_ROAD_DIST={'Yorkshire Street':'centre','Drake Street':'centre','The Espla
  'Deeplish Street':'deeplish','Tweedale Street':'deeplish','Back Tweedale Ginnel':'deeplish','Lower Tweedale Street':'deeplish','Back Ann Ginnel':'deeplish','Ann Street':'deeplish','Boundary Street':'deeplish','Derby Street':'deeplish','Deeplish Road':'deeplish',
  'Moss Street':'newbold','Moss Avenue':'newbold','Moss Mill Street':'newbold','Chichester Street':'newbold','Back Chichester Ginnel':'newbold','Stamford Street':'newbold','Belfield Lane':'newbold',
  'Ings Lane':'spotland','Spotland Fold':'spotland','Rooley Moor Road':'spotland','College Bank':'collegebank',
- 'Bamford Road':'norden','Norden Road':'norden','Bamford Crescent':'norden','Norden Avenue':'norden',
+ 'Bamford Road':'bamford','Norden Road':'norden','Bamford Crescent':'bamford','Norden Avenue':'norden',
  'Queensway':'castleton','Back Queensway Lane':'castleton','Station Road':'castleton','Smalley Street':'castleton','Railway Street':'castleton',
  'Bridge Street':'heywood','Dawson Street':'heywood','York Street':'heywood','Back Dawson Ginnel':'heywood','Market Street':'heywood',
  'Kingsway Service Road':'kingsway','Kingsway Crescent':'kingsway',
@@ -1796,22 +1798,22 @@ function R1Lay(name,pts){for(var i=0;i<ROADS.length;i++)if(ROADS[i].name===name)
 /* Corridor hand-lays on the real junction order (plan §3.2). A58: Heywood's
    own centre -> Roch valley (Queens Park) -> St Mary's Gate -> NE climb. */
 R1Lay('A58 · St Mary’s Gate',[[-8400,5400],[-6930,4770],[-5600,3600],[-4200,2200],[-2900,900],[-1500,250],[-600,-40],[0,-70],[500,-160],[1100,-320],[1900,-560],[3000,-900],[4400,-1400]]);
-R1Lay('A680 · Edenfield Road',[[-120,-60],[-700,-900],[-1300,-1800],[-1830,-2670],[-2600,-3300],[-3400,-3720],[-4420,-4000],[-5000,-4800],[-5400,-5800]]);
-R1Lay('Spotland Road',[[-58,-84],[-500,-600],[-1000,-1200],[-1500,-2000],[-1830,-2670],[-2600,-3300],[-3400,-3720],[-4420,-4000]]);
-R1Lay('A640 · Milnrow Road',[[128,32],[900,700],[1800,1150],[3170,1500],[4300,1900],[5500,2400],[6670,3170]]);
+R1Lay('A680 · Edenfield Road',[[-120,-60],[-700,-900],[-1596,-636],[-2274,-970],[-5571,-83],[-6027,-1966],[-6607,-2766],[-7007,-3766]]);
+R1Lay('Spotland Road',[[-58,-84],[-500,-600],[-1140,-663],[-1810,-814],[-2274,-970],[-5571,-83],[-6027,-1966]]);
+R1Lay('A640 · Milnrow Road',[[128,32],[900,700],[1534,604],[2638,408],[3768,808],[4968,1308],[6670,3170]]);
 R1Lay('A671 · Oldham Road',[[1300,-1400],[800,-700],[300,-250],[92,-8],[600,900],[1200,2100],[1750,3300],[2170,4330],[2670,4900],[3300,5800]]);
-R1Lay('A664 · Kingsway',[[72,112],[500,700],[1100,1500],[1900,2400],[2670,3170],[3400,3600],[4000,4000],[5000,4900],[6000,5670],[7000,6300]]);
-R1Lay('Manchester Road',[[-46,70],[-700,800],[-1500,1600],[-2400,2500],[-3200,3200],[-3610,3610]]);
-R1Lay('A664 · Manchester New Road',[[-3670,3755],[-3750,5200],[-3900,7000],[-4100,9200],[-4300,10800],[-4450,11880]]);
+R1Lay('A664 · Kingsway',[[72,112],[500,700],[1100,1500],[1900,2400],[2641,1587],[3342,435],[3942,835],[4942,1735],[5942,2505],[6942,3135]]);
+R1Lay('Manchester Road',[[-46,70],[-700,800],[-1500,1600],[-1853,3369],[-2270,4677],[-2517,5348]]);
+R1Lay('A664 · Manchester New Road',[[-2577,5493],[-3094,6243],[-3900,7000],[-4100,9200],[-4300,10800],[-4450,11880]]);
 /* Castleton roundabout arms (audit fix, v30.14): the two Castleton streets
    that form arms of the real 5-arm junction bend their west ends onto the
    ring laid below — Queensway meets it at the top, Station Road at the
    south-west; their east courses and every other Castleton street keep the
    rigid district translation exactly as shipped. */
-R1Lay('Queensway',[[-3670,3585],[-3665,3570],[-3536,3564]]);
-R1Lay('Station Road',[[-3730,3730],[-3660,3738],[-3560,3752]]);
+R1Lay('Queensway',[[-2577,5323],[-2572,5308],[-2443,5302]]);
+R1Lay('Station Road',[[-2637,5468],[-2567,5476],[-2467,5490]]);
 R1Lay('A664 · Rochdale Road',[[-4450,11880],[-4420,12600],[-4350,13100]]);
-R1Lay('B6223 · Milkstone Road',[[60,58],[0,600],[-80,1100],[-170,1500],[-100,2200],[200,2600]]);
+R1Lay('B6223 · Milkstone Road',[[60,58],[0,600],[409,1124],[808,1549],[878,2249],[1178,2649]]);
 R1Lay('Railway',[[-8400,5600],[-6000,4900],[-3670,3900],[-1800,2400],[-200,1300],[920,750],[2600,500],[4800,300],[7000,100],[8800,-100]]);
 /* Skeleton additions (foundation level): the Spotland Bridge pinch on
    Spotland Road, the M62 as a southern scenery band (cls R — never traffic,
@@ -1826,10 +1828,10 @@ ROADS.push({name:'Spotland Bridge',cls:'B',w:12,pts:[[-182,-228],[-235,-290]]});
    above), so the road graph stays connected at the junction; the fifth arm
    is the canal-side Station Road approach as shipped. Foundation geometry:
    the ring is painted carriageway like any other cls B road. */
-ROADS.push({name:'Castleton Roundabout',cls:'B',w:26,pts:[[-3585,3670],[-3591,3703],[-3610,3730],[-3638,3749],[-3670,3755],[-3703,3749],[-3730,3730],[-3749,3703],[-3755,3670],[-3749,3638],[-3730,3610],[-3703,3591],[-3670,3585],[-3638,3591],[-3610,3610],[-3591,3638],[-3585,3670]]});
+ROADS.push({name:'Castleton Roundabout',cls:'B',w:26,pts:[[-2492,5408],[-2498,5441],[-2517,5468],[-2545,5487],[-2577,5493],[-2610,5487],[-2637,5468],[-2656,5441],[-2662,5408],[-2656,5376],[-2637,5348],[-2610,5329],[-2577,5323],[-2545,5329],[-2517,5348],[-2498,5376],[-2492,5408]]});
 ROADS.push({name:'M62 · Motorway (scenery)',cls:'R',pts:[[-2600,7900],[500,7500],[3000,7100],[5500,6800],[7500,6650],[8800,6550]]});
-ROADS.push({name:'Metrolink · Kingsway',cls:'R',pts:[[0,-100],[500,350],[920,750],[2000,1800],[3200,2900],[4600,3700],[6000,5670]]});
-ROADS.push({name:'Metrolink · Newbold',cls:'R',pts:[[4600,3700],[3900,2400],[3170,1500],[4800,2100],[6670,3170]]});
+ROADS.push({name:'Metrolink · Kingsway',cls:'R',pts:[[0,-100],[500,350],[920,750],[1900,900],[2900,880],[3942,835]]});
+ROADS.push({name:'Metrolink · Newbold',cls:'R',pts:[[3942,835],[3300,650],[2638,408],[4300,1400],[5600,2400],[6670,3170]]});
 /* River Roch on its real line (plan §3.2): an east-west band across the
    NORTH of the centre — open water east toward Belfield and west past
    Queens Park to Heywood, culverted under the centre (the wide bridge deck
@@ -1843,13 +1845,14 @@ var R1_CANAL=[[-4600,4600],[-3950,3600],[-2600,2900],[-1500,2300],[-500,1750],[4
    its shipped two-centre split, offset exactly with Middleton. */
 AREAS.forEach(function(a){
  if(a.id==='centre'){a.x=0;a.z=-70;}
- else if(a.id==='deeplish'){a.x=-170;a.z=1500;}
- else if(a.id==='newbold'){a.x=3170;a.z=1500;}
- else if(a.id==='spotland'){a.x=-1830;a.z=-2670;}
- else if(a.id==='norden'){a.x=-4420;a.z=-4000;}
+ else if(a.id==='deeplish'){a.x=808;a.z=1549;}
+ else if(a.id==='newbold'){a.x=2638;a.z=408;}
+ else if(a.id==='spotland'){a.x=-2274;a.z=-970;}
+ else if(a.id==='norden'){a.x=-6027;a.z=-1966;}
+ else if(a.id==='bamford'){a.x=-5571;a.z=-83;}
  else if(a.id==='heywood'){a.x=-6930;a.z=4770;}
- else if(a.id==='castleton'){a.x=-3670;a.z=3670;}
- else if(a.id==='kingsway'){a.x=4000;a.z=4000;}
+ else if(a.id==='castleton'){a.x=-2577;a.z=5408;}
+ else if(a.id==='kingsway'){a.x=3942;a.z=835;}
  else if(a.id==='middleton'){a.x=-4450;a.z=11880;}
  else if(a.id==='manchester'){var t=R1T(a.x,a.z);a.x=t.x;a.z=t.z;}
 });
@@ -1862,7 +1865,7 @@ AREAS.forEach(function(a){
    wrong-area spot) for the A671 Oldham Road AT the Belfield anchor. */
 SPOTS.forEach(function(s){var a=(s.street.indexOf('College Bank')===0)?R1A('collegebank'):R1A(s.area||'centre');s.x+=a.dx;s.z+=a.dz;});
 SPOTS.forEach(function(s){if(s.street==='Milnrow Road, Belfield'){s.street='Oldham Road, Belfield';s.x=2170;s.z=4330;}});
-SPOTS.forEach(function(s){if(s.street==='Manchester Road, Castleton'){s.x=-3405;s.z=3405;}}); /* audit fix (v30.14): the rigid ride put this spot on the roundabout centre itself; re-sited onto the Manchester Road centreline NE of the ring, still Castleton turf */
+SPOTS.forEach(function(s){if(s.street==='Manchester Road, Castleton'){s.x=-2426;s.z=5101;}}); /* audit fix (v30.14): the rigid ride put this spot on the roundabout centre itself; re-sited onto the Manchester Road centreline NE of the ring, still Castleton turf */
 (function(){var a=R1A('deeplish');SAFE.x+=a.dx;SAFE.z+=a.dz;})(); /* safe house rides Deeplish explicitly (nearest-anchor would pull it to Kingsway) */
 /* ================= v30.47 — HOME BASE · EARLY RESOLVER (Map Re-lay Build A) =================
    Spawn / safe-house choice (RELAY-PLAN §5). Spliced immediately after the
@@ -3165,7 +3168,7 @@ function makeLabel(text,color,icon){
 }
 var placeLabels=[];
 var markerPins=[]; /* bobbing pin cones above the static ground rings */
-var SHOP={x:118,z:-108}, LOT={x:-3548,z:3542} /* R1: on the transplanted Manchester Road, Castleton side */; /* §10: LOT onto Manchester Rd with forecourt */
+var SHOP={x:118,z:-108}, LOT={x:-2455,z:5280} /* R1: on the transplanted Manchester Road, Castleton side */; /* §10: LOT onto Manchester Rd with forecourt */
 function placeMarker(x,z,color,label,icon){
  var ring=new THREE.Mesh(new THREE.RingGeometry(26,33,28),new THREE.MeshBasicMaterial({color:color,side:THREE.DoubleSide,transparent:true,opacity:.9}));
  ring.rotation.x=-Math.PI/2;ring.position.set(x,1.2,z);scene.add(ring);
@@ -5107,7 +5110,7 @@ var WEAPONS={
 /* ================= GAME STATE (in-memory; persists across days within the run) ================= */
 var S=null;
 function newState(){
- return {playing:false,paused:false,day:1,clock:300,mapVer:1,cash:120,rep:0,heat:0, /* R1 (v30.14): mapVer:1 — fresh states are born on the R1 layout; a state WITHOUT the stamp is a pre-programme save and migrates in ensureGoods (plan §5.4) */
+ return {playing:false,paused:false,day:1,clock:300,mapVer:2,cash:120,rep:0,heat:0, /* RE-LAY (v30.49): mapVer:2 — fresh states are born on the re-laid layout; a state stamped 1 (R1 layout) migrates in ensureGoods (RELAY-PLAN §5.4), and a state WITHOUT the stamp is a pre-programme save that chains through both migrations */
   stock:{crack:4,heroin:4},earned:0,drops:0,missed:0,
   tension:{},lastDropArea:null,lastDropTime:-99,
   weapon:'fists',ownedWeapons:{fists:true},atkCd:0,hp:100,
@@ -5775,10 +5778,10 @@ function s2ApplyHit(h,w,prof,ci){
    rules do not apply to them; witness/police paths are the standard
    S2 ones (s2Witness on the promoting hit, Heat via combatApplyHit). */
 var LEADER_DEFS=[
- {id:'chico',name:'CHICO',area:'deeplish',gang:'Tweedale Crew',street:'Tweedale Street',x:-192,z:1552,tier:'boss' /* R1: Tweedale St */,arch:'boss',hp:230,dmg:14,jacket:0x878d94,legs:0x1c2f57,skin:0x8a5a3b,hat:'beanie',hatCol:0x111114},
- {id:'sunny',name:'SUNNY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:3084,z:1523,tier:'boss' /* R1: Moss St */,arch:'boss',hp:230,dmg:14,brother:'immy',jacket:0xbf5a24,legs:0x141519,skin:0xc9a189,hat:'cap',hatCol:0x17181c},
- {id:'immy',name:'IMMY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:3058,z:1551,tier:'boss' /* R1: Moss St */,arch:'boss',hp:215,dmg:13,brother:'sunny',jacket:0xcf9f16,legs:0x1c1e22,skin:0xa06a42,hat:'beanie',hatCol:0x23272e},
- {id:'kuzzo',name:'KUZZO',area:'spotland',gang:'Spotland Firm',street:'Ings Lane',x:-1808,z:-2602,tier:'crew' /* R1: Ings Lane */,arch:'crew',hp:120,dmg:12,jacket:0xa3aab3,legs:0x141519,skin:0x6e4530,hat:'cap',hatCol:0x2c2f33}
+ {id:'chico',name:'CHICO',area:'deeplish',gang:'Tweedale Crew',street:'Tweedale Street',x:786,z:1601,tier:'boss' /* R1: Tweedale St */,arch:'boss',hp:230,dmg:14,jacket:0x878d94,legs:0x1c2f57,skin:0x8a5a3b,hat:'beanie',hatCol:0x111114},
+ {id:'sunny',name:'SUNNY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:2552,z:431,tier:'boss' /* R1: Moss St */,arch:'boss',hp:230,dmg:14,brother:'immy',jacket:0xbf5a24,legs:0x141519,skin:0xc9a189,hat:'cap',hatCol:0x17181c},
+ {id:'immy',name:'IMMY',area:'newbold',gang:'Moss Street Crew',street:'Moss Street',x:2526,z:459,tier:'boss' /* R1: Moss St */,arch:'boss',hp:215,dmg:13,brother:'sunny',jacket:0xcf9f16,legs:0x1c1e22,skin:0xa06a42,hat:'beanie',hatCol:0x23272e},
+ {id:'kuzzo',name:'KUZZO',area:'spotland',gang:'Spotland Firm',street:'Ings Lane',x:-2252,z:-902,tier:'crew' /* R1: Ings Lane */,arch:'crew',hp:120,dmg:12,jacket:0xa3aab3,legs:0x141519,skin:0x6e4530,hat:'cap',hatCol:0x2c2f33}
 ];
 /* Per-leader dialogue pools — the mechanism that keeps the four voices
    distinct: leaderInteract ONLY ever draws from LEADER_LINES[def.id].
@@ -7217,6 +7220,38 @@ function ensureGoods(){
    if(typeof toast==='function'&&S.playing)toast('The map has changed — you wake up at the safe house. Everything you had is still yours.');
   }catch(e){/* un-stamped: the next ensureGoods retries; nothing above is destructive to progress fields */}
  }
+ if(S.mapVer===1){ /* ================= RE-LAY (v30.49) SAVE MIGRATION — RELAY-PLAN §5.4 (never a wipe) =================
+    A mapVer:1 state was saved on the pre-re-lay geography: the districts
+    have moved to their real positions (and Norden & Bamford have split),
+    so every coordinate it holds is stale but its PROGRESS is not. Exactly
+    the R1 declared moves happen, once (stamp-gated, idempotent): player
+    re-anchored to the safe house — which the home-base resolver has
+    already resolved to the player's CHOSEN site at its moved position —
+    any in-progress drop / ringing call cancelled WITHOUT penalty; the
+    current stolen ride cleared; Heat set low; the day restarts at day
+    start; S.seenCams remapped BY NAME (camera names are the IDs and are
+    unchanged by the re-lay, so every discovered camera is kept).
+    EVERYTHING ELSE IS UNTOUCHED: cash, stock, Rep, Tension, inventory,
+    wardrobe, owned cars, leader memory, mates, homeBase choice. The
+    stamp is written LAST; the homeBase section picks the new stamp up
+    at the next save collect. */
+  try{
+   if(typeof job!=='undefined')job=null;
+   if(typeof ringing!=='undefined')ringing=null;
+   if(typeof pinGroup!=='undefined'&&pinGroup)pinGroup.visible=false;
+   if(S.ride){var r2ok=S.ride.ownKey;S.ride=null;if(r2ok&&S.ownedCars&&S.ownedCars[r2ok]){S.car=r2ok;S.carDamage=(S.carDamageBy&&S.carDamageBy[r2ok])||0;}}
+   S.heat=Math.min(S.heat||0,8);
+   S.clock=300;
+   if(S.seenCams&&typeof ANPR_CAMS!=='undefined'){var r2cn={};ANPR_CAMS.forEach(function(c){r2cn[c.name]=1;});S.seenCams=S.seenCams.filter(function(n){return !!r2cn[n];});}
+   if(typeof player!=='undefined'&&player){
+     if(S.playing&&typeof enterFoot==='function'){try{enterFoot(SAFE.x,SAFE.z+30,'migration');}catch(e){player.x=SAFE.x;player.z=SAFE.z+30;}}
+     else{player.x=SAFE.x;player.z=SAFE.z+30;}
+     player.vx=0;player.vz=0;
+   }
+   S.mapVer=2; /* stamp LAST: a failed step above leaves the state at 1 and the migration re-runnable */
+   if(typeof toast==='function'&&S.playing)toast('The map has changed \u2014 you wake up at the safe house. Everything you had is still yours.');
+  }catch(e){/* un-stamped: the next ensureGoods retries; nothing above is destructive to progress fields */}
+ }
  if(!S.goods)S.goods={cigs:0,alcohol:0,vapes:0};
  if(S.pendingHeat===undefined)S.pendingHeat=0;
  if(S.sideDone===undefined)S.sideDone=0;
@@ -7305,7 +7340,7 @@ function completeJob(){
 }
 
 /* ================= FENCE (off-licence lock-up, Deeplish) ================= */
-var FENCE={x:52,z:1778}; /* R1: on the transplanted Deeplish Road (was {372,618}) */ /* §10: onto Deeplish Road with yard plot */
+var FENCE={x:1030,z:1827}; /* R1: on the transplanted Deeplish Road (was {372,618}) */ /* §10: onto Deeplish Road with yard plot */
 var fenceRing=placeMarker(FENCE.x,FENCE.z,'#ffd23f','FENCE · OFF-LICENCE');
 var fenceBtn=null;
 function fencePrices(){return {cigs:3,alcohol:8,vapes:4};}
@@ -7329,7 +7364,7 @@ function acceptJob(){
  var t=sideOffer.type;sideOffer=null;
  if(t==='courier'){var a=pick(SPOTS),b=pick(SPOTS);sideJob={type:t,phase:'pickup',a:a,b:b,timeLeft:120};setPin(a.x,a.z,0x2ec4b6);}
  if(t==='fraud'){sideJob={type:t,idx:0,stops:FRAUD_STOPS,timeLeft:170,susT:11,prog:-1,burned:0};setPin(FRAUD_STOPS[0].x,FRAUD_STOPS[0].z,0x2ec4b6);}
- if(t==='swipe'){var st=Math.random()<.5?{name:'Off-licence, Deeplish St',x:-108,z:1406} /* R1 */:{name:'Shop, Moss St Newbold',x:3068,z:1510} /* R1 */;sideJob={type:t,store:st,entered:false,items:[],grabbed:0,secT:26};setPin(st.x,st.z,0x2ec4b6);}
+ if(t==='swipe'){var st=Math.random()<.5?{name:'Off-licence, Deeplish St',x:870,z:1455} /* R1 */:{name:'Shop, Moss St Newbold',x:2536,z:418} /* R1 */;sideJob={type:t,store:st,entered:false,items:[],grabbed:0,secT:26};setPin(st.x,st.z,0x2ec4b6);}
  if(t==='debt'){var s=pick(SPOTS.filter(function(x){return x.area==='deeplish'||x.area==='newbold';}));sideJob={type:t,spot:s,arrived:false};setPin(s.x,s.z,0x2ec4b6);}
  if(t==='chop'){sideJob={type:t,phase:'pickup',a:{x:-1700,z:-2580},b:{x:-3580,z:3740} /* R1: Spotland Rd pickup -> Castleton lock-up, transplanted */,timeLeft:150,dmgStart:0};setPin(-1700,-2580,0x2ec4b6);}
  closePhone();updateObjective();toast('Job on: '+JOB_NAMES[t]);
@@ -7789,9 +7824,9 @@ renderScreens=function(w){_rs(w);if(w==='shop'){$('shopList').querySelectorAll('
 
 /* ================= FRIENDLIES (mates) ================= */
 var MATES=[
- {id:'daz',name:'Daz',role:'MUSCLE',area:'deeplish',home:{x:-130,z:1548} /* R1: Tweedale St, transplanted */ /* §10: Tweedale St */,repReq:0,cut:.12,loyalty:70,color:0xb02020},
- {id:'kyle',name:'Kyle',role:'WHEELMAN',area:'newbold',home:{x:3110,z:1587} /* R1: Chichester St, transplanted */ /* §10: Chichester St */,repReq:12,cut:.10,loyalty:60,color:0x2a4a8f},
- {id:'mo',name:'Mo',role:'TALKER',area:'spotland',home:{x:-1778,z:-2586} /* R1: Ings Lane, transplanted */ /* §10: Ings Lane */,repReq:22,cut:.10,loyalty:60,color:0x3f7a4e}
+ {id:'daz',name:'Daz',role:'MUSCLE',area:'deeplish',home:{x:848,z:1597} /* R1: Tweedale St, transplanted */ /* §10: Tweedale St */,repReq:0,cut:.12,loyalty:70,color:0xb02020},
+ {id:'kyle',name:'Kyle',role:'WHEELMAN',area:'newbold',home:{x:2578,z:495} /* R1: Chichester St, transplanted */ /* §10: Chichester St */,repReq:12,cut:.10,loyalty:60,color:0x2a4a8f},
+ {id:'mo',name:'Mo',role:'TALKER',area:'spotland',home:{x:-2222,z:-886} /* R1: Ings Lane, transplanted */ /* §10: Ings Lane */,repReq:22,cut:.10,loyalty:60,color:0x3f7a4e}
 ];
 var crew=[]; /* active mate objects {def,fig,withYou,mode:'follow'|'car'|'stay',hp,injuredDays} */
 var mateState={};
@@ -8102,7 +8137,7 @@ function ensureRecord2(){if(!S.record)S.record={arrests:0,offences:[],pending:[]
 var WATCH_STREETS=['Tweedale Street','Moss Street','Chichester Street','Ann Street, Deeplish'];
 var aunties=[];
 (function(){
- var spots=[{x:-208,z:1450,s:'Tweedale Street'},{x:-115,z:1487,s:'Tweedale Street'},{x:3082,z:1475,s:'Moss Street'},{x:3062,z:1538,s:'Chichester Street'},{x:-198,z:1560,s:'Ann Street, Deeplish'},{x:-1808,z:-2555,s:'Ings Lane, Spotland'},{x:-618,z:-700,s:'Bamford Road, Norden'},
+ var spots=[{x:770,z:1499,s:'Tweedale Street'},{x:863,z:1536,s:'Tweedale Street'},{x:2550,z:383,s:'Moss Street'},{x:2530,z:446,s:'Chichester Street'},{x:780,z:1609,s:'Ann Street, Deeplish'},{x:-2252,z:-855,s:'Ings Lane, Spotland'},{x:-5570,z:-63,s:'Bamford Road, Norden'},
   /* X-3 (v31): +4 static aunties at College Bank tower entrances (design
      §5) — the densest witness placement in Spotland: the Sisters are
      watched. Same figure language, same updateAunties machinery. */
@@ -8113,7 +8148,7 @@ var aunties=[];
    aunties.push({x:sp.x,z:sp.z,street:sp.s,fig:fig,label:lb,stage:0,callT:0,cd:0,watch:WATCH_STREETS.indexOf(sp.s)>=0});
  });
  /* Neighbourhood Watch signs */
- [{x:-280,z:1452},{x:3052,z:1423},{x:-276,z:1560}].forEach(function(p){var lb=makeLabel('NW','rgba(255,210,63,1)');lb.scale.set(30,6,1);lb.position.set(p.x,16,p.z);scene.add(lb);});
+ [{x:698,z:1501},{x:2520,z:331},{x:702,z:1609}].forEach(function(p){var lb=makeLabel('NW','rgba(255,210,63,1)');lb.scale.set(30,6,1);lb.position.set(p.x,16,p.z);scene.add(lb);});
 })();
 /* POLICE INTEGRITY FIX (v30.41): a completed witness report DISPATCHES
    the patrol to investigate the report position. Until now a finished call
@@ -9887,6 +9922,7 @@ function drawMinimap(){
    never change gameplay. Polygons are the design §7.1 table verbatim. */
 var AREA_POLY=[
  {id:'norden',   pts:[[-840,-540],[-400,-540],[-360,-1010],[-840,-1010]]},
+ {id:'bamford',  pts:[[-853,-922],[-413,-922],[-373,-452],[-853,-452]]},
  {id:'spotland', pts:[[-780,-540],[-260,-540],[-260,-40],[-780,-40]]},
  {id:'heywood',  pts:[[-1310,-140],[-820,-140],[-820,360],[-1310,360]]},
  {id:'centre',   pts:[[-300,-280],[320,-280],[320,200],[-300,200]]},
@@ -9903,14 +9939,14 @@ var AREA_POLY=[
    Bamford (Norden turf), Darnhill (Heywood turf), Langley + Alkrington
    (Middleton turf), Sandbrook Park + Kingsway Business Park + Belfield +
    Kirkholt (Kingsway / Exchange turf, the unclaimed A664/A671 ground). */
-(function(){var off={norden:'norden',spotland:'spotland',heywood:'heywood',centre:'centre',deeplish:'deeplish',newbold:'newbold',castleton:'castleton',kingsway:'kingsway',middleton:'middleton',manchester:'manchester'};
+(function(){var off={norden:'norden',bamford:'bamford',spotland:'spotland',heywood:'heywood',centre:'centre',deeplish:'deeplish',newbold:'newbold',castleton:'castleton',kingsway:'kingsway',middleton:'middleton',manchester:'manchester'};
  AREA_POLY.forEach(function(ap){var a=R1A(off[ap.id]||'centre');ap.pts=ap.pts.map(function(p){return[p[0]+a.dx,p[1]+a.dz];});});
  function rect(id,cx,cz,hw,hd){AREA_POLY.push({id:id,pts:[[cx-hw,cz-hd],[cx+hw,cz-hd],[cx+hw,cz+hd],[cx-hw,cz+hd]]});}
  rect('spotland',-580,-1420,430,430);rect('spotland',1500,-1830,520,470);
- rect('norden',-5170,-3170,560,520);rect('heywood',-7670,6500,620,560);
+ rect('norden',-6777,-1136,560,520);rect('heywood',-7670,6500,620,560);
  rect('middleton',-7170,12670,700,620);rect('middleton',-3670,14330,640,560);
- rect('kingsway',2670,3170,560,480);rect('kingsway',6000,5670,700,560);
- rect('kingsway',2170,4330,520,470);rect('kingsway',2670,3830,560,500);
+ rect('kingsway',2612,5,560,480);rect('kingsway',5942,2505,700,560);
+ rect('kingsway',2170,4330,520,470);rect('kingsway',3548,665,480,500);
 })();
 var mapTimer=null,mapFromPause=false;
 function drawFullMap(){
@@ -13257,8 +13293,8 @@ window.__LEADERCAR={state:function(){return {mode:LC.mode,phase:S.leaderCar?S.le
   var TRAM_STOPDEF=[
    {name:'Rochdale Town Centre',ax:RP[0][0],az:RP[0][1],term:1},
    {name:'Rochdale Station',ax:920,az:750},
-   {name:'Kingsway',ax:4000,az:4000},
-   {name:'Newbold',ax:3170,az:1500},
+   {name:'Kingsway',ax:3942,az:835},
+   {name:'Newbold',ax:2638,az:408},
    {name:'Milnrow Edge',ax:6670,az:3170},
    {name:'Slattocks',ax:840,az:7000},
    {name:'Middleton',ax:-4450,az:11880},
@@ -13999,7 +14035,7 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
 (function(){
  'use strict';
  var F30=null; /* module state; null until first successful init */
- var F30_DISTRICT_FACTION={deeplish:'tweedale',newbold:'moss',spotland:'spotland',norden:'norden',heywood:'heywood',centre:'exchange',kingsway:'exchange',castleton:'castleton',middleton:'longstreet',manchester:null};
+ var F30_DISTRICT_FACTION={deeplish:'tweedale',newbold:'moss',spotland:'spotland',norden:'norden',bamford:'norden',heywood:'heywood',centre:'exchange',kingsway:'exchange',castleton:'castleton',middleton:'longstreet',manchester:null};
  /* The EXISTING crews (AREAS[].gang), described — not invented. Personality
     styles drive AMBIENT variation only (spec S9): gathering spacing,
     group size, nudge frequency. No combat/aggression meaning anywhere. */
@@ -14007,7 +14043,7 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
   {factionId:'tweedale',displayName:'Tweedale Crew',districts:['deeplish'],description:'Deeplish estate crew off Tweedale Street. Chico keeps the ledger; the street runs quiet and everybody knows whose doors they are.',personality:{style:'confident',spacing:16,groupMax:3,nudgeP:0.8},defaultDisposition:'cautious',relationships:{moss:'rival',spotland:'cautious'}},
   {factionId:'moss',displayName:'Moss Street Crew',districts:['newbold'],description:'Newbold crew off Moss Street, run by the brothers Sunny and Immy — warm on the surface, quick to switch, thick as family.',personality:{style:'social',spacing:15,groupMax:3,nudgeP:1.0},defaultDisposition:'neutral',relationships:{tweedale:'rival',spotland:'cautious'}},
   {factionId:'spotland',displayName:'Spotland Firm',districts:['spotland'],description:'The Spotland Firm — old-school, blunt and proud, Kuzzo at the top. Smaller circle, looked after hard.',personality:{style:'defensive',spacing:18,groupMax:3,nudgeP:0.65},defaultDisposition:'cautious',relationships:{norden:'cautious',tweedale:'cautious',moss:'cautious'}},
-  {factionId:'norden',displayName:'Norden Crew',districts:['norden'],description:'Norden & Bamford crew — defensive, keeps to its own roads and its own people, wary of anything coming up the hill.',personality:{style:'defensive',spacing:18,groupMax:3,nudgeP:0.65},defaultDisposition:'cautious',relationships:{spotland:'cautious'}},
+  {factionId:'norden',displayName:'Norden Crew',districts:['norden','bamford'],description:'Norden & Bamford crew — defensive, keeps to its own roads and its own people, wary of anything coming up the hill.',personality:{style:'defensive',spacing:18,groupMax:3,nudgeP:0.65},defaultDisposition:'cautious',relationships:{spotland:'cautious'}},
   {factionId:'heywood',displayName:'Heywood Firm',districts:['heywood'],description:'Heywood Firm — the far-west crew. Quiet, spread out, rarely seen in numbers outside their own streets.',personality:{style:'reserved',spacing:21,groupMax:2,nudgeP:0.45},defaultDisposition:'neutral',relationships:{}},
   {factionId:'exchange',displayName:'Exchange Crew',districts:['centre','kingsway'],description:'Exchange Crew — Town Centre and Kingsway. Business first: commercial streets, parked cars, low profile, money over noise.',personality:{style:'reserved',spacing:21,groupMax:2,nudgeP:0.45},defaultDisposition:'neutral',relationships:{longstreet:'cautious'}},
   {factionId:'castleton',displayName:'Castleton Crew',districts:['castleton'],description:'Castleton Crew — settled along Manchester Road, reserved and steady, neither loud nor looking for it.',personality:{style:'reserved',spacing:21,groupMax:2,nudgeP:0.45},defaultDisposition:'neutral',relationships:{}},
@@ -14711,7 +14747,7 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
      OWN car (the shipped R1 migration rule reads ride.ownKey the same way) */
   var car=S.car;
   try{if(S.ride&&S.ride.ownKey&&S.ownedCars&&S.ownedCars[S.ride.ownKey])car=S.ride.ownKey;}catch(e){}
-  svPut(st,'mapVer',svNum(S.mapVer)!==undefined?S.mapVer:1);
+  svPut(st,'mapVer',svNum(S.mapVer)!==undefined?S.mapVer:2);
   svPut(st,'day',(typeof S.day==='number'&&isFinite(S.day)&&S.day>=1)?Math.floor(S.day):undefined);
   svPut(st,'cash',svNum(S.cash)); svPut(st,'rep',svNum(S.rep));
   svPut(st,'pendingHeat',svNum(S.pendingHeat));
@@ -18082,7 +18118,7 @@ var realCarSoundEnabled=true;
  var GR={err:null,on:false,iv:null,cv:null,pn:null,rz:null,drawn:null};
  var GR_RP=[[-22,74],[10,-40],[28,-110],[26,-152],[16,-124],[0,-100],[500,350],[920,750],[2000,1800],[3200,2900],[4600,3700],[3900,2400],[3170,1500],[4800,2100],[6670,3170],[5900,4700],[4300,5900],[1800,6600],[840,7000],[-600,7600],[-2400,9200],[-3600,10600],[-4450,11880],[-4438,12070],[-4410,12390],[-4376,12720],[-4350,13040],[-4340,13400],[-4420,13410],[-4507,13440],[-4507,13490]];
  var GR_STOPS=[{"name":"Rochdale Town Centre","x":-9.0,"z":27.8},{"name":"Rochdale Station","x":920.0,"z":750.0},{"name":"Kingsway","x":4276.9,"z":3515.4},{"name":"Newbold","x":3170.0,"z":1500.0},{"name":"Milnrow Edge","x":6670.0,"z":3170.0},{"name":"Slattocks","x":840.0,"z":7000.0},{"name":"Middleton","x":-4450.0,"z":11880.0},{"name":"Manchester City Centre","x":-4507.0,"z":13442.0}];
- var GR_ANCHORS=[{"id":"centre","label":"Town Centre","name":"Town Centre","kind":"district","x":0,"z":-70,"lat":53.6156,"lon":-2.1594,"disp":42,"verdict":"faithful"},{"id":"townHall","label":"Rochdale Town Hall","name":"Rochdale Town Hall","kind":"landmark","x":-30,"z":-120,"lat":53.6156,"lon":-2.1594,"disp":74,"verdict":"faithful"},{"id":"policeStation","label":"Rochdale Police Station","name":"Rochdale Police Station","kind":"landmark","x":-30,"z":-240,"lat":53.615904,"lon":-2.161159,"disp":148,"verdict":"displaced"},{"id":"rochdaleStation","label":"Rochdale Station","name":"Rochdale Station","kind":"tram-stop","x":920,"z":750,"lat":53.61,"lon":-2.1541,"disp":265,"verdict":"faithful"},{"id":"spotland","label":"Spotland","name":"Spotland","kind":"district","x":-1830,"z":-2670,"lat":53.62083,"lon":-2.18,"disp":1054,"verdict":"displaced"},{"id":"norden","label":"Norden & Bamford","name":"Norden & Bamford","kind":"district","x":-4420,"z":-4000,"lat":53.6262,"lon":-2.214,"disp":1555,"verdict":"displaced"},{"id":"heywood","label":"Heywood","name":"Heywood","kind":"district","x":-6930,"z":4770,"lat":53.59,"lon":-2.219,"disp":211,"verdict":"faithful"},{"id":"deeplish","label":"Milkstone & Deeplish","name":"Milkstone & Deeplish","kind":"district","x":-170,"z":1500,"lat":53.60725,"lon":-2.15208,"disp":588,"verdict":"displaced"},{"id":"safeHouse","label":"Safe House (Ann Street, Deeplish)","name":"Safe House (Ann Street, Deeplish)","kind":"safehouse","x":-220,"z":1828,"lat":53.60725,"lon":-2.15208,"disp":639,"verdict":"displaced"},{"id":"newbold","label":"Newbold","name":"Newbold","kind":"district","x":3170,"z":1500,"lat":53.6134,"lon":-2.1355,"disp":729,"verdict":"compressed"},{"id":"castleton","label":"Castleton","name":"Castleton","kind":"district","x":-3670,"z":3670,"lat":53.586445,"lon":-2.182743,"disp":1232,"verdict":"displaced"},{"id":"kingsway","label":"Kingsway","name":"Kingsway","kind":"district","x":4000,"z":4000,"lat":53.6111,"lon":-2.12369,"disp":1899,"verdict":"displaced"},{"id":"middleton","label":"Middleton","name":"Middleton","kind":"district","x":-4450,"z":11880,"lat":53.5547,"lon":-2.1887,"disp":809,"verdict":"faithful"},{"id":"kingswayStop","label":"Kingsway (tram stop, projected)","name":"Kingsway (tram stop, projected)","kind":"tram-stop","x":4276.9,"z":3515.4,"lat":53.6111,"lon":-2.12369,"disp":null,"verdict":null,"ax":4000,"az":4000},{"id":"manchester","label":"Manchester City Centre","name":"Manchester City Centre","kind":"district","x":-4350,"z":13660,"lat":53.48111,"lon":-2.23722,"disp":7235,"verdict":"compressed"},{"id":"milnrowEdge","label":"Milnrow Edge stop","name":"Milnrow Edge (tram stop)","kind":"tram-stop","x":6670,"z":3170,"lat":53.60811,"lon":-2.11202,"disp":1374,"verdict":"compressed"},{"id":"slattocks","label":"Slattocks stop","name":"Slattocks (tram stop)","kind":"fictional-stop","x":840,"z":7000,"lat":53.5726,"lon":-2.1757,"disp":1688,"verdict":"displaced"},{"id":"manchesterTerminus","label":"Manchester City Centre stop","name":"Manchester City Centre (tram terminus)","kind":"tram-stop","x":-4507,"z":13490,"lat":53.48111,"lon":-2.23722,"disp":7298,"verdict":"compressed"},{"id":"rochdaleTcStop","label":"Rochdale Town Centre stop","name":"Rochdale Town Centre (tram stop)","kind":"tram-stop","x":-22,"z":74,"lat":null,"lon":null,"disp":null,"verdict":"faithful"},{"id":"collegebank","label":"College Bank (sub-anchor)","name":"College Bank (sub-anchor)","kind":"sub-anchor","x":-580,"z":-1420,"lat":null,"lon":null,"disp":null,"verdict":null}];
+ var GR_ANCHORS=[{"id":"centre","label":"Town Centre","name":"Town Centre","kind":"district","x":0,"z":-70,"lat":53.6156,"lon":-2.1594,"disp":42,"verdict":"faithful"},{"id":"townHall","label":"Rochdale Town Hall","name":"Rochdale Town Hall","kind":"landmark","x":-30,"z":-120,"lat":53.6156,"lon":-2.1594,"disp":74,"verdict":"faithful"},{"id":"policeStation","label":"Rochdale Police Station","name":"Rochdale Police Station","kind":"landmark","x":-30,"z":-240,"lat":53.615904,"lon":-2.161159,"disp":148,"verdict":"displaced"},{"id":"rochdaleStation","label":"Rochdale Station","name":"Rochdale Station","kind":"tram-stop","x":920,"z":750,"lat":53.61,"lon":-2.1541,"disp":265,"verdict":"faithful"},{"id":"spotland","label":"Spotland","name":"Spotland","kind":"district","x":-2274,"z":-970,"lat":53.62083,"lon":-2.18,"disp":0,"verdict":"faithful"},{"id":"norden","label":"Norden","name":"Norden","kind":"district","x":-6027,"z":-1966,"lat":53.6262,"lon":-2.214,"disp":0,"verdict":"faithful"},{"id":"bamford","label":"Bamford","name":"Bamford","kind":"district","x":-5571,"z":-83,"lat":53.61605,"lon":-2.20987,"disp":0,"verdict":"faithful"},{"id":"heywood","label":"Heywood","name":"Heywood","kind":"district","x":-6930,"z":4770,"lat":53.59,"lon":-2.219,"disp":211,"verdict":"faithful"},{"id":"deeplish","label":"Milkstone & Deeplish","name":"Milkstone & Deeplish","kind":"district","x":808,"z":1549,"lat":53.60725,"lon":-2.15208,"disp":0,"verdict":"faithful"},{"id":"safeHouse","label":"Safe House (Ann Street, Deeplish)","name":"Safe House (Ann Street, Deeplish)","kind":"safehouse","x":758,"z":1877,"lat":53.60725,"lon":-2.15208,"disp":199,"verdict":"faithful"},{"id":"newbold","label":"Newbold","name":"Newbold","kind":"district","x":2638,"z":408,"lat":53.6134,"lon":-2.1355,"disp":0,"verdict":"faithful"},{"id":"castleton","label":"Castleton","name":"Castleton","kind":"district","x":-2577,"z":5408,"lat":53.586445,"lon":-2.182743,"disp":0,"verdict":"faithful"},{"id":"kingsway","label":"Kingsway","name":"Kingsway","kind":"district","x":3942,"z":835,"lat":53.6111,"lon":-2.12369,"disp":0,"verdict":"faithful"},{"id":"middleton","label":"Middleton","name":"Middleton","kind":"district","x":-4450,"z":11880,"lat":53.5547,"lon":-2.1887,"disp":809,"verdict":"faithful"},{"id":"kingswayStop","label":"Kingsway (tram stop, projected)","name":"Kingsway (tram stop, projected)","kind":"tram-stop","x":3942,"z":835,"lat":53.6111,"lon":-2.12369,"disp":null,"verdict":null,"ax":3942,"az":835},{"id":"manchester","label":"Manchester City Centre","name":"Manchester City Centre","kind":"district","x":-4350,"z":13660,"lat":53.48111,"lon":-2.23722,"disp":7235,"verdict":"compressed"},{"id":"milnrowEdge","label":"Milnrow Edge stop","name":"Milnrow Edge (tram stop)","kind":"tram-stop","x":6670,"z":3170,"lat":53.60811,"lon":-2.11202,"disp":1374,"verdict":"compressed"},{"id":"slattocks","label":"Slattocks stop","name":"Slattocks (tram stop)","kind":"fictional-stop","x":840,"z":7000,"lat":53.5726,"lon":-2.1757,"disp":1688,"verdict":"displaced"},{"id":"manchesterTerminus","label":"Manchester City Centre stop","name":"Manchester City Centre (tram terminus)","kind":"tram-stop","x":-4507,"z":13490,"lat":53.48111,"lon":-2.23722,"disp":7298,"verdict":"compressed"},{"id":"rochdaleTcStop","label":"Rochdale Town Centre stop","name":"Rochdale Town Centre (tram stop)","kind":"tram-stop","x":-22,"z":74,"lat":null,"lon":null,"disp":null,"verdict":"faithful"},{"id":"collegebank","label":"College Bank (sub-anchor)","name":"College Bank (sub-anchor)","kind":"sub-anchor","x":-580,"z":-1420,"lat":null,"lon":null,"disp":null,"verdict":null}];
  var GR_B={x0:-9800,x1:8800,z0:-6800,z1:15800};
  var GR_OLAT=53.6156,GR_OLON=-2.1594,GR_MPLAT=111298,GR_MPLON=66231,GR_AS=0.6;
  function grRealPos(a){
@@ -19849,7 +19885,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3048={version:'v30.48'};</script>
+<script>window.__V3049={version:'v30.49'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
