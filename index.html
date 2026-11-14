@@ -8624,7 +8624,7 @@ var camPos={x:0,z:0};
 /* v21: on-foot building test — same buildings[] footprints the car collision
    uses (the Phase 3 inBuilding helper is IIFE-scoped, so the walker gets its
    own global copy of the identical test). */
-function footBlocked(x,z){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility — a chunk-hidden building cannot block */ if(Math.abs(x-b.x)<b.hw+5&&Math.abs(z-b.z)<b.hd+5)return true;}return false;}
+function footBlocked(x,z){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility — a chunk-hidden building cannot block */ if(b.mw!==undefined&&Math.abs(b.msn)>0.02){var fdx=x-b.x,fdz=z-b.z;if(Math.abs(fdx*b.mcs-fdz*b.msn)<b.mw/2+6.5&&Math.abs(fdx*b.msn+fdz*b.mcs)<b.md/2+6.5)return true;}else if(Math.abs(x-b.x)<b.hw+5&&Math.abs(z-b.z)<b.hd+5)return true;}return false;} /* v30.56: rotated buildings block on their true rect (+1.5 pad, +5 margin — the shipped hw+5 analogue) */
 function speedNow(){return Math.sqrt(player.vx*player.vx+player.vz*player.vz);}
 function mph(){return speedNow()*.28;}
 function loop(ms){
@@ -8867,6 +8867,31 @@ function updateGame(dt,realDt){
      for(var bi=0;bi<buildings.length;bi++){var b=buildings[bi];
        if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility (see footBlocked) */
        var bcm=(b.cm!==undefined?b.cm:13);
+       if(b.mw!==undefined&&Math.abs(b.msn)>0.02){
+         /* v30.56 WALLS FIX: rotated building — the same forgiving glance-off,
+            evaluated against the mesh's TRUE rect in its own frame: least-
+            penetration axis, into-wall velocity killed, along-wall kept, same
+            shed tiers and onCrash thresholds as the shipped AABB path below. */
+         var rdx=player.x-b.x,rdz=player.z-b.z;
+         var rlx=rdx*b.mcs-rdz*b.msn,rlz=rdx*b.msn+rdz*b.mcs;
+         var rhw=b.mw/2+1.5+bcm,rhd=b.md/2+1.5+bcm;
+         var rpnX=rhw-Math.abs(rlx),rpnZ=rhd-Math.abs(rlz);
+         if(rpnX>0&&rpnZ>0){
+           var raX=rpnX<rpnZ;
+           var rnS=raX?(rlx>0?1:-1):(rlz>0?1:-1);
+           var rnx=raX?b.mcs*rnS:b.msn*rnS,rnz=raX?-b.msn*rnS:b.mcs*rnS; /* world-space wall normal */
+           var rvn=player.vx*rnx+player.vz*rnz; /* <0 = moving into the wall */
+           var rimp=Math.max(0,-rvn);
+           if(rimp>40)onCrash(rimp*.8,'building');
+           var rsh=rimp>170?.35:(rimp>90?.5:.78);
+           if(raX)rlx=rnS*(rhw+.5);else rlz=rnS*(rhd+.5);
+           player.x=b.x+rlx*b.mcs+rlz*b.msn;
+           player.z=b.z-rlx*b.msn+rlz*b.mcs;
+           if(rvn<0){player.vx-=rnx*rvn;player.vz-=rnz*rvn;}
+           player.vx*=rsh;player.vz*=rsh;
+           vf=player.vx*fx+player.vz*fz;vr=player.vx*rx+player.vz*rz;
+         }
+       }else{
        var penX=(b.hw+bcm)-Math.abs(player.x-b.x),penZ=(b.hd+bcm)-Math.abs(player.z-b.z);
        if(penX>0&&penZ>0){
          var alongX=penX<penZ;
@@ -8879,7 +8904,7 @@ function updateGame(dt,realDt){
          else{player.z=b.z+nSign*(b.hd+bcm+.5);if(player.vz*nSign<0)player.vz=0;}
          player.vx*=shed;player.vz*=shed;
          vf=player.vx*fx+player.vz*fz;vr=player.vx*rx+player.vz*rz;
-       }}
+       }}}
      /* collisions: parked cars are SOLID — OBB vs OBB (SAT on both cars'
         axes) at their real footprints, resolved along the minimum-
         translation axis with the same forgiving scrape response: the
@@ -12647,6 +12672,26 @@ var R1_CHUNKS=[],R1_HIDDEN=[];
   activeNear:function(px,pz){var n=0;for(var i=0;i<R1_CHUNKS.length;i++){var c=R1_CHUNKS[i],dx=c.o.position.x-px,dz=c.o.position.z-pz;if(dx*dx+dz*dz<2500*2500)n++;}return n;},
   matrix:function(){var worst=null,unreach=0,pairs=0;for(var i=0;i<SPOTS.length;i++)for(var j=0;j<SPOTS.length;j++){if(i===j)continue;pairs++;var d=dist2(SPOTS[i].x,SPOTS[i].z,SPOTS[j].x,SPOTS[j].z);var w=clamp(Math.round(24+d/120),45,140);var need=d/190;var m=w/need;if(need>w)unreach++;if(!worst||m<worst.m)worst={from:SPOTS[i].street,to:SPOTS[j].street,d:Math.round(d),window:w,need:Math.round(need*10)/10,m:Math.round(m*100)/100};}return{pairs:pairs,unreachable:unreach,worst:worst};}
  };
+})();
+/* ---- v30.56 WALLS FIX: annotate every collision solid with its mesh's true
+   footprint. The shipped car/foot collision tests each building as the
+   AXIS-ALIGNED BOUNDING BOX of its (often rotated) mesh: for any building not
+   square to the grid, that box's corners stick out past the visible walls —
+   up to ~50u of phantom wall across the carriageway on the diagonal corridors
+   (measured on v30.53: 788 solids with phantom area on a carriageway, 150
+   phantom stops driving legal lanes). Solids and meshes are otherwise exactly
+   registered (0 centre offset, uniform +1.5 AABB pad), so the fix is the test
+   SHAPE, not the data: P5_BUILD carries each mesh's real w/d/rot, matched here
+   by exact centre (unique matches only). Unmatched solids (perimeter walls,
+   Town Hall, station, safe house — all axis-aligned by construction) keep the
+   shipped AABB path untouched. ---- */
+(function(){
+  var byKey={};
+  for(var i=0;i<P5_BUILD.length;i++){var p=P5_BUILD[i];var k=Math.round(p.x)+','+Math.round(p.z);if(byKey[k])byKey[k].dup=true;else byKey[k]={p:p,dup:false};}
+  var n=0;
+  for(var j=0;j<buildings.length;j++){var b=buildings[j];var e=byKey[Math.round(b.x)+','+Math.round(b.z)];
+    if(e&&!e.dup&&Math.abs(e.p.x-b.x)<1.5&&Math.abs(e.p.z-b.z)<1.5){b.mw=e.p.w;b.md=e.p.d;b.mcs=Math.cos(e.p.rot||0);b.msn=Math.sin(e.p.rot||0);n++;}}
+  window.__WALLS56={annotated:n,total:buildings.length};
 })();
 S=newState();ensureGoods();ensureRecord2();
 AREAS.forEach(function(a){S.tension[a.id]=14+Math.floor(Math.random()*22);});
@@ -21422,7 +21467,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3055={version:'v30.55'};</script>
+<script>window.__V3056={version:'v30.56'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
