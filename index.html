@@ -8453,7 +8453,7 @@ function doInteract(kind){
  if(kind==='ctx'){
    if(n.type==='punter'){if(getStock('cigs')+getStock('vapes')>0){var sold=getStock('vapes')>0?'vapes':'cigs';subStock(sold,1);var pay2=PROD[sold].price*2;S.cash+=pay2;toast('Quick deal on foot: +£'+pay2);bubble(n.fig,'Nice one. Lifesaver.');}else toast('You\u2019ve nothing small to sell him');}
    else if(n.type==='aunty'){bubble(n.fig,'…Hmph. Drive slower and we\u2019ll say no more.');if(n.ref){n.ref.stage=0;n.ref.label.visible=false;n.ref.cd=25;}setNpcMemory(aid,npcMemory(aid)+1);toast('Apology accepted — she stands down');}
-   else if(n.type==='mate'){bubble(n.fig,'😂 You\u2019re tapped, you.');var c2=n.crewRef;if(c2)mateState[c2.def.id].loyalty=clamp(mateState[c2.def.id]+2+0,0,100);}
+   else if(n.type==='mate'){bubble(n.fig,'😂 You\u2019re tapped, you.');var c2=n.crewRef;if(c2)mateState[c2.def.id].loyalty=clamp(mateState[c2.def.id].loyalty+2+0,0,100);}
    else if(n.type==='rival'){if(Math.random()<.4+charmVal()/60){addTension(aid,-16);bubble(n.fig,'…Parley accepted. For now.');toast('Parley: '+a.gang+' tension down');}else{bubble(n.fig,'Parley? Do one.');addTension(aid,5);}}
    else toast('He reckons the shop on Yorkshire St has cameras everywhere. Noted.');
  }
@@ -20351,6 +20351,281 @@ var contextPromptEnabled=true; /* P2S5 feature flag (default ON) */
 /* ================= /P2S5 INTERACTIONS (__I52) ================= */
 
 
+/* ================= PHASE 2 STAGE 6 — INTEGRATION & DEBUG PANEL (__DBG53) =================
+   Spec: files/PHASE2-STAGE6-INTEGRATION-SPEC.md (§12 consolidated debug
+   panel + §1 audit). This layer builds NO gameplay system. It adds one
+   dev-only panel that UNIFIES the existing per-stage debug surfaces
+   behind a section registry, reading their published state/APIs only —
+   no duplicated logic, no parallel state store. Phase 3 Stage 6 is
+   expected to append its own section via __DBG53.register(...).
+
+   §1 AUDIT SUMMARY (spec vs source, all five Phase 2 stages + Phase 1):
+   - S1 (v30.29, __C29): PRESENT — wraps combatPressAttack /
+     updateCombatF1 / combatClearInputs for the ≤150 ms input buffer.
+   - S2 (v30.46, __C46): PRESENT — wraps combatApplyHit /
+     combatResolveContact / combatAIInit / combatAIDefendCue /
+     combatBrain / combatStartSwing / f5StartHeavy; personalities,
+     wall slam, heavy finisher, attacker-token cap, C-1 bat cleave.
+   - S3 (v30.50, __D50): PRESENT (extensions only, v24 model frozen) —
+     wraps camPlace (north-up look-ahead) + onCrash (settle); stick
+     low-pass lives in its rAF. Not built there: extra speed-softening
+     curve (needs Inaam's approval — still open, not smuggled in here).
+   - S4 (v30.51, __P51): PRESENT — wraps the police dispatch functions +
+     policeNavMove (corner braking) + arrest watchdog; custody frozen.
+     Not built there: police2 multi-unit pursuit (no second pursuer
+     exists — deferred there, still absent, not faked here).
+   - S5 (v30.52, __I52): PRESENT — read-only candidate/priority adapter
+     over the ONE shipped findInteract scan; parley gate preserved.
+   - Phase 1 surfaces all alive: __LS27/__CV36/__EN37/__RP38/__NM39/__LS6.
+   - WRAP CHAIN (the one real overlap found): combatApplyHit is wrapped
+     by __C46 (v30.46) and again by the MP test layer (v30.48, outermost).
+     MP is inert unless a room is live and then only diverts stand-in
+     targets; the v30.48 battery proved C-1 cleave intact underneath it,
+     and this stage's battery re-proves it. No other wrap target is
+     shared between layers. findInteract's chain (S3 → leader-car →
+     GATE42) is shipped order; __I52 only reads its outputs.
+   - §6 BALANCING: no Phase 2 knob is retuned by this stage — the full
+     cross-stage A/B battery found no integration imbalance (candidate
+     behaviour matches base everywhere except the authorised Banter fix
+     below). Knob inventory (all as shipped by their own stages):
+     C29 buffer ≤150 ms (frozen); C46 personality multipliers in
+     __C46.cfg; D50 leadMax 52 / leadRate 3.2 / filt 16·20 / settle
+     .5·.6; P51 dup 25 game-s·150u / corner .25→1.75 rad, cut .38;
+     I52 hold 2 ticks (~300 ms).
+
+   THE ONE SHIPPED-CODE EDIT IN THIS STAGE (authorised micro-fix,
+   applied by the build script, NOT by this module): doInteract 'ctx'
+   mate branch — mateState[id]+2+0 read the mate OBJECT, producing
+   "[object Object]2" -> NaN under the shipped clamp, so Banter set
+   loyalty to NaN and never raised it. Fixed to .loyalty+2+0 (+2,
+   clamped 0..100, the branch's evident intent; the sibling 'swear'
+   banter branch uses st.loyalty+3 the same way). __NM39's banter
+   watcher (which compares loyalty before/after) now fires as designed.
+
+   PANEL: flag debugPanelEnabled, default OFF (§12: off in ordinary
+   gameplay; this is a dev surface). Pref rides the save as
+   S.ui.debugPanel (family idiom). While open it refreshes at 2 Hz and
+   runs one rAF loop for FPS/frame-ms; both stop when closed — zero
+   per-frame or per-tick cost when off. Sections render from the
+   surfaces' own readers inside try/catch; a missing surface renders
+   'absent' rather than throwing. Runtime-only state; the sole save
+   footprint is the pref. Debug surface: window.__DBG53. */
+var debugPanelEnabled=false; /* P2S6 debug panel flag (default OFF) */
+(function(){
+ var DBG={version:'p2s6-1',err:null,open:false,refreshN:0,fps:0,frameMs:0,rafGen:0,lastText:''};
+ var sections=[];
+ var panelEl=null,bodyEl=null;
+ function $(id){return document.getElementById(id);}
+ function dbgOn(){
+  if(debugPanelEnabled)return true;
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.debugPanel===1)return true;}catch(e){}
+  return false;
+ }
+ function reg(sec){
+  if(!sec||!sec.id||typeof sec.render!=='function')return false;
+  for(var i=0;i<sections.length;i++)if(sections[i].id===sec.id)return false;
+  sections.push(sec);return true;
+ }
+ function rd(fn,dflt){try{var v=fn();return (v===undefined||v===null)?dflt:v;}catch(e){return dflt;}}
+ function yn(b){return b?'YES':'no';}
+ function lines(pairs){
+  return pairs.map(function(p){return p[0]+': '+p[1];}).join('\n');
+ }
+ /* ---------------- sections (read-only over the shipped surfaces) ------- */
+ reg({id:'overview',title:'Player · World',render:function(){
+  var snap=rd(function(){return window.__POLICE_HARNESS.snap();},{});
+  var ls6=rd(function(){return window.__LS6.state();},{});
+  var home=rd(function(){return window.__HOME47.state();},{});
+  var nb=ls6.neighbourhood||{};
+  return lines([
+   ['mode',snap.foot?'on foot':(snap.playing?'in car':'menu')],
+   ['pos',snap.px!==undefined?('x '+snap.px+' · z '+snap.pz):'—'],
+   ['day',rd(function(){return S.day;},'—')+' · '+(ls6.period||'—')+' · hour '+(ls6.hour!==undefined?ls6.hour:'—')],
+   ['area',(nb.label||'—')+' ('+(nb.area||'—')+') · home '+(home.siteId||'—')+' via '+(home.source||'—')],
+   ['heat',snap.heat!==undefined?Math.round(snap.heat):'—'],
+   ['cash',rd(function(){return '£'+S.cash;},'—')+' · rep '+rd(function(){return S.rep;},'—')+' · hp '+rd(function(){return Math.round(S.hp);},'—')],
+   ['playing',yn(snap.playing)+' · paused '+yn(snap.paused)+' · custody '+yn(snap.custody)]
+  ]);
+ }});
+ reg({id:'combat',title:'Combat (S1 buffer · S2 fighting)',render:function(){
+  var a=rd(function(){return window.__C29.state();},null);
+  var b=rd(function(){return window.__C46.state();},null);
+  if(!a&&!b)return 'absent';
+  var out=[];
+  if(a)out.push('C29 buffer: phase '+a.phase+' · weapon '+a.weapon+' · stam '+Math.round(a.stam)+' · target '+a.target+' · pending '+Math.round(a.pendingMs)+'ms · buffered '+a.stats.buffered+' fired '+a.stats.fired+' expired '+a.stats.expired);
+  if(b)out.push('C46 fight: phase '+b.phase+' · chain '+b.chainIdx+' · combo '+b.comboCount+' · tokens '+b.tokens+' · cleave '+b.stats.cleaveHits+' · wallSlams '+b.stats.wallSlams+' · finishers '+b.stats.heavyFinishers+' · defBlock '+b.stats.defBlocks+' · defDodge '+b.stats.defDodges);
+  return out.join('\n');
+ }});
+ reg({id:'driving',title:'Driving (S3 extensions · SD42 controls)',render:function(){
+  var d=rd(function(){return window.__D50.state();},null);
+  var p=rd(function(){return window.__D50.params();},{});
+  var sd=rd(function(){return window.__SD42.state();},null);
+  if(!d&&!sd)return 'absent';
+  var out=[];
+  if(d)out.push('D50: lead '+d.leadX+','+d.leadZ+' (max '+(p.leadMax||'—')+') · filt '+d.filtX+','+d.filtY+' · frames '+d.frames+' · lastImpact '+(d.lastImpact?(Math.round(d.lastImpact.impact)+' @ '+d.lastImpact.kind):'none'));
+  if(sd)out.push('SD42: scheme '+sd.scheme+' · stickVec '+sd.stickVec.x+','+sd.stickVec.y+' · input throttle '+sd.input.throttle+' brake '+yn(sd.input.brake)+' hb '+yn(sd.input.hb)+' · stickPid '+(sd.stickPid===null?'—':sd.stickPid));
+  return out.join('\n');
+ }});
+ reg({id:'police',title:'Police (S4 intel · shipped FSM)',render:function(){
+  var snap=rd(function(){return window.__POLICE_HARNESS.snap();},{});
+  var p=rd(function(){return window.__P51.state();},null);
+  var units=rd(function(){return window.__POLICE_AI.officerCount();},'—');
+  var out=['FSM: '+(snap.state||'—')+' · mode '+(snap.mode||'—')+' · unit '+((snap.ux!==undefined)?(snap.ux+','+snap.uz):'—')+' · catchT '+(snap.catchT!==undefined?snap.catchT:'—')+' · arrests '+(snap.arrests!==undefined?snap.arrests:'—')+' · officers '+units];
+  if(p)out.push('P51: incident '+(p.active?('#'+p.active.id+' '+p.active.src+' '+p.active.phase):'none')+' · dups '+p.dups+' · superseded '+p.superseded+' · brakeEvents '+p.brakeEvents+' · guardFires '+p.guardFires+' · ticks '+p.ticks);
+  return out.join('\n');
+ }});
+ reg({id:'interactions',title:'Interactions (S5 adapter · parley gate)',render:function(){
+  var st=rd(function(){return window.__I52.state();},{});
+  var sel=rd(function(){return window.__I52.selected();},null);
+  var cands=rd(function(){return window.__I52.candidates();},[]);
+  var gate=rd(function(){return window.__GATE42.open();},null);
+  var gk=rd(function(){return window.__GATE42.key();},null);
+  return lines([
+   ['selected',sel?(sel.label+' ('+sel.kind+', tier '+sel.tier+')'):'none'],
+   ['candidates',cands.length+' · held '+(st.held?st.held.label:'—')+' · label '+(st.labelVisible?('shown: '+st.label):'hidden')],
+   ['parley gate',gate===null?'—':(gate?('OPEN · '+gk):'closed · '+(gk||'no target'))],
+   ['ticks',st.ticks!==undefined?st.ticks:'—']
+  ]);
+ }});
+ reg({id:'living',title:'Living Streets (Phase 1)',render:function(){
+  var a=rd(function(){return window.__LS27.state();},{});
+  var c=rd(function(){return window.__CV36.state();},{});
+  var e=rd(function(){return window.__EN37.state();},{});
+  var r=rd(function(){return window.__RP38.state();},{});
+  var n=rd(function(){return window.__NM39.state();},{});
+  function cnt(o){return o&&o.counts?o.counts:null;}
+  var ac=cnt(a),cc=cnt(c),ec=cnt(e),rc=cnt(r),nc=cnt(n);
+  return lines([
+   ['routines',ac?('IDLE '+ac.IDLE+' · TRAV '+ac.TRAVELLING+' · WAIT '+ac.WAITING+' · SOC '+ac.SOCIALISING+' · SUSP '+ac.SUSPENDED+' / '+ac.total):'—'],
+   ['conversations',cc?('started '+cc.started+' · lines '+cc.lines+' · presented '+cc.presented):'—'],
+   ['encounters',ec?('started '+ec.started+' · finished '+ec.finished+' · cancelled '+ec.cancelled):'—'],
+   ['reactions',rc?('perceived '+rc.perceived+' · reactions '+rc.reactions+' · resumed '+rc.resumed):'—'],
+   ['npc memory',nc?('recorded '+nc.recorded+' · deduped '+nc.deduped+' · npcs '+Object.keys(n.npcs||{}).length+' · save section '+n.sectionBytes+'B'):'—']
+  ]);
+ }});
+ reg({id:'world',title:'World · Factions · Home',render:function(){
+  var f=rd(function(){return window.__F30.state();},{});
+  var g=rd(function(){return window.__GEOREF.state();},{});
+  return lines([
+   ['factions (F30)',f.initialised!==undefined?('initialised '+yn(f.initialised)+' · enabled '+yn(f.enabled)):'—'],
+   ['georef',g.err?('err '+g.err):('anchors '+(g.anchors!==undefined?g.anchors:'—')+' · district '+(g.district||'—')+' · overlay '+(g.overlayInDom?'drawn':'off'))],
+   ['mapVer',rd(function(){return S.mapVer;},'—')+' · matrix: __DBG53.matrix() (on demand)']
+  ]);
+ }});
+ reg({id:'system',title:'System · Saves · Flags · Perf',render:function(){
+  var sv=rd(function(){return window.__SAVE35.status();},{});
+  var mp=rd(function(){return window.__MP.state();},{});
+  var fl=[];
+  [['LS27',window.__LS27],['CV36',window.__CV36],['EN37',window.__EN37],['RP38',window.__RP38],['NM39',window.__NM39],['LS6',window.__LS6],['C29',window.__C29],['C46',window.__C46],['D50',window.__D50],['P51',window.__P51],['I52',window.__I52],['SAVE35',window.__SAVE35],['HOME47',window.__HOME47],['SD42',window.__SD42],['F30',window.__F30],['GEOREF',window.__GEOREF],['MP',window.__MP]].forEach(function(pair){
+   var s=pair[1];if(!s){fl.push(pair[0]+'=absent');return;}
+   var on=rd(function(){return (typeof s.enabled==='function')?s.enabled():s.enabled;},null);
+   fl.push(pair[0]+'='+(on===null?'?':(on?'on':'OFF')));
+  });
+  return lines([
+   ['save',sv.hasSave!==undefined?('hasSave '+yn(sv.hasSave)+' · stored '+sv.storedBytes+'B · last '+(sv.lastReason||'—')):'—'],
+   ['multiplayer',mp.on!==undefined?('on '+yn(mp.on)+' · room '+(mp.room||'—')+' · peers '+(mp.peers!==undefined?mp.peers:'—')):'—'],
+   ['flags',fl.join(' ')],
+   ['perf','fps '+(DBG.open?DBG.fps:'—')+' · frame '+(DBG.open?(Math.round(DBG.frameMs*10)/10)+'ms':'—')+' · panel refreshes '+DBG.refreshN+' · page errs '+rd(function(){return window.__F.errs.length;},'—')]
+  ]);
+ }});
+ /* ---------------- panel DOM ---------------- */
+ function buildPanel(){
+  if(panelEl)return panelEl;
+  panelEl=document.createElement('div');panelEl.id='dbg53Panel';
+  panelEl.style.cssText='position:fixed;top:8px;right:8px;width:min(340px,88vw);max-height:84vh;overflow-y:auto;background:rgba(9,12,17,.93);color:#cfd8e3;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;border:1px solid #3a4656;border-radius:10px;padding:10px 12px;z-index:4000;display:none;';
+  var head=document.createElement('div');
+  head.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;';
+  head.innerHTML='<b style="color:#e8c15a;">DALE DEBUG · P2 integration</b>';
+  var x=document.createElement('button');x.type='button';x.textContent='✕';
+  x.style.cssText='background:none;border:1px solid #3a4656;color:#cfd8e3;border-radius:6px;padding:1px 8px;font:inherit;';
+  x.addEventListener('click',function(){window.__DBG53.setEnabled(false);});
+  head.appendChild(x);panelEl.appendChild(head);
+  bodyEl=document.createElement('div');panelEl.appendChild(bodyEl);
+  document.body.appendChild(panelEl);
+  return panelEl;
+ }
+ function render(){
+  if(!panelEl)return;
+  var parts=[];
+  for(var i=0;i<sections.length;i++){
+   var s=sections[i],txt;
+   try{txt=s.render();}catch(e){txt='<render err: '+String(e&&e.message||e)+'>';}
+   parts.push('== '+s.title+' ==\n'+txt);
+  }
+  var text=parts.join('\n\n');
+  DBG.lastText=text;DBG.refreshN++;
+  bodyEl.textContent='';
+  var pre=document.createElement('pre');
+  pre.style.cssText='margin:0;white-space:pre-wrap;word-break:break-word;font:inherit;';
+  pre.textContent=text;bodyEl.appendChild(pre);
+ }
+ function rafLoop(gen){
+  var last=0,acc=0,n=0;
+  function step(t){
+   if(gen!==DBG.rafGen||!DBG.open)return;
+   if(last){var dt=t-last;acc+=dt;n++;if(n>=10){DBG.frameMs=acc/n;DBG.fps=Math.round(1000/(acc/n));acc=0;n=0;}}
+   last=t;requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+ }
+ function applyVis(){
+  var on=dbgOn();
+  if(on&&!panelEl)buildPanel();
+  if(panelEl)panelEl.style.display=on?'block':'none';
+  if(on&&!DBG.open){DBG.open=true;DBG.rafGen++;rafLoop(DBG.rafGen);render();}
+  if(!on&&DBG.open){DBG.open=false;DBG.rafGen++;}
+  if(on)render();
+ }
+ setInterval(function(){if(DBG.open)render();},500);
+ /* ---- Settings row (family idiom: row + toggle + note before [data-close]) ---- */
+ function dbgSyncUi(){
+  var st=$('dbg53SetState'),b=$('dbg53SetBtn'),on=dbgOn();
+  if(st)st.textContent=on?'On':'Off';
+  if(b)b.textContent=on?'Turn Off':'Turn On';
+ }
+ function dbgBuildUi(){
+  try{
+   if($('dbg53SetBtn'))return;
+   var panel=$('settingsPanel'),card=panel?panel.querySelector('.card'):null;
+   if(!card)return;
+   var anchor=card.querySelector('[data-close]');
+   var row=document.createElement('div');row.className='rowline';row.style.marginTop='14px';
+   row.innerHTML='<span>Debug panel</span><b id="dbg53SetState">Off</b>';
+   var btn=document.createElement('button');btn.className='btn ghost';btn.id='dbg53SetBtn';btn.type='button';btn.textContent='Turn On';
+   var note=document.createElement('p');note.className='small';
+   note.textContent='Developer readout (Phase 2 Stage 6): one panel over every system — player, combat, driving, police, interactions, Living Streets, saves and feature flags — drawn live from the systems themselves. Off in ordinary play; turning it on changes nothing in the game.';
+   if(anchor){card.insertBefore(row,anchor);card.insertBefore(btn,anchor);card.insertBefore(note,anchor);}
+   else{card.appendChild(row);card.appendChild(btn);card.appendChild(note);}
+   btn.addEventListener('click',function(){
+    try{window.__DBG53.setEnabled(!dbgOn());}catch(e){}
+   });
+   dbgSyncUi();
+  }catch(e){DBG.err=String(e&&e.message||e);}
+ }
+ var dbgUiTries=0;
+ var dbgUiTimer=setInterval(function(){dbgBuildUi();if($('dbg53SetBtn')||++dbgUiTries>40)clearInterval(dbgUiTimer);},500);
+ setInterval(function(){dbgSyncUi();applyVis();},1000);
+ window.__DBG53={
+  version:DBG.version,
+  enabled:function(){return dbgOn();},
+  setEnabled:function(b){
+   debugPanelEnabled=!!b;
+   try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={};S.ui.debugPanel=b?1:0;}}catch(e){}
+   applyVis();dbgSyncUi();return dbgOn();
+  },
+  open:function(){return this.setEnabled(true);},
+  close:function(){return this.setEnabled(false);},
+  toggle:function(){return this.setEnabled(!dbgOn());},
+  register:reg,
+  sections:function(){return sections.map(function(s){return s.id;});},
+  state:function(){return {open:DBG.open,refreshN:DBG.refreshN,fps:DBG.fps,frameMs:Math.round(DBG.frameMs*10)/10,sections:sections.length,err:DBG.err};},
+  panelText:function(){if(!DBG.open)this.setEnabled(true);render();return DBG.lastText;},
+  matrix:function(){try{return window.__R1_AUDIT?__R1_AUDIT.matrix():null;}catch(e){return null;}}
+ };
+})();
+/* ================= /PHASE 2 STAGE 6 INTEGRATION (__DBG53) ================= */
+
+
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
  isPlaying:function(){return !!(S&&S.playing);},
@@ -20776,7 +21051,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3052={version:'v30.52'};</script>
+<script>window.__V3053={version:'v30.53'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
