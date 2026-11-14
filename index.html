@@ -18187,6 +18187,391 @@ var realCarSoundEnabled=true;
 })();
 /* ================= /GEOREF DEBUG MAP ================= */
 
+/* ================= v30.46 — PHASE 2 · STAGE 2: ADVANCED STREET FIGHTING =================
+   An ADDITIVE layer over the shipped F1–F5 combat machine + the v30.29
+   responsiveness layer (__C29) — NO second combat controller, NO second
+   damage path, NO competing timer, and NOT ONE shipped number, table row
+   or behaviour edited. AUDIT (spec section 1 — what already shipped, so
+   this stage does NOT rebuild it): light = tap Attack (the F2 3-hit
+   chain), heavy = hold Attack (the F5 charged heavy — a tap never waits
+   on the charge, so section 2's "heavy must not delay light" already
+   holds); block/parry/counter (F3 block + F5 parry window .12 s, counter
+   x1.6), dodge with i-frames (F3), knockdowns (F2 finisher gate + F5
+   heavy roll at 75% under the same <=35% HP gate), group discipline (F4
+   engagement tokens aiTokens=2 + aiStrikeGap .45 s + circling spacing),
+   environment (every knockback is the collision-checked
+   combatKnockSlide — nobody slides through a wall or a person), the F5
+   combo counter (damage scaling on a 1.1 s window, reset on taking a
+   hit). Mates are fully protected from friendly fire at the S2 edge
+   (s2ApplyHit) — untouched. Fight FEEL / animation work is PARKED by the
+   user's decision until he supplies proper animations — this layer is
+   mechanics only and changes no animation, pose or timing value.
+   THIS LAYER ADDS ONLY THE FOUR GENUINE GAPS:
+   (1) C-1 BAT CLEAVE (the user's ruling, 2026-11-11: "you can't hit
+       multiple targets unless you have a baseball bat and swing it").
+       Shipped combatResolveContact keys core fighters by CLASS
+       (swingId+':fighter'), so one swing damages at most one fighter
+       (+ the rival under its own key, + S2 peds under unique keys) —
+       documented as conflict C-1 in the v30.29 layer and left for the
+       user's call; the call is now made. For BAT swings only, after the
+       shipped contact pass (including the shipped F5 wide-arc extra)
+       has resolved, this layer runs the SAME arc / reach / LOS tests
+       the shipped pass runs and puts every remaining hostile fighter
+       caught in the arc through the SAME authoritative combatApplyHit
+       — full chain damage, same per-hit Heat, same reactions. A
+       recording wrap on combatApplyHit tracks which fighters a swing
+       has already resolved, so no fighter can be damaged twice by one
+       swing, and the F5 extra (34u / 60%) keeps its exact shipped role
+       inside the arc. Unarmed, knife, grapple and every other attack
+       keep the shipped class key and stay single-target vs fighters,
+       exactly as ruled. Stamina is paid once per swing at swing start
+       (shipped) — cleave adds no cost, per "same damage/stamina
+       authority".
+   (2) SECTION 3 COMBO FORMALISATION. The shipped chain IS the combo
+       structure — hit 2 = the 2-hit basic, hit 3 = the 3-hit advanced,
+       a charged heavy released at chain position 3 = the heavy
+       finisher (named in the side feed, the F5 feedback channel, when
+       it happens). One rule is added, per the audit's C-3 reading
+       (stamina gates COMBO CONTINUATION only, never a basic attack):
+       when a follow-up swing (chain position 2 or 3) would start with
+       less stamina than that follow-up's own shipped cost, the chain
+       resets to hit 1 and the press still swings as a basic attack —
+       stamina NEVER hard-blocks an attack. Resets on timeout / vehicle
+       / incapacitation / interrupt remain the shipped ones
+       (chainWindow, combatClearInputs, combatPlayerHit) — untouched.
+   (3) SECTION 7 ENEMY PERSONALITIES — lightweight profiles over the
+       EXISTING F4 brain (no second controller; the brain still decides
+       everything, through the shipped functions). At combatAIInit each
+       enemy draws a personality by archetype — thug: mostly
+       Inexperienced, some Aggressive / Balanced; crew: a spread;
+       boss: mostly Experienced — and the layer then only ever scales
+       the brain's OWN shipped values for that enemy: its telegraph
+       duration (set by the brain at prepare entry), its defend-cue
+       reaction delay, its post-recover cooldown. Defensive profiles
+       additionally get an independent bonus defend roll resolved at
+       cue time in the brain's exact 70/30 block/dodge shape (consuming
+       the cue); Aggressive / Inexperienced profiles sometimes ignore
+       the cue entirely (their openings / mistakes). Heavy frequency,
+       approach speed, damage, HP and stamina pools are NOT touched —
+       personalities change timing and defence only. Transient: the
+       profile rides the enemy object (o.__c46) and dies with it; a new
+       interception / crash fight draws fresh profiles.
+   (4) SECTION 6/9 WALL-SLAM KNOCKDOWN — the one high-impact event the
+       shipped gates miss. When a BAT FINISHER (chain hit 3, normal or
+       charged) lands UNBLOCKED on a hostile who is inside the shipped
+       F2 knockdown gate (alive at <=35% of max HP after the hit) and
+       the hit's knockback slide is cut short by a BUILDING (measured:
+       the target travelled < 45% of the shipped 32.4u slide AND a
+       building blocks 12u beyond its rest position along the knock
+       direction), the target goes down through the shipped knockdown
+       fields (kdT / groundHitUsed / figure tip — the exact writes
+       combatReact makes). If the shipped 50% finisher roll already
+       knocked them down, this adds nothing. Blocked hits never slam
+       (their shipped outcome is blockstun + pushback); people-blocked
+       slides never slam (the building test decides).
+   CONFLICTS (spec standard format):
+   C-1 (multi-target): RESOLVED by the user's ruling — implemented as
+       (1) above, bat-only, through the existing registry discipline
+       (recorded per-swing resolution set). No other weapon gains
+       cleave; group-fight damage vs the PLAYER is unchanged (tokens +
+       strike gap are the shipped F4 rules, verified by probe).
+   C-3 (stamina): implemented as (2) — continuation-only gate at the
+       follow-up's own cost; basic attacks are never blocked (proven by
+       probe at 0 stamina).
+   Section 8 (group fights) needed NO code: tokens, strike gap and
+       circling already ship in F4 — this stage verifies them by probe
+       instead of duplicating them in a second system.
+   SAVE NOTE: every piece of layer state is transient combat state
+   (mirrors the F5 design note) — nothing is written to the save, so
+   pre-stage saves load unchanged (proven by probe).
+   FAILURE ISOLATION: installation and every wrapper body run guarded;
+   any throw self-disables the layer (alive=false) and every call
+   delegates to the original function, so the layer can never take the
+   game down. Flag OFF (advancedFightingEnabled=false /
+   __C46.setEnabled(false)) = wrappers delegate immediately; original
+   combat behaviour (verified by the flag-off probes). */
+var advancedFightingEnabled=true; /* spec section 3 feature flag (default ON) */
+(function(){
+ 'use strict';
+ var C46CFG={
+  comboStamGate:true, /* (2): the C-3 continuation gate */
+  pers:{ /* (3): tele/react/cd multipliers over the shipped ai* rows */
+   agg:{tele:.88,react:1.10,cd:.68,defBonus:0,defSuppress:.45},
+   def:{tele:1.08,react:.78,cd:1.05,defBonus:.25,defSuppress:0},
+   bal:{tele:1,react:1,cd:1,defBonus:0,defSuppress:0},
+   inx:{tele:1.32,react:1.38,cd:1.22,defBonus:0,defSuppress:.35},
+   exp:{tele:.82,react:.74,cd:.90,defBonus:.12,defSuppress:0}
+  },
+  persWeights:{
+   thug:[['inx',.45],['agg',.25],['bal',.30]],
+   crew:[['agg',.28],['bal',.27],['def',.20],['exp',.25]],
+   boss:[['exp',.55],['agg',.25],['bal',.20]]
+  },
+  slamFrac:.45,slamProbe:12 /* (4): slide fraction / wall-probe distance */
+ };
+ var C46={enabled:true,alive:false,orig:null,cfg:C46CFG,swingHits:null,
+  stats:{cleaveHits:0,wallSlams:0,comboStamResets:0,heavyFinishers:0,cues:0,defBlocks:0,defDodges:0,defSuppressed:0,teleScaled:0,cdScaled:0},
+  lastNote:'layer not installed',overlay:null,ovT:0,
+  state:function(){
+   var cen={},tk=0;
+   try{combatHostiles().forEach(function(h){var p=h.o.__c46?h.o.__c46.pers:'(none)';cen[p]=(cen[p]||0)+1;if(h.o.aiToken)tk++;});}catch(e){}
+   return {version:'v30.46',enabled:C46.enabled,alive:C46.alive,
+    weapon:(typeof S!=='undefined'&&S)?S.weapon:'?',phase:(typeof combat!=='undefined')?combat.phase:'?',
+    swingId:(typeof combat!=='undefined')?combat.swingId:-1,curIdx:(typeof combat!=='undefined')?combat.curIdx:-1,
+    chainIdx:(typeof combat!=='undefined')?combat.chainIdx:-1,comboCount:(typeof combat!=='undefined')?combat.comboCount:-1,
+    stam:(typeof combat!=='undefined')?Math.round(combat.stam):-1,f5Heavy:!!(typeof combat!=='undefined'&&combat.f5Heavy),
+    tokens:tk,persCensus:cen,
+    stats:{cleaveHits:C46.stats.cleaveHits,wallSlams:C46.stats.wallSlams,comboStamResets:C46.stats.comboStamResets,
+     heavyFinishers:C46.stats.heavyFinishers,cues:C46.stats.cues,defBlocks:C46.stats.defBlocks,defDodges:C46.stats.defDodges,
+     defSuppressed:C46.stats.defSuppressed,teleScaled:C46.stats.teleScaled,cdScaled:C46.stats.cdScaled},
+    lastNote:C46.lastNote};
+  },
+  setEnabled:function(b){C46.enabled=!!b;advancedFightingEnabled=!!b;return C46.enabled;},
+  debug:function(on){
+   if(on&&!C46.overlay){var d=document.createElement('div');d.id='c46Overlay';
+    d.style.cssText='position:fixed;left:8px;top:64px;z-index:99;background:rgba(10,10,14,.82);color:#ffd23f;font:11px/1.5 monospace;padding:6px 9px;border-radius:6px;white-space:pre;pointer-events:none;';
+    document.body.appendChild(d);C46.overlay=d;c46Draw();}
+   if(!on&&C46.overlay){C46.overlay.remove();C46.overlay=null;}
+   return !!C46.overlay;}
+ };
+ function c46Draw(){
+  if(!C46.overlay)return;var s=C46.state();
+  C46.overlay.textContent='C46 FIGHTING '+(s.enabled?(s.alive?'ON':'DEAD'):'OFF')+' · swing '+s.swingId+' · '+s.phase+' · chain '+(s.chainIdx+1)+' (cur '+(s.curIdx+1)+') · combo x'+s.comboCount+'\n'+
+   'weapon '+s.weapon+' · stam '+s.stam+' · tokens '+s.tokens+' · pers '+JSON.stringify(s.persCensus)+'\n'+
+   'cleave '+s.stats.cleaveHits+' · slams '+s.stats.wallSlams+' · stamResets '+s.stats.comboStamResets+' · heavyFin '+s.stats.heavyFinishers+'\n'+
+   s.lastNote;
+ }
+ /* ---------- (3) personalities ---------- */
+ function c46Assign(o){
+  var arch=o.aiArch||'thug',w=C46CFG.persWeights[arch]||C46CFG.persWeights.thug;
+  var r=Math.random(),acc=0,pick='bal';
+  for(var i=0;i<w.length;i++){acc+=w[i][1];if(r<=acc){pick=w[i][0];break;}}
+  o.__c46={pers:pick,prev:o.aiState||'approach'};
+  return pick;
+ }
+ function c46AIInit(o,arch){
+  var r=C46.orig.init(o,arch);
+  if(C46.enabled&&C46.alive&&o){try{c46Assign(o);}catch(e){}}
+  return r;
+ }
+ function c46DefendCue(o){
+  var before=(o&&typeof o.aiDefendT==='number')?o.aiDefendT:0;
+  var r=C46.orig.cue(o);
+  /* only a cue THIS call set counts (the shipped cue no-ops while one is
+     already pending — re-scaling a pending timer would compound) */
+  if(C46.enabled&&C46.alive&&o&&o.__c46&&before<=0&&o.aiDefendT>0){
+   try{
+    var P=C46CFG.pers[o.__c46.pers];if(!P)return r;
+    o.aiDefendT*=P.react;C46.stats.cues++;
+    if(P.defSuppress>0&&Math.random()<P.defSuppress){o.aiDefendT=0;C46.stats.defSuppressed++;return r;}
+    if(P.defBonus>0&&Math.random()<P.defBonus){
+     /* resolve the reaction NOW in the brain's own 70/30 shape and
+        consume the cue (the brain will not roll a second time) */
+     o.aiDefendT=0;
+     var face=Math.atan2(player.x-o.x,player.z-o.z);
+     if(Math.random()<.3){combatAIMove(o,face+Math.PI+(Math.random()<.5?1.15:-1.15),COMBAT.aiDodgeStep);C46.stats.defDodges++;}
+     else{o.aiState='defend';o.aiBlockT=COMBAT.aiBlockHold;o.blocking=true;if(o.mesh)o.mesh.userData.teleT=0;C46.stats.defBlocks++;}
+    }
+   }catch(e){C46.alive=false;C46.lastNote='defend-cue error — layer self-disabled';}
+  }
+  return r;
+ }
+ function c46Brain(o,dt,tx,tz,arch,land){
+  var rec=null,prev=null;
+  if(C46.enabled&&C46.alive&&o){
+   if(o.aiInit&&!o.__c46){try{c46Assign(o);}catch(e){}}
+   rec=o.__c46||null;prev=rec?rec.prev:null;
+  }
+  var r=C46.orig.brain(o,dt,tx,tz,arch,land);
+  if(rec){
+   try{
+    var P=C46CFG.pers[rec.pers];
+    if(P&&o.aiState==='prepare'&&prev!=='prepare'&&o.aiTeleDur>0){
+     /* the brain has just latched this wind-up's telegraph duration —
+        scale the ENEMY's own tell (duration + remaining together) */
+     o.aiTeleDur=o.aiTeleDur*P.tele;o.aiT=o.aiTeleDur;C46.stats.teleScaled++;
+    }
+    if(P&&prev==='recover'&&o.aiState!=='recover'&&o.atkT>0){
+     /* the brain has just latched the post-recover cooldown */
+     o.atkT=o.atkT*P.cd;C46.stats.cdScaled++;
+    }
+    rec.prev=o.aiState;
+   }catch(e){C46.alive=false;C46.lastNote='brain-tracking error — layer self-disabled';}
+  }
+  return r;
+ }
+ /* ---------- (1) bat cleave + (4) wall slam ---------- */
+ function c46Record(o){
+  if(!C46.swingHits||C46.swingHits.sid!==combat.swingId)C46.swingHits={sid:combat.swingId,set:[]};
+  if(C46.swingHits.set.indexOf(o)<0)C46.swingHits.set.push(o);
+ }
+ function c46WallSlam(h,bx,bz,preBlocked){
+  /* (4): reads the hit AFTER the authoritative combatApplyHit ran —
+     it can only add the shipped knockdown writes, never damage */
+  if(S.weapon!=='bat'||combat.curIdx!==2||preBlocked)return;
+  var o=h.o;
+  if(!o||o.hp<=0||o.down||(o.kdT||0)>0)return; /* shipped kd / death already resolved it */
+  if(o.hp>(o.maxHp||100)*COMBAT.kdHpFrac)return; /* outside the shipped F2 knockdown gate */
+  var prof=combat.curHit||COMBAT.chain[S.weapon][2];
+  var expect=WEAPONS.bat.knock*prof.knock; /* 32.4u for the bat finisher */
+  if(expect<=0)return;
+  var moved=dist2(bx,bz,o.x,o.z);
+  if(moved>=expect*C46CFG.slamFrac)return; /* the slide ran (nearly) free — no wall */
+  var ang=Math.atan2(o.x-player.x,o.z-player.z);
+  if(!footBlocked(o.x+Math.sin(ang)*C46CFG.slamProbe,o.z+Math.cos(ang)*C46CFG.slamProbe))return; /* stopped by a person, not a wall */
+  o.kdT=COMBAT.kdDownTime;o.staggerT=0;o.stunN=0;o.groundHitUsed=false; /* exactly combatReact's knockdown writes */
+  if(o.mesh)o.mesh.rotation.z=Math.PI/2;
+  C46.stats.wallSlams++;C46.lastNote='wall-slam knockdown (slide '+Math.round(moved)+'u of '+Math.round(expect)+'u)';
+  feedPush('SLAMMED INTO THE WALL!','good',2200);
+ }
+ function c46ApplyHit(h,f5Factor){
+  var track=C46.enabled&&C46.alive&&!!h&&!h.s2&&!!h.o;
+  var bx=0,bz=0,preBlocked=false;
+  if(track){bx=h.o.x;bz=h.o.z;preBlocked=!!h.o.blocking;}
+  var r=C46.orig.apply(h,f5Factor);
+  if(track){
+   try{c46Record(h.o);}catch(e){}
+   try{c46WallSlam(h,bx,bz,preBlocked);}catch(e){C46.alive=false;C46.lastNote='wall-slam error — layer self-disabled';}
+  }
+  return r;
+ }
+ function c46Cleave(){
+  var face=combatFaceAng(),sid=combat.swingId;
+  combatHostiles().forEach(function(h){
+   if(C46.swingHits&&C46.swingHits.sid===sid&&C46.swingHits.set.indexOf(h.o)>=0)return; /* resolved by this swing already */
+   var o=h.o;
+   if(o.kdT>0||o.protectT>0)return;
+   var d=dist2(player.x,player.z,o.x,o.z);
+   if(d>COMBAT.hitRange)return;
+   var ad=Math.abs(combatAngDiff(Math.atan2(o.x-player.x,o.z-player.z),face));
+   if(d>22&&ad>COMBAT.hitArc/2)return;
+   if(!combatLOS(player.x,player.z,o.x,o.z))return;
+   combatApplyHit(h); /* the wrapped authoritative path: records itself */
+   C46.stats.cleaveHits++;
+  });
+  if(C46.stats.cleaveHits>0)C46.lastNote='bat cleave live (swing '+sid+')';
+ }
+ function c46Resolve(){
+  var r=C46.orig.resolve();
+  if(C46.enabled&&C46.alive&&typeof S!=='undefined'&&S&&S.weapon==='bat'&&combat.phase==='contact'&&combat.hitReg){
+   try{c46Cleave();}catch(e){C46.alive=false;C46.lastNote='cleave error — layer self-disabled: '+((e&&e.message)||e);}
+  }
+  return r;
+ }
+ /* ---------- (2) combo formalisation ---------- */
+ function c46StartSwing(){
+  if(C46.enabled&&C46.alive&&C46CFG.comboStamGate&&combat.phase==='idle'&&combat.chainIdx>0&&!combat.f5Heavy){
+   try{
+    var cost=(COMBAT.stamSwing[combat.chainIdx]||0)+((F5W[S.weapon]&&F5W[S.weapon].stamAdd)||0);
+    if(combat.stam<cost){combat.chainIdx=0;combat.chainT=0;C46.stats.comboStamResets++;
+     C46.lastNote='combo reset: stamina '+Math.round(combat.stam)+' < follow-up cost '+cost+' (press still swings as hit 1)';}
+   }catch(e){C46.alive=false;C46.lastNote='combo-gate error — layer self-disabled';}
+  }
+  return C46.orig.start();
+ }
+ function c46StartHeavy(){
+  var finisher=C46.enabled&&C46.alive&&combat.chainIdx===2;
+  var r=C46.orig.heavy();
+  if(finisher&&r){C46.stats.heavyFinishers++;C46.lastNote='heavy finisher (chain hit 3 replaced by the charged heavy)';feedPush('HEAVY FINISHER!','good',2200);}
+  return r;
+ }
+ /* ---------- debug fixtures (probe-only; call the REAL shipped
+    functions in-closure, exactly as the game's own spawners do) ------ */
+ C46.drive={
+  spawnFighter:function(x,z,arch,hp,dmg){
+   var fig=makeFigure(0x8a2f2b,0x141519,0xc9a189);fig.position.set(x,0,z);scene.add(fig);
+   var f={x:x,z:z,hp:hp||90,maxHp:hp||90,mesh:fig,areaId:'centre',atkT:0,down:false,dmg:(dmg===undefined?9:dmg)};
+   fighters.push(f);combatAIInit(f,arch||'thug');
+   return fighters.indexOf(f);
+  },
+  clearFighters:function(){
+   for(var i=0;i<fighters.length;i++)if(fighters[i].mesh)scene.remove(fighters[i].mesh);
+   fighters.length=0;combat.target=null;return true;
+  },
+  ensureFoot:function(){if(!footMode)enterFoot(player.x+18,player.z+4,'fight');return !!footMode;},
+  placePlayer:function(x,z,faceX,faceZ){
+   if(!footMode)return false;
+   footMode.x=x;footMode.z=z;player.x=x;player.z=z;
+   var h=Math.atan2(faceX-x,faceZ-z)+Math.PI;footMode.h=h;
+   if(player.fig){player.fig.position.set(x,0,z);player.fig.rotation.y=h;}
+   return true;
+  },
+  stageOpen:function(n,arch,hp){
+   this.clearFighters();if(!this.ensureFoot())return null;
+   var spots=[[40,0],[44,16],[44,-16],[36,26]],dirs=[[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+   for(var r=0;r<4;r++)for(var di=0;di<dirs.length;di++){
+    var ax=player.x+dirs[di][0]*r*220,az=player.z+dirs[di][1]*r*220,ok=!footBlocked(ax,az),i;
+    if(ok)for(i=0;i<n;i++){if(footBlocked(ax+spots[i][0],az+spots[i][1])||!combatLOS(ax,az,ax+spots[i][0],az+spots[i][1])){ok=false;break;}}
+    if(!ok)continue;
+    this.placePlayer(ax,az,ax+40,az);
+    var idxs=[];for(i=0;i<n;i++)idxs.push(this.spawnFighter(ax+spots[i][0],az+spots[i][1],arch||'thug',hp||200,9));
+    return {ax:ax,az:az,idxs:idxs};
+   }
+   return null;
+  },
+  stageWall:function(hp,maxHp){
+   this.clearFighters();if(!this.ensureFoot())return null;
+   for(var i=0;i<buildings.length;i++){var b=buildings[i];
+    if(!(b.hw>20&&b.hd>20))continue;
+    var tx=b.x-b.hw-14,tz=b.z,px=tx-38;
+    if(footBlocked(tx,tz)||footBlocked(px,tz))continue;
+    if(!combatLOS(px,tz,tx,tz))continue;
+    this.placePlayer(px,tz,tx,tz);
+    var ix=this.spawnFighter(tx,tz,'thug',maxHp||200,9);
+    fighters[ix].hp=hp;fighters[ix].maxHp=maxHp||200;
+    return {ix:ix,px:px,pz:tz,tx:tx,tz:tz,hw:b.hw};
+   }
+   return null;
+  },
+  setWeapon:function(w){S.weapon=w;return S.weapon;},
+  setHp:function(n){S.hp=n;return S.hp;},
+  chargeT:function(){return combat.f5Charge?+combat.f5Charge.t.toFixed(3):-1;},
+  tuneFighter:function(ix,hp){var f=fighters[ix];if(!f)return false;f.hp=hp;return f.hp;},
+  placeFighter:function(ix,x,z){var f=fighters[ix];if(!f)return false;
+   f.x=x;f.z=z;if(f.mesh)f.mesh.position.set(x,0,z);return true;},
+  stageLeader:function(){
+   for(var i=0;i<leaders.length;i++){var L=leaders[i];
+    if(L.state==='active'){if(!this.ensureFoot())return null;
+     this.placePlayer(L.x+26,L.z,L.x,L.z);return {name:L.def.name,id:L.def.id,state:L.state};}}
+   return null;
+  },
+  setStam:function(n){combat.stam=n;combat.stamIdleT=0;return combat.stam;},
+  setChain:function(i){combat.chainIdx=i;combat.chainT=COMBAT.chainWindow;return combat.chainIdx;},
+  setBlockStun:function(n){combat.blockStunT=n;return combat.blockStunT;},
+  press:function(){combat.heldAtk=true;tryAttack();combat.heldAtk=false;return combat.swingId;},
+  step:function(n,dt){dt=dt||0.05;for(var i=0;i<(n||1);i++){gameT+=dt;updateCombat(dt);}return combat.swingId;},
+  combatState:function(){var t=combat.target;
+   return {phase:combat.phase,swingId:combat.swingId,curIdx:combat.curIdx,chainIdx:combat.chainIdx,
+    charge:!!combat.f5Charge,blocking:combat.blocking,blockHeld:combat.blockHeld,buffered:combat.buffered,
+    target:t?{hp:Math.round(t.o.hp),x:Math.round(t.o.x),z:Math.round(t.o.z),s2:t.s2||null,rival:!!t.isRival}:null};},
+  holdStart:function(){combat.heldAtk=true;tryAttack();return !!combat.f5Charge;},
+  holdRelease:function(){combat.heldAtk=false;return combat.phase;},
+  cueFighter:function(ix){var f=fighters[ix];if(!f)return null;combatAIDefendCue(f);
+   return {aiDefendT:+f.aiDefendT.toFixed(3),react:COMBAT.aiReact[f.aiArch],pers:f.__c46?f.__c46.pers:null,state:f.aiState,blocking:!!f.blocking};},
+  hostiles:function(){return combatHostiles().map(function(h){var o=h.o;combatEnsureStam(o);
+   return {rival:!!h.isRival,hp:Math.round(o.hp*10)/10,maxHp:o.maxHp,x:Math.round(o.x),z:Math.round(o.z),
+    kdT:+((o.kdT||0)).toFixed(2),stagT:+((o.staggerT||0)).toFixed(2),state:o.aiState||null,token:!!o.aiToken,
+    pers:o.__c46?o.__c46.pers:null,stam:Math.round(o.stam||0),teleDur:+((o.aiTeleDur||0)).toFixed(3),aiJit:+((o.aiJit||0)).toFixed(3)};});},
+  tokens:function(){var n=0;combatHostiles().forEach(function(h){if(h.o.aiToken)n++;});return n;}
+ };
+ try{
+  if(typeof combatApplyHit!=='function'||typeof combatResolveContact!=='function'||typeof combatAIInit!=='function'||
+     typeof combatAIDefendCue!=='function'||typeof combatBrain!=='function'||typeof combatStartSwing!=='function'||typeof f5StartHeavy!=='function')
+   throw new Error('shipped combat entry points missing');
+  C46.orig={apply:combatApplyHit,resolve:combatResolveContact,init:combatAIInit,cue:combatAIDefendCue,brain:combatBrain,start:combatStartSwing,heavy:f5StartHeavy};
+  combatApplyHit=c46ApplyHit;
+  combatResolveContact=c46Resolve;
+  combatAIInit=c46AIInit;
+  combatAIDefendCue=c46DefendCue;
+  combatBrain=c46Brain;
+  combatStartSwing=c46StartSwing;
+  f5StartHeavy=c46StartHeavy;
+  C46.alive=true;C46.lastNote='installed (wrappers on combatApplyHit / combatResolveContact / combatAIInit / combatAIDefendCue / combatBrain / combatStartSwing / f5StartHeavy)';
+ }catch(e){C46.alive=false;C46.lastNote='install failed: '+((e&&e.message)||e);}
+ window.__C46=C46;
+})();
+
+
 
 requestAnimationFrame(loop);
 /* ================= v30.42 PARLEY GATE (in-IIFE splice) =================
