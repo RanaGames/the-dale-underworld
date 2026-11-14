@@ -1864,6 +1864,64 @@ SPOTS.forEach(function(s){var a=(s.street.indexOf('College Bank')===0)?R1A('coll
 SPOTS.forEach(function(s){if(s.street==='Milnrow Road, Belfield'){s.street='Oldham Road, Belfield';s.x=2170;s.z=4330;}});
 SPOTS.forEach(function(s){if(s.street==='Manchester Road, Castleton'){s.x=-3405;s.z=3405;}}); /* audit fix (v30.14): the rigid ride put this spot on the roundabout centre itself; re-sited onto the Manchester Road centreline NE of the ring, still Castleton turf */
 (function(){var a=R1A('deeplish');SAFE.x+=a.dx;SAFE.z+=a.dz;})(); /* safe house rides Deeplish explicitly (nearest-anchor would pull it to Kingsway) */
+/* ================= v30.47 — HOME BASE · EARLY RESOLVER (Map Re-lay Build A) =================
+   Spawn / safe-house choice (RELAY-PLAN §5). Spliced immediately after the
+   R1 SAFE-ride above, BEFORE world build consumes SAFE (house mesh / ring /
+   collision, player spawn, startDay respawn and every other shipped SAFE
+   reader downstream reads the values set here — no reader is edited).
+   Sites are stored in PRE-SHIFT local coords with a declared area and
+   resolve exactly like SPOTS (world = local + R1A(area) shift), so when
+   the re-lay (Build B) moves a district anchor, every site in that
+   district follows automatically.
+   Precedence: staging key dale.homeChoice.v1 (written by the picker in
+   the fresh flow, §5.3) → save section sections.homeBase → 'deeplish'.
+   On a #fresh boot the section is ignored: __SAVE35 is about to wipe
+   that save, so its choice is void. A pick applies only if its area
+   still has an R1 anchor (bamford has none until the split lands in
+   Build B) — anything unresolvable leaves the shipped Deeplish ride
+   untouched. Kill switch: localStorage dale.homeChoiceEnabled.v1==='0'.
+   Failure isolation: any throw leaves shipped SAFE as the ride set it.
+   The late layer (beside __C46) owns ENDS, the S.homeBase mirror, the
+   picker, and folding the staging key into the save section. */
+window.__HOME47=(function(){
+ var SITES=[
+  {id:'deeplish', area:'deeplish', lx:100,  lz:668,  street:'Ann Street'},
+  {id:'newbold',  area:'newbold',  lx:577,  lz:166,  street:'Moss Avenue'},
+  {id:'spotland', area:'spotland', lx:-556, lz:-293, street:'Ings Lane'},
+  {id:'norden',   area:'norden',   lx:-580, lz:-749, street:'Norden Road'},
+  {id:'bamford',  area:'bamford',  lx:-640, lz:-704, street:'Bamford Road', split:true},
+  {id:'castleton',area:'castleton',lx:-640, lz:638,  street:'Station Road'},
+  {id:'heywood',  area:'heywood',  lx:-1014,lz:58,   street:'Bridge Street'},
+  {id:'middleton',area:'middleton',lx:-655, lz:2300, street:'Long Street'}
+ ];
+ var H={version:'v30.47',sites:SITES,siteId:'deeplish',area:'deeplish',source:'default',enabled:true,staged:null,folded:false,err:null};
+ function siteById(id){for(var i=0;i<SITES.length;i++)if(SITES[i].id===id)return SITES[i];return null;}
+ function hasAnchor(area){for(var i=0;i<R1_ANCHORS.length;i++)if(R1_ANCHORS[i].id===area)return true;return false;}
+ H.siteById=siteById;
+ H.hasAnchor=hasAnchor;
+ H.world=function(s){var a=R1A(s.area);return{x:s.lx+a.dx,z:s.lz+a.dz};};
+ try{
+  var off=null;try{off=localStorage.getItem('dale.homeChoiceEnabled.v1');}catch(e){}
+  if(off==='0'){H.enabled=false;return H;}
+  var pick=null,src=null;
+  try{var st=localStorage.getItem('dale.homeChoice.v1');if(st){pick=st;src='staging';H.staged=st;}}catch(e){}
+  if(!pick&&location.hash!=='#fresh'){
+   try{var raw=localStorage.getItem('dale.save.v1');if(raw){var p=JSON.parse(raw);
+    if(p&&p.version===1&&p.state&&p.state.sections&&p.state.sections.homeBase&&p.state.sections.homeBase.data&&typeof p.state.sections.homeBase.data.siteId==='string'){pick=p.state.sections.homeBase.data.siteId;src='section';}}}catch(e){}
+  }
+  if(pick){
+   var s=siteById(pick);
+   if(s&&hasAnchor(s.area)){H.siteId=s.id;H.area=s.area;H.source=src;}
+   else if(src==='staging')H.err='staged site not resolvable on this map: '+pick;
+  }
+  if(H.source!=='default'){
+   var s2=siteById(H.siteId),a2=R1A(s2.area);
+   SAFE.x=s2.lx+a2.dx;SAFE.z=s2.lz+a2.dz;SAFE.area=s2.area;
+  }
+ }catch(e){H.err=String(e&&e.message||e);}
+ return H;
+})();
+
 WORLD.w=R1_BOUNDS.x1-R1_BOUNDS.x0; WORLD.h=R1_BOUNDS.z1-R1_BOUNDS.z0;
 window.__R1={anchors:R1_ANCHORS,bounds:R1_BOUNDS,G:0.6,canal:R1_CANAL}; /* R1 audit hook: geography as shipped */
 /* ================= END R1 FOUNDATION (data) ================= */
@@ -8582,7 +8640,7 @@ function loop(ms){
     var rh=$('rivalHp');rh.style.display='block';rh.style.left=((v2.x*.5+.5)*viewW())+'px';rh.style.top=((-v2.y*.5+.5)*viewH())+'px';
     rh.innerHTML='Rival HP '+Math.max(0,Math.round(rival.hp))+' · yours '+Math.round(S.hp);}
   hudT-=dt;if(hudT<0){hudT=.15;updateHUD();updateObjective();
-    if(curArea&&curArea.id===ENDS)$('apName').textContent='Milkstone & Deeplish — YOUR ENDS ('+endsStatus()+')';}
+    if(curArea&&curArea.id===ENDS)$('apName').textContent=areaById(ENDS).name+' — YOUR ENDS ('+endsStatus()+')';}
   mmT-=dt;if(mmT<0){mmT=.25;drawMinimap();}
   renderer.render(scene,camera);
  }catch(e){window.onerror&&window.onerror(e.message);}
@@ -14703,6 +14761,7 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
   try{if(typeof houseKnown!=='undefined'&&svIsObj(houseKnown))sec.houseKnown={version:1,data:svClone(houseKnown)};}catch(e){}
   try{if(svIsObj(S.underworldFactions)&&svIsObj(S.underworldFactions.members))sec.underworldFactions={version:1,data:{members:svClone(S.underworldFactions.members)}};}catch(e){}
   try{if(svIsObj(S.livingStreets)&&svIsObj(S.livingStreets.profiles))sec.livingStreets={version:1,data:{profiles:svClone(S.livingStreets.profiles)}};}catch(e){}
+  try{if(svIsObj(S.homeBase)&&typeof S.homeBase.siteId==='string')sec.homeBase={version:1,data:{siteId:S.homeBase.siteId,mapVer:(typeof S.mapVer==='number'&&isFinite(S.mapVer))?S.mapVer:1}};}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -18571,6 +18630,139 @@ var advancedFightingEnabled=true; /* spec section 3 feature flag (default ON) */
  window.__C46=C46;
 })();
 
+/* ================= v30.47 — HOME BASE · CHOICE LAYER (Map Re-lay Build A) =================
+   Late layer for the spawn / safe-house choice (RELAY-PLAN §5). The early
+   resolver (spliced after the R1 SAFE-ride) has already placed SAFE
+   before world build; this layer, inside the main IIFE beside __C46:
+   · sets ENDS to the chosen area (the shipped `var ENDS='deeplish'`
+     initialiser runs long before any boot resolver could, so ENDS is
+     applied here — still before every runtime reader: endsStatus, the
+     HUD banner, the day-end screen, the hunting-patrol system);
+   · seeds the S.homeBase mirror {version:1, siteId} that __SAVE35's
+     collect (one spliced line beside the other section mirrors) writes
+     as sections.homeBase = {version:1, data:{siteId, mapVer}};
+   · folds the staging key away once a save actually carries the staged
+     site in its homeBase section (observed via a pass-through
+     localStorage.setItem wrap — the payload is never modified);
+   · builds the picker inside the intro screen (fresh flow only: it is
+     visible exactly when the shipped Start button is) — picking a site
+     that differs from the resolved one writes the staging key and
+     reloads; a sessionStorage flag reopens the intro after the reload;
+   · retitles the safe screen ('Safe House · ' + area short name) and
+     genericises the intro/shop lines that named Deeplish as home;
+   · exposes validation readouts (site plots vs shipped footBlocked /
+     buildings / areaOf / named-street distance) for probes.
+   Flag: homeChoiceEnabled (default ON; localStorage
+   dale.homeChoiceEnabled.v1='0' disables from the next boot — resolver
+   inert, no picker, no mirror, ENDS shipped). Failure isolation: any
+   throw leaves the shipped game untouched. */
+(function(){try{
+ var H=window.__HOME47;if(!H)return;
+ var STAGE_KEY='dale.homeChoice.v1',FLAG_KEY='dale.homeChoiceEnabled.v1',REOPEN_KEY='dale.homePicker.v1';
+ function $(id){return document.getElementById(id);}
+ function areaRow(id){for(var i=0;i<AREAS.length;i++)if(AREAS[i].id===id)return AREAS[i];return null;}
+ H.setEnabled=function(on){try{localStorage.setItem(FLAG_KEY,on?'1':'0');}catch(e){}H.enabled=!!on;return H.enabled;};
+ if(!H.enabled){H.alive=true;H.note='disabled by flag (dale.homeChoiceEnabled.v1=0)';return;}
+ /* ENDS follows the choice */
+ if(H.area&&areaRow(H.area))ENDS=H.area;
+ /* mirror — seeded from the resolver's result (staging outranks section,
+    exactly as the resolver resolved it) */
+ if(typeof S!=='undefined'&&S)S.homeBase={version:1,siteId:H.siteId};
+ H.state=function(){return{version:H.version,enabled:H.enabled,alive:!!H.alive,siteId:H.siteId,area:H.area,source:H.source,staged:H.staged,folded:H.folded,err:H.err,ends:(typeof ENDS!=='undefined'?ENDS:null),safe:(typeof SAFE!=='undefined'?{x:SAFE.x,z:SAFE.z,area:SAFE.area}:null),mirror:(typeof S!=='undefined'&&S&&S.homeBase)?{version:S.homeBase.version,siteId:S.homeBase.siteId}:null,px:(typeof player!=='undefined'&&player)?Math.round(player.x):null,pz:(typeof player!=='undefined'&&player)?Math.round(player.z):null,day:(typeof S!=='undefined'&&S)?S.day:null};};
+ /* staging fold: once a real save carries the staged site in its
+    homeBase section, the section is canonical and the staging key goes
+    away. Pass-through: the stored payload is never altered here. */
+ var _prevSet=localStorage.setItem;
+ localStorage.setItem=function(k,v){var r=_prevSet.call(localStorage,k,v);
+  try{if(k==='dale.save.v1'&&H.staged){var p=JSON.parse(v);
+   if(p&&p.state&&p.state.sections&&p.state.sections.homeBase&&p.state.sections.homeBase.data&&p.state.sections.homeBase.data.siteId===H.staged){localStorage.removeItem(STAGE_KEY);H.staged=null;H.folded=true;}}}catch(e){}
+  return r;};
+ /* text: safe-screen title + the lines that named Deeplish as home */
+ try{var sh=document.querySelector('#safeScreen h2');if(sh)sh.textContent='Safe House · '+(areaRow(H.area)?areaRow(H.area).short:'Deeplish');}catch(e){}
+ try{var hw=document.querySelectorAll('#startScreen .howto div');
+  for(var i=0;i<hw.length;i++){if(hw[i].innerHTML.indexOf('Safe house:')>-1){hw[i].innerHTML='🏠 <b>Safe house:</b> your chosen ends (green ring) — end the day there to cool off and re-up';break;}}}catch(e){}
+ try{var ps=document.querySelectorAll('p.small');
+  for(var j=0;j<ps.length;j++){if(ps[j].innerHTML.indexOf('safe house wardrobe')>-1){ps[j].innerHTML=ps[j].innerHTML.replace('in Deeplish','at your safe house');break;}}}catch(e){}
+ /* validation readouts (probes / build report) */
+ function segDist(x,z,a,b){var vx=b[0]-a[0],vz=b[1]-a[1],L=(vx*vx+vz*vz)||1,t=((x-a[0])*vx+(z-a[1])*vz)/L;t=t<0?0:(t>1?1:t);var px=a[0]+vx*t,pz=a[1]+vz*t,dx=x-px,dz=z-pz;return Math.sqrt(dx*dx+dz*dz);}
+ function roadDist(x,z,name){var best=1e18;for(var i=0;i<ROADS.length;i++){if(ROADS[i].name!==name)continue;var pts=ROADS[i].pts;for(var j=0;j<pts.length-1;j++){var d=segDist(x,z,pts[j],pts[j+1]);if(d<best)best=d;}}return best;}
+ function ownEntry(){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(b.x===SAFE.x&&b.z===SAFE.z-19)return b;}return null;}
+ function bldgGap(hx,hz,own){var gap=1e18;for(var i=0;i<buildings.length;i++){var b=buildings[i];if(b===own)continue;
+   var dxa=Math.abs(hx-b.x)-(19+b.hw),dza=Math.abs(hz-b.z)-(13+b.hd);
+   var gx=Math.max(dxa,0),gz=Math.max(dza,0),g=(dxa<0&&dza<0)?Math.max(dxa,dza):Math.sqrt(gx*gx+gz*gz);
+   if(g<gap)gap=g;}return gap;}
+ H.validate=function(){
+  var out=[],own=ownEntry(),i,b;
+  H.sites.forEach(function(s){
+   if(!H.hasAnchor(s.area)){out.push({id:s.id,area:s.area,resolvable:false});return;}
+   var w=H.world(s),hx=w.x,hz=w.z-19,sx=w.x,sz=w.z+30,gap=bldgGap(hx,hz,own),blocked=false;
+   for(i=0;i<buildings.length;i++){b=buildings[i];if(b===own)continue;
+    if(Math.abs(hx-b.x)-(19+b.hw)<5&&Math.abs(hz-b.z)-(13+b.hd)<5){blocked=true;break;}} /* footBlocked's +5 test at the house centre, own entry excluded */
+   var aoH=areaOf(w.x,w.z),aoS=areaOf(sx,sz);
+   out.push({id:s.id,area:s.area,resolvable:true,world:w,house:{x:hx,z:hz},spawn:{x:sx,z:sz},
+    areaOfHouse:aoH&&(aoH.id||aoH),areaOfSpawn:aoS&&(aoS.id||aoS),
+    spawnBlocked:footBlocked(sx,sz),houseBlockedOther:!!blocked,
+    bldgGap:Math.round(gap*10)/10,street:s.street,streetDist:Math.round(roadDist(w.x,w.z,s.street)*10)/10});
+  });
+  return out;};
+ /* plot search (build/diagnostics): clear plots near a point that pass
+    the §5.2 validation — own district at house + spawn, spawn not
+    footBlocked, house footprint clear of other buildings, near street */
+ H.scanSite=function(cx,cz,area,street,radius){
+  var own=ownEntry(),out=[],R=radius||150,dx,dz;
+  for(dx=-R;dx<=R;dx+=3){for(dz=-R;dz<=R;dz+=3){
+   var x=cx+dx,z=cz+dz;
+   var aH=areaOf(x,z),aS=areaOf(x,z+30);
+   if(!aH||(aH.id||aH)!==area||!aS||(aS.id||aS)!==area)continue;
+   if(footBlocked(x,z+30))continue;
+   var g=bldgGap(x,z-19,own);if(g<2)continue;
+   var sd=roadDist(x,z,street);if(sd>60)continue;
+   out.push({x:x,z:z,gap:Math.round(g*10)/10,streetDist:Math.round(sd*10)/10,disp:Math.round(Math.sqrt(dx*dx+dz*dz))});
+  }}
+  out.sort(function(a,b){return a.disp-b.disp;});
+  return out.slice(0,6);};
+ /* picker — a site list step inside the intro screen (fresh flow) */
+ var picker=null,btns={};
+ function offered(s){return !!areaRow(s.area)&&H.hasAnchor(s.area);}
+ function label(s){var a=areaRow(s.area);return '<b>'+a.name+'</b> — '+s.street+' · '+a.gang+(s.id==='deeplish'?' · DEFAULT':'');}
+ function syncPicker(){if(!picker)return;var cur=H.siteId;
+  for(var id in btns){var b=btns[id],s=H.siteById(id),on=id===cur;b.className=on?'btn gold':'btn ghost';b.innerHTML=label(s)+(on?' · <b>YOUR SAFE HOUSE</b>':'');}
+  var n=$('homePickNote');if(n){var a=areaRow(cur);n.textContent='Safe house: '+(a?a.name:cur)+' — the green ring marks the plot.';}}
+ function pickSite(id){if(id===H.siteId){syncPicker();return;}
+  try{localStorage.setItem(STAGE_KEY,id);}catch(e){}
+  try{sessionStorage.setItem(REOPEN_KEY,'1');}catch(e){}
+  location.reload();}
+ function buildPicker(){
+  if($('homePicker'))return;
+  var sb=$('startBtn');if(!sb||!sb.parentNode)return;
+  picker=document.createElement('div');picker.id='homePicker';picker.style.cssText='margin-top:12px;display:none;';
+  var hd=document.createElement('p');hd.className='small';hd.style.cssText='margin-bottom:2px;';
+  hd.innerHTML='<b>🏠 Your safe house</b> — pick your ends: you spawn here, end the day here, and the turf is yours. Changing it reloads the game.';
+  picker.appendChild(hd);
+  H.sites.forEach(function(s){if(!offered(s))return;
+   var b=document.createElement('button');b.type='button';b.id='homePick_'+s.id;b.style.cssText='width:100%;margin-top:6px;text-align:left;';
+   (function(bb,ss){bb.addEventListener('click',function(){pickSite(ss.id);});})(b,s);
+   picker.appendChild(b);btns[s.id]=b;});
+  var note=document.createElement('p');note.className='small';note.id='homePickNote';note.style.cssText='margin-top:6px;opacity:.85;';picker.appendChild(note);
+  sb.parentNode.insertBefore(picker,sb);
+  syncPicker();}
+ function syncVis(){if(!picker)return;var ss=$('startScreen'),sb=$('startBtn');
+  var on=!!(ss&&ss.classList.contains('on')&&sb&&sb.style.display!=='none');
+  picker.style.display=on?'block':'none';}
+ buildPicker();
+ try{var mo=new MutationObserver(function(){syncVis();});var ssEl=$('startScreen');if(ssEl)mo.observe(ssEl,{attributes:true,attributeFilter:['class']});}catch(e){}
+ setInterval(syncVis,500);syncVis();
+ /* reopen the intro after a pick reload */
+ var reopen=false;try{reopen=sessionStorage.getItem(REOPEN_KEY)==='1';if(reopen)sessionStorage.removeItem(REOPEN_KEY);}catch(e){}
+ if(reopen){var tries=0,rt=setInterval(function(){tries++;
+  var ss=$('startScreen');if(ss&&ss.classList.contains('on')){clearInterval(rt);return;}
+  var ms=$('menuScreen'),mb=$('mbPlay');
+  if(ms&&ms.classList.contains('on')&&mb){clearInterval(rt);mb.click();}
+  if(tries>40)clearInterval(rt);},300);}
+ H.alive=true;
+}catch(e){try{window.__HOME47.err='late layer: '+String(e&&e.message||e);}catch(_){}}})();
+
+
 
 
 requestAnimationFrame(loop);
@@ -19272,7 +19464,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3044={version:'v30.44'};</script>
+<script>window.__V3047={version:'v30.47'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
