@@ -19460,6 +19460,178 @@ window.__MP={
 };
 })();
 /* ================= /MP TEST ================= */
+/* ================= PHASE 2 STAGE 3 — DRIVING EXTENSIONS (__D50) =================
+   Spec: files/PHASE2-STAGE3-DRIVING-SPEC.md. This stage is EXTENSIONS ONLY
+   around the frozen v24 model — the audit below is the §1 INSPECT result and
+   decides what this layer does and, just as importantly, what it does NOT do.
+
+   ALREADY SHIPPED (audited in the base, deliberately untouched):
+   - §2 accel/momentum: the v24 exponential force-vs-drag model (per-car tau),
+     engine braking + drag coast-down, progressive per-car brake, capped
+     exponential reverse. Feel values are FROZEN — not one constant changes.
+   - §3 steering core: input ramp (STEER_IN/OUT), speed-sensitive lock
+     (STEER_TOP), bicycle yaw with YAW_RESPONSE chase, STAND_GATE.
+   - §4 traction: GRIP_RATE x CAR_TUNE.align x surfaceInfo.grip x the single
+     WET_GRIP weather hook (Phase 5 owns WET_GRIP: dry 1.0, rain ~0.82,
+     downpour 0.75) x damage grip. The spec's wet-road modifier EXISTS.
+   - §5 weight/classes: CAR_TUNE per class (align/steer/roll/tau/brake/revF).
+   - §6 collision core: in-substep building + parked-car SAT resolution with
+     the forgiving scrape/shed response; crash tiers via onCrash.
+   - §7 damage feedback: sparks, crash sound, impact-scaled shake (capped 14),
+     crashFeed severity line, damage % feeding top speed (dmgF) and grip
+     (dmgGrip) — progressive handling penalties already supported.
+   - §8 camera base: eased follow (camPos, camK 9 foot / 5 drive), speed-based
+     zoom, eased view switching, north-up in all six views.
+   - §10 traffic/police: path-parametric traffic (v30.33/34) and policeNavMove
+     never used the player model and are not touched here.
+
+   THIS LAYER ADDS (flag enhancedDrivingEnabled, default ON; the pref rides
+   the save as S.ui.enhancedDriving, SD42 idiom; OFF = every hook below is a
+   pure pass-through and behaviour is the shipped build byte-for-byte):
+   - §3/§9 STEERING INTERPOLATION: the analog stick vector (stickVec) is
+     low-passed while driving (16/s steer axis, 20/s throttle axis) so touch
+     sampling jitter no longer reaches steerTarget raw. The shipped ramp then
+     works on a clean signal. Digital paths (arrow buttons, keys) are NOT
+     filtered — they keep the shipped ramp exactly. An extra input-side
+     speed-softening curve was NOT added: the shipped STEER_TOP lock shrink
+     is already speed-sensitive steering, and stacking a second curve would
+     change steering response (a frozen feel value) — approval-gated, see the
+     stage report.
+   - §8 CAMERA LOOK-AHEAD: camPlace is wrapped (the __C46 wrap idiom); while
+     driving, a velocity lead — up to leadMax units along the travel
+     direction, scaled by speed/340 and eased at leadRate/s — is added to the
+     focus. North-up is untouched (the lead is a world-space offset; azimuth,
+     tilt, heights and clamps pass through verbatim). On foot the lead eases
+     back to zero, so walk<->drive transitions stay smooth. Collision shake
+     was already capped by onCrash; nothing added there.
+   - §6 POST-CRASH SETTLE: onCrash is wrapped; the shipped outcome (damage,
+     tiers, heat, incidents) runs FIRST and unchanged. The wrap then damps
+     yawVel (x settleYaw) and bleeds lateral velocity (x settleLat) so a
+     knock leaves the car settled and predictable instead of still rotating
+     into the next contact. §7 bookkeeping: the impact is recorded on the
+     __D50 surface (no second vehicle-health value is created).
+   - §11: one extra rAF that early-outs unless driving with the flag on; no
+     per-frame allocation (all state is module-scope scalars).
+   - §12: nothing transient is serialised — filter/lead state is runtime
+     only; the sole save footprint is the S.ui.enhancedDriving pref. */
+var enhancedDrivingEnabled=true; /* P2S3 feature flag (default ON) */
+(function(){
+ var D50={version:'p2s3-1',err:null,
+  leadMax:52,leadRate:3.2,leadX:0,leadZ:0,lastCamMs:0,camCalls:0,
+  filtRateX:16,filtRateY:20,fx:0,fy:0,tx:0,ty:0,lx:null,ly:null,frames:0,writes:0,
+  settleYaw:.5,settleLat:.6,lastImpact:null};
+ function d50On(){
+  if(!enhancedDrivingEnabled)return false;
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.enhancedDriving===0)return false;}catch(e){}
+  return true;
+ }
+ /* ---- §8: camera look-ahead via the camPlace wrap ---- */
+ var camPlaceShip=camPlace;
+ camPlace=function(cx,cz,h,tilt,hMin,hMax){
+  D50.camCalls++;
+  if(d50On()){
+   try{
+    var now=performance.now(),dtc=Math.min(.1,Math.max(0,(now-(D50.lastCamMs||now))/1000));D50.lastCamMs=now;
+    var tlx=0,tlz=0;
+    if(typeof footMode!=='undefined'&&!footMode&&typeof speedNow==='function'){
+     var sp=speedNow();
+     if(sp>4){var lf=Math.min(1,sp/340)*D50.leadMax;tlx=player.vx/sp*lf;tlz=player.vz/sp*lf;}
+    }
+    var k=1-Math.exp(-D50.leadRate*dtc);
+    D50.leadX+=(tlx-D50.leadX)*k;D50.leadZ+=(tlz-D50.leadZ)*k;
+    if(tlx===0&&Math.abs(D50.leadX)<.01)D50.leadX=0;
+    if(tlz===0&&Math.abs(D50.leadZ)<.01)D50.leadZ=0;
+   }catch(e){D50.leadX=0;D50.leadZ=0;}
+  }else{D50.leadX=0;D50.leadZ=0;D50.lastCamMs=0;}
+  return camPlaceShip(cx+D50.leadX,cz+D50.leadZ,h,tilt,hMin,hMax);
+ };
+ /* ---- §6/§7: post-crash settle via the onCrash wrap ---- */
+ var onCrashShip=onCrash;
+ onCrash=function(impact,other){
+  var r=onCrashShip(impact,other);
+  if(d50On()){
+   try{
+    D50.lastImpact={impact:Math.round(impact),other:(other&&other.ref)?'traffic':(''+other),day:(typeof S!=='undefined'&&S)?S.day:0};
+    if(typeof player!=='undefined'&&player&&typeof footMode!=='undefined'&&!footMode){
+     player.yawVel*=D50.settleYaw;
+     var sfx=Math.sin(player.h),sfz=-Math.cos(player.h),srx=Math.cos(player.h),srz=Math.sin(player.h);
+     var svf=player.vx*sfx+player.vz*sfz,svr=player.vx*srx+player.vz*srz;
+     svr*=D50.settleLat;
+     player.vx=sfx*svf+srx*svr;player.vz=sfz*svf+srz*svr;
+    }
+   }catch(e){}
+  }
+  return r;
+ };
+ /* ---- §3/§9: analog stick interpolation (own rAF, P5-tick idiom) ---- */
+ var d50LastMs=0;
+ function d50Tick(ms){
+  requestAnimationFrame(d50Tick);
+  try{
+   var dt=Math.min(.1,Math.max(0,(ms-(d50LastMs||ms))/1000));d50LastMs=ms;
+   var driving=false;
+   try{driving=(typeof S!=='undefined'&&S&&S.playing&&!S.paused&&typeof footMode!=='undefined'&&!footMode);}catch(e){}
+   if(d50On()&&driving&&typeof stickVec!=='undefined'){
+    if(stickVec.x!==D50.lx||stickVec.y!==D50.ly){D50.tx=stickVec.x;D50.ty=stickVec.y;}
+    var kx=1-Math.exp(-D50.filtRateX*dt),ky=1-Math.exp(-D50.filtRateY*dt);
+    D50.fx+=(D50.tx-D50.fx)*kx;D50.fy+=(D50.ty-D50.fy)*ky;
+    if(Math.abs(D50.tx-D50.fx)<.002)D50.fx=D50.tx;
+    if(Math.abs(D50.ty-D50.fy)<.002)D50.fy=D50.ty;
+    if(stickVec.x!==D50.fx||stickVec.y!==D50.fy)D50.writes++;
+    stickVec.x=D50.fx;stickVec.y=D50.fy;
+    D50.lx=D50.fx;D50.ly=D50.fy;
+    D50.frames++;
+   }else if(typeof stickVec!=='undefined'){
+    D50.tx=D50.fx=stickVec.x;D50.ty=D50.fy=stickVec.y;D50.lx=null;D50.ly=null;
+   }
+  }catch(e){D50.err=String(e&&e.message||e);}
+ }
+ requestAnimationFrame(d50Tick);
+ /* ---- Settings row (SD42 idiom: row + toggle + note before [data-close]) ---- */
+ function d50SyncUi(){
+  var st=document.getElementById('d50SetState'),b=document.getElementById('d50SetBtn'),on=d50On();
+  if(st)st.textContent=on?'On':'Off';
+  if(b)b.textContent=on?'Turn Off':'Turn On';
+ }
+ function d50BuildUi(){
+  try{
+   if(document.getElementById('d50SetBtn'))return;
+   var panel=$('settingsPanel'),card=panel?panel.querySelector('.card'):null;
+   if(!card)return;
+   var anchor=card.querySelector('[data-close]');
+   var row=document.createElement('div');row.className='rowline';row.style.marginTop='14px';
+   row.innerHTML='<span>Enhanced driving</span><b id="d50SetState">On</b>';
+   var btn=document.createElement('button');btn.className='btn ghost';btn.id='d50SetBtn';btn.type='button';btn.textContent='Turn Off';
+   var note=document.createElement('p');note.className='small';
+   note.textContent='Stage 3 driving refinements: steadier thumbstick steering, a camera that looks a little way up the road as speed builds, and a car that settles instead of spinning after a knock. The driving feel itself \u2014 power, brakes, grip \u2014 is untouched. Kept with your run, like the other settings.';
+   if(anchor){card.insertBefore(row,anchor);card.insertBefore(btn,anchor);card.insertBefore(note,anchor);}
+   else{card.appendChild(row);card.appendChild(btn);card.appendChild(note);}
+   btn.addEventListener('click',function(){
+    try{
+     if(typeof S==='undefined'||!S)return;
+     if(!S.ui||typeof S.ui!=='object')S.ui={};
+     var on=!d50On();
+     S.ui.enhancedDriving=on?1:0;
+     enhancedDrivingEnabled=on;
+     d50SyncUi();
+    }catch(e){}
+   });
+   d50SyncUi();
+  }catch(e){}
+ }
+ var d50UiTries=0;
+ var d50UiTimer=setInterval(function(){d50BuildUi();if(document.getElementById('d50SetBtn')||++d50UiTries>40)clearInterval(d50UiTimer);},500);
+ setInterval(d50SyncUi,1000);
+ window.__D50={
+  version:D50.version,
+  enabled:function(){return d50On();},
+  setEnabled:function(b){enhancedDrivingEnabled=!!b;try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={};S.ui.enhancedDriving=b?1:0;}}catch(e){}d50SyncUi();return d50On();},
+  params:function(){return {leadMax:D50.leadMax,leadRate:D50.leadRate,filtRateX:D50.filtRateX,filtRateY:D50.filtRateY,settleYaw:D50.settleYaw,settleLat:D50.settleLat};},
+  state:function(){return {leadX:Math.round(D50.leadX*10)/10,leadZ:Math.round(D50.leadZ*10)/10,filtX:Math.round(D50.fx*1000)/1000,filtY:Math.round(D50.fy*1000)/1000,tgtX:D50.tx,tgtY:D50.ty,frames:D50.frames,writes:D50.writes,camCalls:D50.camCalls,lastImpact:D50.lastImpact,err:D50.err};}
+ };
+})();
+/* ================= /P2S3 DRIVING (__D50) ================= */
+
 /* --- startup/menu bridge: read-only state for the cinematic menu layer; no gameplay behaviour changes --- */
 window.__daleMenu={
  isPlaying:function(){return !!(S&&S.playing);},
@@ -19885,7 +20057,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3049={version:'v30.49'};</script>
+<script>window.__V3050={version:'v30.50'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
