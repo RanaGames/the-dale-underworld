@@ -14846,6 +14846,7 @@ var underworldFactionsEnabled=true; /* spec S3 feature flag (default ON) */
   try{if(svIsObj(S.underworldFactions)&&svIsObj(S.underworldFactions.members))sec.underworldFactions={version:1,data:{members:svClone(S.underworldFactions.members)}};}catch(e){}
   try{if(svIsObj(S.livingStreets)&&svIsObj(S.livingStreets.profiles))sec.livingStreets={version:1,data:{profiles:svClone(S.livingStreets.profiles)}};}catch(e){}
   try{if(svIsObj(S.homeBase)&&typeof S.homeBase.siteId==='string')sec.homeBase={version:1,data:{siteId:S.homeBase.siteId,mapVer:(typeof S.mapVer==='number'&&isFinite(S.mapVer))?S.mapVer:1}};}catch(e){}
+  try{if(window.__CR64&&__CR64.saveSection){var crd64=__CR64.saveSection();if(crd64)sec.charRaces={version:1,data:crd64};}}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -23494,6 +23495,458 @@ var barsFixEnabled=true; /* v30.63 master flag (default ON) */
 })();
 /* ================= /v30.63 HP/ST BARS FIX (__BR63) ================= */
 
+/* ================= v30.64 — CHARACTER RACES (__CR64) =================
+   His asks (2026-11-14): "Add a feature to have races with characters"
+   + stakes "money upfront". ONE appended flagged layer over the SHIPPED
+   race machinery — nothing parallel is invented:
+
+   AUDIT (what already shipped, v30-era STREET RACES): ROUTES (six
+   checkpoint routes on road centrelines, each with a fixed stake),
+   RACE_SKILL (per-mate pace/error), startRace / updateRace / finishRace
+   racing the MATES (Daz/Kyle/Mo) from the Nokia mates view, the
+   opponent driven along the route polyline by pathPoint() with a
+   sinusoidal error wobble, setPin() checkpoint pins, rollWheels(),
+   makeCarMesh() opponent cars, W/L kept in S.raceRec. Two shipped
+   properties this build deliberately changes FOR NAMED RACES ONLY
+   (the mate races keep their exact shipped behaviour):
+   (1) STAKES: shipped mate races never take the stake upfront (a win
+       pays +2x stake at the finish, a loss takes 1x at the finish).
+       His word for character races is MONEY UPFRONT: the player's
+       stake leaves S.cash the moment the race starts, the opponent
+       matches it into a pot of 2x, and the winner takes the whole pot,
+       paid exactly once at the finish. No stake, no start.
+   (2) SIDE-EFFECTS: shipped updateRace carries police-chase and
+       Tension links. Named races in THIS build write NO Heat and NO
+       Tension and never touch the police FSM (his freeze discipline).
+
+   THE RACERS (named characters, distinct driving characters):
+   - JAM (Newbold, Moss Street — the __CT59 figure in the blue jacket):
+     fast and reckless. Pace 186, wide lines (lateral wander 13u), and
+     MISTAKES: every 5.5–10 s a 1.6 s bin-it moment at 45% pace with a
+     visible swerve. Races a blue hot hatch (CARS.hot in his blue).
+   - KAT (Deeplish — races her own white Golf R, CARS.golfr in white,
+     the exact mesh recipe __CT59 drives her circuit with): clean
+     lines (wander 2.5u), metronome pace 172 (+/-2% breathing), never
+     errs. Slowest headline pace, loses the least time.
+   - SUNNY (Newbold co-leader — races his leader car: CARS.golfr in
+     his black, the Leader Car layer's own spec/colour): flat-out.
+     Highest pace 196, wander 6u, and SEND-IT bursts (+9% for 2 s
+     every 7–11 s). No slowdowns.
+   Opponents drive the route polyline — the shipped routes ARE road
+   centrelines (the v30.20 audit proves every race checkpoint sits
+   within its road's half-width), advanced by pathPoint() exactly like
+   the shipped opponent, at an absolute pace in world units/sec
+   (traffic cruises at 150; these three race at 172–196).
+
+   ACCESS (parley-gate discipline — nothing auto-pops):
+   - Walk/drive within 130u of Jam, Sunny (on his spot) or Kat's Golf
+     R and a passive chip shows "Challenge X to a race" — the PANEL
+     opens only on the player's tap, and closes on choice, on its
+     close button, or on walking away (>220u from the challenger).
+   - The Nokia mates view gains a CHARACTER RACES section (the shipped
+     900 ms append idiom, below the shipped mate races) — tap a name
+     to open the same panel.
+   The panel picks opponent / route (any of the six shipped ROUTES) /
+   stake tier (GBP 25 / 50 / 100 / 200 — the opponent always matches).
+   Copy states the rules before money moves: quitting mid-race
+   forfeits your stake; if you're nicked mid-race the race is VOID
+   and your stake comes back (see below).
+
+   MONEY (the shipped cash idiom — there is no addCash() in this game;
+   every shipped flow, finishRace included, moves S.cash directly and
+   calls updateHUD()):
+   - Start: S.cash -= stake (checked first — can't cover it, no race,
+     no deduction). Pot = 2 x stake, held by this layer only.
+   - Finish: the winner is paid the pot EXACTLY ONCE (a done-flag and
+     a paid-flag both gate the payout). Player wins: S.cash += pot,
+     net +stake. Player loses (opponent reaches the final checkpoint
+     first, or the player crosses after the opponent has): nothing
+     paid, stake gone. Race W/L is recorded per character.
+   - Quit mid-race: stake forfeited, recorded as a loss, pot unpaid.
+   - ARREST RULE (chosen, stated in the panel copy): custody takes
+     precedence; the race is VOID and BOTH stakes are returned — the
+     player's stake is refunded the moment custody is observed (the
+     shipped arrest() has already run its seizure by then, so the
+     refund lands whole, after it). No W/L is recorded for a void.
+     The same void+refund covers a day rollover mid-race and the
+     flag being switched off mid-race.
+
+   RECORD: W/L per character rides a versioned SAVE SECTION
+   (charRaces {version:1, data:{jam:{w,l},kat:{w,l},sunny:{w,l}}})
+   collected through __SAVE35 by ONE added try-line in svCollect
+   (the section pattern mates/homeBase use) and read back by this
+   layer when __SAVE35 reports a restore. It deliberately does NOT
+   go in S.raceRec: the shipped day summary maps raceRec keys
+   through MATES with no fallback and would throw on a non-mate key.
+   The S.ui.charRaces pref is the flag's only other save footprint.
+
+   FLAG: charRacesEnabled (default ON) + S.ui.charRaces pref +
+   Settings row ("Character races — Jam, Kat & Sunny"). Flag OFF:
+   no chip, no panel, no Nokia section, no races — the shipped game
+   (mate races included) is exactly as shipped.
+   Debug: window.__CR64. */
+var charRacesEnabled=true; /* v30.64 master character-races flag (default ON) */
+(function(){
+ 'use strict';
+ var STAKES=[25,50,100,200];
+ var OPPS={
+  jam:{id:'jam',name:'JAM',car:'hot',color:0x2f6df6,tint:1,pace:186,wob:13,wobF:1.7,mistakeEvery:[5.5,10],mistakeDur:1.6,mistakeMod:0.45,burstEvery:null,defRoute:4,
+   blurb:'Fast and reckless — big pace, wide lines, bins it now and then.',
+   winTxt:'jammed it wide again didn\u2019t I. fair play, rematch soon yeah',loseTxt:'TOO SLOW lad \u2014 that pot\u2019s mine. bring more cash next time'},
+  kat:{id:'kat',name:'KAT',car:'golfr',color:0xf2f3f5,tint:2,pace:172,wob:2.5,wobF:0.9,mistakeEvery:null,burstEvery:null,defRoute:1,
+   blurb:'Her white Golf R. Clean lines, same pace every lap, never errs.',
+   winTxt:'sound, you earned that. i\u2019m still cold though',loseTxt:'told you my lines were cleaner. pot\u2019s mine, ta'},
+  sunny:{id:'sunny',name:'SUNNY',car:'golfr',color:0x14161a,tint:2,pace:196,wob:6,wobF:1.3,mistakeEvery:null,burstEvery:[7,11],burstDur:2,burstMod:1.09,defRoute:2,
+   blurb:'Flat-out in his Golf R. Highest pace, sends it in bursts.',
+   winTxt:'Yo fam, fair — you can drive. run it back whenever',loseTxt:'Yo fam, that\u2019s how we do it on Moss Street. pot\u2019s ours'}
+ };
+ var CR={version:'cr64-1',err:null,race:null,lastResult:null,rec:{},recDirty:false,restoredApplied:false,
+  panelOpp:null,panelRoute:0,panelStake:50,panelNear:null,trace:[],chipOpp:null,lastDay:-1};
+ function crOn(){
+  if(!charRacesEnabled)return false;
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.charRaces===0)return false;}catch(e){}
+  return true;
+ }
+ function $(id){return document.getElementById(id);}
+ function oppPos(id){
+  try{
+   if(id==='jam'){if(window.__CT59&&__CT59.on()){var st=__CT59.state();if(st&&st.figs&&st.figs.jam)return {x:st.figs.jam[0],z:st.figs.jam[1]};}}
+   if(id==='sunny'){if(typeof leaderById==='function'){var L=leaderById('sunny');if(L&&(L.state==='active'))return {x:L.x,z:L.z};}return null;}
+   if(id==='kat'){if(typeof traffic!=='undefined'){for(var i=0;i<traffic.length;i++){var e=traffic[i];if(e&&e.kat59){if(typeof e.x==='number')return {x:e.x,z:e.z};if(e.mesh)return {x:e.mesh.position.x,z:e.mesh.position.z};}}}}
+  }catch(e){}
+  return null;
+ }
+ /* ---------- record (SAVE35 section charRaces) ---------- */
+ function recSan(d){
+  var out={};['jam','kat','sunny'].forEach(function(k){var r=(d&&d[k])||{};out[k]={w:(+r.w|0)||0,l:(+r.l|0)||0};});
+  return out;
+ }
+ CR.rec=recSan(null);
+ function saveSection(){try{var r=recSan(CR.rec);if(r.jam.w+r.jam.l+r.kat.w+r.kat.l+r.sunny.w+r.sunny.l===0)return undefined;return r;}catch(e){return undefined;}}
+ function loadSection(d){CR.rec=recSan(d);CR.recDirty=false;}
+ /* ---------- DOM: chip / panel / race HUD ---------- */
+ var CSS='#cr64Chip{position:fixed;left:50%;transform:translateX(-50%);bottom:196px;z-index:92;display:none;background:rgba(12,14,18,.92);color:#f3e9d2;border:1px solid #c9a227;border-radius:999px;padding:10px 18px;font:600 15px "Barlow Condensed",sans-serif;letter-spacing:.4px;cursor:pointer;}'
+ +'#cr64Panel{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:96;display:none;width:min(460px,94vw);max-height:calc(100vh - 16px);overflow:auto;background:rgba(10,12,16,.97);color:#eee;border:1px solid #c9a227;border-radius:14px;padding:12px 14px;font-family:"Barlow Condensed",sans-serif;box-shadow:0 18px 50px rgba(0,0,0,.6);}'
+ +'#cr64Panel h3{margin:0 0 2px;font-size:20px;letter-spacing:.6px;color:#f3e9d2;}#cr64Panel .sub{font-size:13.5px;color:#b9bec9;margin-bottom:6px;line-height:1.3;}'
+ +'#cr64Panel .lbl{font-size:11.5px;letter-spacing:1.2px;color:#c9a227;margin:7px 0 4px;}'
+ +'#cr64Panel .row{display:flex;flex-wrap:wrap;gap:5px;}'
+ +'#cr64Panel button.pick{background:#1b1f26;color:#e8e8e8;border:1px solid #3a4150;border-radius:8px;padding:6px 8px;font:600 13px "Barlow Condensed",sans-serif;cursor:pointer;}'
+ +'#cr64Panel button.pick.sel{border-color:#c9a227;color:#ffd94d;background:#26220f;}'
+ +'#cr64Panel button.go{width:100%;margin-top:10px;background:#c9a227;color:#14100a;border:0;border-radius:10px;padding:10px;font:700 16px "Barlow Condensed",sans-serif;cursor:pointer;}'
+ +'#cr64Panel button.go:disabled{background:#4a4436;color:#9a937e;cursor:default;}'
+ +'#cr64Panel button.x{width:100%;margin-top:6px;background:transparent;color:#9aa1ad;border:1px solid #3a4150;border-radius:10px;padding:7px;font:600 13.5px "Barlow Condensed",sans-serif;cursor:pointer;}'
+ +'#cr64Panel .rec{font-size:13px;color:#9aa1ad;margin-top:8px;}#cr64Panel .warn{font-size:13px;color:#e0a5a5;margin-top:6px;}'
+ +'#cr64Hud{position:fixed;left:50%;transform:translateX(-50%);top:64px;z-index:91;display:none;background:rgba(12,14,18,.88);color:#f3e9d2;border:1px solid #3a4150;border-radius:999px;padding:7px 8px 7px 16px;font:600 14px "Barlow Condensed",sans-serif;align-items:center;gap:10px;}'
+ +'#cr64Hud button{background:#3a1518;color:#f0b9b9;border:1px solid #7a2e2e;border-radius:999px;padding:5px 12px;font:600 13px "Barlow Condensed",sans-serif;cursor:pointer;}';
+ function buildDom(){
+  if($('cr64Style'))return;
+  var st=document.createElement('style');st.id='cr64Style';st.textContent=CSS;document.head.appendChild(st);
+  var chip=document.createElement('div');chip.id='cr64Chip';chip.textContent='';document.body.appendChild(chip);
+  chip.addEventListener('click',function(){if(CR.chipOpp)openPanel(CR.chipOpp,true);});
+  var panel=document.createElement('div');panel.id='cr64Panel';document.body.appendChild(panel);
+  panel.addEventListener('click',onPanelClick);
+  var hud=document.createElement('div');hud.id='cr64Hud';document.body.appendChild(hud);
+  hud.addEventListener('click',function(e){if(e.target&&e.target.id==='cr64Quit')quitRace();});
+ }
+ function showChip(id){
+  var chip=$('cr64Chip');if(!chip)return;
+  if(!id){chip.style.display='none';CR.chipOpp=null;return;}
+  CR.chipOpp=id;chip.textContent='\uD83C\uDFC1 Challenge '+OPPS[id].name+' to a race';chip.style.display='block';
+ }
+ function closePanel(){var p=$('cr64Panel');if(p)p.style.display='none';CR.panelOpp=null;CR.panelNear=null;}
+ function openPanel(oppId,near){
+  if(!crOn())return;
+  if(typeof S==='undefined'||!S||!S.playing)return;
+  if(CR.race){toast('Finish this race first, our kid');return;}
+  try{if(typeof custody!=='undefined'&&custody)return;}catch(e){}
+  CR.panelOpp=oppId;CR.panelRoute=OPPS[oppId].defRoute;CR.panelStake=50;
+  CR.panelNear=near?oppPos(oppId):null;
+  renderPanel();
+ }
+ function renderPanel(){
+  var p=$('cr64Panel');if(!p||!CR.panelOpp)return;
+  var o=OPPS[CR.panelOpp],rec=CR.rec[o.id]||{w:0,l:0};
+  var h='<h3>\uD83C\uDFC1 Race '+o.name+'</h3><div class="sub">'+o.blurb+'<br>Money upfront — both stakes in, winner takes the pot. Quit mid-race: stake\u2019s gone. Nicked mid-race: race void, stake back.</div>';
+  h+='<div class="lbl">ROUTE</div><div class="row">';
+  ROUTES.forEach(function(r,i){h+='<button type="button" class="pick'+(i===CR.panelRoute?' sel':'')+'" data-cr="route" data-v="'+i+'">'+r.name+'</button>';});
+  h+='</div><div class="lbl">STAKE — POT IS DOUBLE</div><div class="row">';
+  STAKES.forEach(function(s){h+='<button type="button" class="pick'+(s===CR.panelStake?' sel':'')+'" data-cr="stake" data-v="'+s+'">\u00A3'+s+' \u2192 pot \u00A3'+(s*2)+'</button>';});
+  var afford=(typeof S!=='undefined'&&S&&typeof S.cash==='number')?S.cash>=CR.panelStake:false;
+  h+='</div><button type="button" class="go" data-cr="start"'+(afford?'':' disabled')+'>'+(afford?('Start race — \u00A3'+CR.panelStake+' in, pot \u00A3'+(CR.panelStake*2)):'You\u2019re skint — need \u00A3'+CR.panelStake)+'</button>';
+  if(!afford)h+='<div class="warn">Not enough cash on you, our kid. Pick a smaller stake or go earn some.</div>';
+  h+='<button type="button" class="x" data-cr="close">Not now</button>';
+  h+='<div class="rec">Your record vs '+o.name+': '+rec.w+'W / '+rec.l+'L</div>';
+  p.innerHTML=h;p.style.display='block';
+ }
+ function onPanelClick(e){
+  var b=e.target;if(!b||!b.getAttribute)return;
+  var k=b.getAttribute('data-cr');if(!k)return;
+  if(k==='close'){closePanel();return;}
+  if(k==='route'){CR.panelRoute=+b.getAttribute('data-v');renderPanel();return;}
+  if(k==='stake'){CR.panelStake=+b.getAttribute('data-v');renderPanel();return;}
+  if(k==='start'){var opp=CR.panelOpp,ri=CR.panelRoute,st=CR.panelStake;closePanel();startCharRace(opp,ri,st);return;}
+  if(k==='rematch'&&CR.lastResult){var L=CR.lastResult;closePanel();startCharRace(L.opp,L.routeIdx,L.stake);return;}
+  if(k==='change'){var L2=CR.lastResult;closePanel();if(L2)openPanel(L2.opp,false);return;}
+ }
+ function showResult(){
+  var p=$('cr64Panel');if(!p||!CR.lastResult)return;
+  var L=CR.lastResult,o=OPPS[L.opp];
+  var h='<h3>'+(L.won?'\uD83C\uDFC1 You beat '+o.name+'!':'\uD83C\uDFC1 '+o.name+' takes it')+'</h3>'
+   +'<div class="sub">'+(L.won?('Pot \u00A3'+L.pot+' is yours — stake back plus \u00A3'+L.stake+' of theirs. Proper result, that.'):('Pot \u00A3'+L.pot+' gone with your stake. That\u2019s racing, our kid.'))+'</div>'
+   +'<button type="button" class="go" data-cr="rematch">Rematch — \u00A3'+L.stake+' in again</button>'
+   +'<button type="button" class="x" data-cr="change">Change race</button>'
+   +'<button type="button" class="x" data-cr="close">Done</button>';
+  p.innerHTML=h;p.style.display='block';CR.panelOpp=null;
+ }
+ /* ---------- race lifecycle ---------- */
+ function routeLens(pts){var cum=[0],tot=0,i;for(i=0;i<pts.length-1;i++){tot+=dist2(pts[i][0],pts[i][1],pts[i+1][0],pts[i+1][1]);cum.push(tot);}return {cum:cum,tot:tot};}
+ function startCharRace(oppId,routeIdx,stake){
+  if(!crOn())return false;
+  if(CR.race)return false;
+  try{if(typeof race!=='undefined'&&race){toast('Finish the race you\u2019re in first');return false;}}catch(e){}
+  if(typeof S==='undefined'||!S||!S.playing||S.paused)return false;
+  try{if((typeof custody!=='undefined'&&custody)||(typeof arrestSeq!=='undefined'&&arrestSeq))return false;}catch(e){}
+  var o=OPPS[oppId];if(!o)return false;
+  var route=ROUTES[routeIdx];if(!route)return false;
+  if(S.cash<stake){toast('Need \u00A3'+stake+' stake — you\u2019re skint');return false;}
+  S.cash-=stake; /* MONEY UPFRONT: the player's stake leaves now */
+  try{updateHUD();}catch(e){}
+  var lens=routeLens(route.pts);
+  var mesh=makeCarMesh(CARS[o.car],o.color,o.tint,true);scene.add(mesh);
+  var p0=pathPoint(route.pts,0);
+  mesh.position.set(p0.x+p0.dz*22,0,p0.z-p0.dx*22);
+  mesh.rotation.y=Math.atan2(p0.dx,p0.dz)+Math.PI;
+  CR.race={opp:oppId,route:route,routeIdx:routeIdx,stake:stake,pot:stake*2,phase:'meet',cp:0,t:0,
+   oppDist:0,oppCp:0,oppMesh:mesh,cum:lens.cum,totalLen:lens.tot,done:false,paid:false,day:S.day,
+   mistakes:0,bursts:0,mistakeLeft:0,burstLeft:0,mistakeT:3+Math.random()*3,burstT:4+Math.random()*4,lat:0,traceT:0};
+  CR.trace=[];
+  setPin(route.pts[0][0],route.pts[0][1],0xffffff);
+  try{closePhone();}catch(e){}
+  toast('Race vs '+o.name+': '+route.name+' — \u00A3'+stake+' in, pot \u00A3'+(stake*2)+'. Get to the start line');
+  return true;
+ }
+ function cleanupRace(){
+  var R=CR.race;if(!R)return;
+  try{if(R.oppMesh)scene.remove(R.oppMesh);}catch(e){}
+  try{clearPin();}catch(e){}
+  CR.race=null;CR.hudTxt=null;
+  var hud=$('cr64Hud');if(hud)hud.style.display='none';
+ }
+ function finishRace(won,reason){
+  var R=CR.race;if(!R||R.done)return;
+  R.done=true;
+  var o=OPPS[R.opp];
+  if(won&&!R.paid){R.paid=true;S.cash+=R.pot;try{updateHUD();}catch(e){}} /* pot paid exactly once */
+  if(reason!=='void'){
+   if(!CR.rec[R.opp])CR.rec[R.opp]={w:0,l:0};
+   if(won)CR.rec[R.opp].w++;else CR.rec[R.opp].l++;
+   CR.recDirty=true;
+  }
+  CR.lastResult={opp:R.opp,routeIdx:R.routeIdx,stake:R.stake,pot:R.pot,won:won,reason:reason};
+  try{
+   var mt=$('miniText');
+   if(mt){mt.innerHTML='\uD83C\uDFC1 txt frm '+o.name+':<br>'+(won?o.winTxt:o.loseTxt);try{lastText=o.name+': '+(won?o.winTxt:o.loseTxt);}catch(e){}}
+  }catch(e){}
+  if(reason==='void')toast('Race void — your \u00A3'+R.stake+' stake\u2019s back. No harm done');
+  else if(won)toast('\uD83C\uDFC1 YOU WIN vs '+o.name+'! Pot \u00A3'+R.pot+' is yours');
+  else toast('\uD83C\uDFC1 '+o.name+' wins. Your \u00A3'+R.stake+' stake\u2019s gone');
+  try{sfx('good');}catch(e){}
+  cleanupRace();
+  if(reason!=='void')showResult();
+ }
+ function voidRace(){
+  var R=CR.race;if(!R||R.done)return;
+  R.done=true;
+  if(!R.paid){R.paid=true;S.cash+=R.stake;try{updateHUD();}catch(e){}} /* both stakes returned: player's refund lands here; the opponent's match was never the player's money */
+  CR.lastResult={opp:R.opp,routeIdx:R.routeIdx,stake:R.stake,pot:R.pot,won:false,reason:'void'};
+  cleanupRace();
+  toast('Race void — your \u00A3'+R.stake+' stake\u2019s back. No harm done');
+ }
+ function quitRace(){
+  var R=CR.race;if(!R||R.done)return;
+  toast('You bailed — \u00A3'+R.stake+' stake\u2019s gone, pot\u2019s theirs');
+  finishRace(false,'quit');
+ }
+ /* ---------- per-frame race + proximity tick (own rAF) ---------- */
+ var lastMs=0;
+ function tick(now){
+  requestAnimationFrame(tick);
+  var dt=Math.min(.05,lastMs?((now-lastMs)/1000):0);lastMs=now;
+  try{
+   buildDom();buildSettings();
+   /* restore / wipe tracking for the charRaces section */
+   try{
+    if(window.__SAVE35&&__SAVE35.status){
+     var stt=__SAVE35.status();
+     if(stt.restored&&!CR.restoredApplied){CR.restoredApplied=true;
+      try{var raw=localStorage.getItem('dale.save.v1');if(raw){var pv=JSON.parse(raw);if(pv&&pv.state&&pv.state.sections&&pv.state.sections.charRaces)loadSection(pv.state.sections.charRaces.data);}}catch(e){}
+     }
+     if(stt.wipedFresh&&!CR.recDirty){CR.rec=recSan(null);}
+    }
+   }catch(e){}
+   if(typeof S==='undefined'||!S||!S.playing){showChip(null);return;}
+   var on=crOn();
+   /* ---- active race: arrest / custody watch runs EVEN WHILE
+      S.paused — the shipped custody flow pauses the game, so a
+      paused-gated watch would never see custody and the race would
+      resume after release. Custody takes precedence: race VOID.
+      The refund waits until custody is OBSERVED: the controlled
+      arrest sequence runs BEFORE arrest() takes its seizure, so
+      refunding at sequence-start could see the seizure eat the
+      refund. Once custody exists the seizure has already run and
+      the refund lands whole, after it. If a sequence somehow ends
+      with no custody, the void falls through then instead. ---- */
+   var R=CR.race;
+   if(R){
+    var inCust=false,inSeq=false;
+    try{inCust=!!(typeof custody!=='undefined'&&custody);inSeq=!!(typeof arrestSeq!=='undefined'&&arrestSeq);}catch(e){}
+    if(inCust){voidRace();showChip(null);return;}
+    if(inSeq)R.voidPending=true;
+    else if(R.voidPending){voidRace();showChip(null);return;}
+   }
+   if(S.paused){showChip(null);return;}
+   if(R){
+    if(!on){voidRace();}
+    else if(S.day!==R.day)voidRace();
+    else raceTick(R,dt);
+    showChip(null);
+    return;
+   }
+   /* ---- proximity chip + panel walk-away ---- */
+   if(!on){showChip(null);var pp=$('cr64Panel');if(pp&&pp.style.display==='block'&&!CR.lastResult)closePanel();return;}
+   if(CR.panelOpp&&CR.panelNear){
+    if(dist2(player.x,player.z,CR.panelNear.x,CR.panelNear.z)>220)closePanel();
+   }
+   var best=null,bd=130;
+   ['jam','sunny','kat'].forEach(function(id){
+    var pos=oppPos(id);if(!pos)return;
+    var d=dist2(player.x,player.z,pos.x,pos.z);
+    if(d<bd){bd=d;best=id;}
+   });
+   var panelOpen=$('cr64Panel')&&$('cr64Panel').style.display==='block';
+   showChip(panelOpen?null:best);
+  }catch(e){CR.err='tick:'+String(e&&e.message||e);}
+ }
+ function setHud(html){
+  var hud=$('cr64Hud');if(!hud)return;
+  hud.style.display='flex';
+  if(CR.hudTxt!==html){CR.hudTxt=html;hud.innerHTML=html;}
+ }
+ function raceTick(R,dt){
+  var pts=R.route.pts,o=OPPS[R.opp];
+  if(R.phase==='meet'){
+   setHud('<span>\uD83C\uDFC1 vs '+o.name+' · '+R.route.name+' · pot \u00A3'+R.pot+' — get to the start line'+(typeof footMode!=='undefined'&&footMode?' (get in your motor)':'')+'</span><button type="button" id="cr64Quit">Quit</button>');
+   if(dist2(player.x,player.z,pts[0][0],pts[0][1])<46&&(typeof footMode==='undefined'||!footMode)){R.phase='count';R.t=3;toast('Start line — 3\u2026 2\u2026 1\u2026');}
+   return;
+  }
+  if(R.phase==='count'){
+   R.t-=dt;
+   if(R.t<1&&R.t>0.9){try{beep(440,0,.1,'square',.08);}catch(e){}}
+   if(R.t<=0){R.phase='run';R.t=0;try{beep(880,0,.25,'square',.1);}catch(e){}setPin(pts[1][0],pts[1][1],0xffffff);toast('GO!');}
+   return;
+  }
+  /* ---- run ---- */
+  R.t+=dt;
+  /* opponent profile */
+  var mod=1;
+  if(o.mistakeEvery){
+   R.mistakeT-=dt;
+   if(R.mistakeT<=0&&R.mistakeLeft<=0){R.mistakeLeft=o.mistakeDur;R.mistakes++;R.mistakeT=o.mistakeEvery[0]+Math.random()*(o.mistakeEvery[1]-o.mistakeEvery[0]);}
+  }
+  if(R.mistakeLeft>0){R.mistakeLeft-=dt;mod=o.mistakeMod;}
+  if(o.burstEvery){
+   R.burstT-=dt;
+   if(R.burstT<=0&&R.burstLeft<=0){R.burstLeft=o.burstDur;R.bursts++;R.burstT=o.burstEvery[0]+Math.random()*(o.burstEvery[1]-o.burstEvery[0]);}
+  }
+  if(R.burstLeft>0){R.burstLeft-=dt;mod=o.burstMod;}
+  if(R.opp==='kat')mod=1+0.02*Math.sin(R.t*0.7);
+  R.oppDist+=o.pace*mod*dt;
+  var frac=clamp(R.oppDist/R.totalLen,0,1);
+  var pp=pathPoint(pts,frac);
+  var lat=Math.sin(R.t*o.wobF)*o.wob;
+  if(R.mistakeLeft>0)lat+=Math.sin(R.t*30)*10*(R.mistakeLeft/o.mistakeDur);
+  R.lat=lat;
+  var ox=pp.x+pp.dz*lat,oz=pp.z-pp.dx*lat;
+  R.oppMesh.position.set(ox,0,oz);
+  R.oppMesh.rotation.y=Math.atan2(pp.dx,pp.dz)+Math.PI;
+  try{rollWheels(R.oppMesh,o.pace*mod*dt,0);}catch(e){}
+  var oc=0;while(oc<R.cum.length-1&&R.cum[oc+1]<=R.oppDist)oc++;
+  R.oppCp=oc;
+  R.traceT+=dt;
+  if(R.traceT>=0.5){R.traceT=0;CR.trace.push([Math.round(ox),Math.round(oz),Math.round(R.oppDist)]);if(CR.trace.length>600)CR.trace.shift();}
+  setHud('<span>\uD83C\uDFC1 vs '+o.name+' · you CP '+(R.cp+1)+'/'+pts.length+' · them CP '+(R.oppCp+1)+'/'+pts.length+' · pot \u00A3'+R.pot+'</span><button type="button" id="cr64Quit">Quit</button>');
+  /* opponent reaches the final checkpoint first -> race over, player loses */
+  if(R.oppDist>=R.totalLen){finishRace(false,'opp-finished');return;}
+  /* player checkpoints (shipped radius 52) */
+  var cp=pts[R.cp+1];
+  if(cp&&dist2(player.x,player.z,cp[0],cp[1])<52){
+   R.cp++;
+   if(R.cp>=pts.length-1){finishRace(true,'player-finished');return;}
+   setPin(pts[R.cp+1][0],pts[R.cp+1][1],0xffffff);
+   try{sfx('good');}catch(e){}
+  }
+ }
+ requestAnimationFrame(tick);
+ /* ---------- Nokia mates-view section (shipped 900 ms append idiom) ---------- */
+ setInterval(function(){
+  try{
+   if(!crOn())return;
+   if(typeof phoneOpen==='undefined'||!phoneOpen||typeof phoneView==='undefined'||phoneView!=='mates')return;
+   var bm=$('bigMain');if(!bm||bm.querySelector('[data-cr64]'))return;
+   var html='\n<span style="font-size:12px;">CHARACTER RACES — money upfront, winner takes the pot:</span>';
+   ['jam','kat','sunny'].forEach(function(id){var o=OPPS[id];var r=CR.rec[id]||{w:0,l:0};html+='<span class="mi" data-cr64="'+id+'">\uD83C\uDFC1 '+o.name+' — '+o.blurb+' ('+r.w+'W/'+r.l+'L)</span>';});
+   bm.innerHTML+=html;
+   bm.querySelectorAll('[data-cr64]').forEach(function(el){el.onclick=function(){var id=el.getAttribute('data-cr64');try{closePhone();}catch(e){}openPanel(id,false);};});
+  }catch(e){}
+ },900);
+ /* ---------- Settings row (the __SC61 row idiom) ---------- */
+ function crSyncSettings(){
+  var st=$('cr64SetState'),btn=$('cr64SetBtn');
+  if(st){var want=crOn()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=crOn()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function buildSettings(){
+  if($('cr64SetState')){crSyncSettings();return;}
+  var card=document.querySelector('#settingsPanel .card');if(!card)return;
+  var closeBtn=card.querySelector('[data-close]');if(!closeBtn)return;
+  var row=document.createElement('div');row.className='setRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Character races \u2014 Jam, Kat &amp; Sunny</div><div class="setRowNote">Challenge the named characters to checkpoint races. Money upfront from both sides, winner takes the pot. Off = no character races anywhere; the shipped mate races are untouched either way.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='cr64SetState';st.textContent=crOn()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='cr64SetBtn';btn.textContent=crOn()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){setEnabled(!crOn());});
+  row.appendChild(btn);card.insertBefore(row,closeBtn);
+ }
+ function setEnabled(on){
+  charRacesEnabled=!!on;
+  try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}};S.ui.charRaces=on?1:0;}}catch(e){}
+  if(!on){showChip(null);closePanel();if(CR.race)voidRace();}
+  crSyncSettings();
+  return crOn();
+ }
+ window.__CR64={
+  version:'cr64-1',
+  on:function(){return crOn();},
+  setEnabled:setEnabled,
+  opps:function(){return Object.keys(OPPS).map(function(k){var o=OPPS[k];return {id:o.id,name:o.name,pace:o.pace,wob:o.wob,car:o.car,color:o.color,defRoute:o.defRoute};});},
+  stakes:function(){return STAKES.slice();},
+  openPanel:openPanel,
+  startRace:startCharRace,
+  quitRace:quitRace,
+  state:function(){
+   var R=CR.race;
+   return {version:CR.version,on:crOn(),err:CR.err,rec:recSan(CR.rec),lastResult:CR.lastResult,
+    race:R?{opp:R.opp,route:R.route.name,routeIdx:R.routeIdx,stake:R.stake,pot:R.pot,phase:R.phase,cp:R.cp,oppCp:R.oppCp,
+     oppDist:Math.round(R.oppDist),totalLen:Math.round(R.totalLen),t:+R.t.toFixed(2),mistakes:R.mistakes,bursts:R.bursts,
+     oppPos:R.oppMesh?[Math.round(R.oppMesh.position.x),Math.round(R.oppMesh.position.z)]:null,
+     nextCp:(R.phase==='run'&&R.route.pts[R.cp+1])?R.route.pts[R.cp+1]:null}:null,
+    trace:CR.trace.slice()};
+  },
+  saveSection:saveSection,
+  loadSection:loadSection,
+  oppPos:oppPos
+ };
+})();
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -23910,7 +24363,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3063={version:'v30.63'};</script>
+<script>window.__V3064={version:'v30.64'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
