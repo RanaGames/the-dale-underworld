@@ -20736,14 +20736,48 @@ var debugPanelEnabled=false; /* P2S6 debug panel flag (default OFF) */
    __CC54.drive.occNow() measures it; see the stage report for the
    sweep numbers.
    Debug / test surface: window.__CC54 (state / params / views /
-   setEnabled / drive). */
+   setEnabled / drive).
+
+   EXTENSION (v30.57 — FOOT CHASE; his order 2026-11-14, minutes after
+   his phone verdict on the driving trial: "Make it for non driving
+   also" / "I like the world view better from this perspective"). The
+   SAME layer now owns the camera on foot too: while CHASE is selected
+   and the player is on foot, the camera sits behind the CHARACTER on
+   its smoothed facing (footMode.h — the walker's own heading;
+   combatFaceAng() is footMode.h - PI in atan2(x,z) terms, so the
+   facing vector is (-sin H, -cos H); in combat the figure faces its
+   lock-on target and the camera follows that through the same
+   smoothing). Geometry: dist 70, height 30 (just over the ~29.9u
+   hero's head), look point 30 ahead at chest height 17 — about a
+   third of CLASSIC's 228 foot reach, proportionate to the subject
+   (the driving chase runs 140-185 behind a car). Getting in or out
+   of the car inside CHASE is a handover, not a release: ownership
+   persists, the blend restarts from the live placement, and the same
+   45u step cap binds every frame. CONTROLS: while foot chase is live
+   the movement stick turns CAMERA-RELATIVE (GTA-style) — an own-rAF
+   tick (the __D50 idiom) rotates the shared stickVec by the camera's
+   smoothed heading in place, with restore-before-rotate bookkeeping
+   so the rotation never compounds and the shipped vector is restored
+   untouched when the view is left; the walker's dodge read
+   (combatMoveVec) shares stickVec and inherits the rotation. WASD /
+   arrow keys do NOT flow through stickVec (the walker applies them
+   to its local copy after the stick read), so they keep the shipped
+   world mapping in every view — deliberate, not an oversight. The
+   flag, the Settings row and the north-up minimap are unchanged;
+   flag OFF leaves on-foot CHASE rendering CLASSIC exactly, controls
+   shipped (the v30.56 behaviour). updateOcclusion / the building fade
+   are NOT retuned for the foot view either — occlusion on foot is
+   measured and reported as a trial limitation, same as driving. */
 var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
 (function(){
- var CC={version:'cc54-1',err:null,
+ var CC={version:'cc57-1',err:null,
   distBase:140,distRise:45,hBase:58,hRise:16,lookAhead:65,lookY:18,
+  distF:70,hF:30,lookAheadF:30,lookYF:17, /* v30.57 foot geometry */
   headRate:2.8,blendT:0.6,stepCap:45,lookCap:90,
   idx:-1,active:false,owning:false,exiting:false,blendClock:0,
-  smH:null,tAccum:0,calls:0,intercepts:0,lastMs:0,lastStep:0,maxStep:0,
+  smH:null,smHF:null,mode:null,footLive:false, /* v30.57: foot smoothed heading (footMode.h space), live mode, foot seed discipline */
+  cfHas:false,cfRawX:0,cfRawY:0,cfOutX:0,cfOutY:0,cfFrames:0, /* v30.57: camera-relative stick bookkeeping */
+  tAccum:0,calls:0,intercepts:0,lastMs:0,lastStep:0,maxStep:0,
   pos:null,look:null,fromPos:null,fromLook:null};
  var scratchV=null; /* THREE.Vector3, lazy — no per-frame allocation once warm */
  function $(id){return document.getElementById(id);}
@@ -20773,6 +20807,25 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
    return camModeIdx()===CC.idx;
   }catch(e){return false;}
  }
+ function ccFootActiveNow(){ /* v30.57: the foot twin of ccActiveNow — same gates, opposite mode */
+  if(CC.idx<0||!ccOn())return false;
+  try{
+   if(typeof S==='undefined'||!S||!S.playing||S.paused)return false;
+   if(typeof footMode==='undefined'||!footMode)return false; /* on foot only */
+   if(typeof arrestSeq!=='undefined'&&arrestSeq)return false; /* world held — shipped cam */
+   if(typeof custody!=='undefined'&&custody)return false;
+   return camModeIdx()===CC.idx;
+  }catch(e){return false;}
+ }
+ function footFacingH(){ /* the character's facing in footMode.h space:
+    footMode.h once the walker has run; before its first tick the walker
+    itself initialises from player.fig.rotation.y — read the same source */
+  try{
+   if(typeof footMode!=='undefined'&&footMode&&footMode.h!==undefined)return footMode.h;
+   if(typeof player!=='undefined'&&player&&player.fig)return player.fig.rotation.y;
+  }catch(e){}
+  return 0;
+ }
  function moveToward(p,t,cap){
   var dx=t.x-p.x,dy=t.y-p.y,dz=t.z-p.z;
   var d=Math.sqrt(dx*dx+dy*dy+dz*dz);
@@ -20785,32 +20838,61 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
   CC.calls++;
   var now=performance.now();
   var dt=Math.min(.1,Math.max(0,(now-(CC.lastMs||now))/1000));CC.lastMs=now;
-  var act=false;try{act=ccActiveNow();}catch(e){act=false;}
-  if(!act&&!CC.owning){
+  var act=false,actF=false;try{act=ccActiveNow();if(!act)actF=ccFootActiveNow();}catch(e){act=false;actF=false;}
+  if(!act&&!actF&&!CC.owning){
    return camPlaceInner(cx,cz,h,tilt,hMin,hMax); /* pure pass-through */
   }
   CC.tAccum+=dt;
   try{
-   if(act){
-    /* ---- smoothed heading (shortest-arc exponential approach) ---- */
-    var targetH=player.h;
-    if(CC.smH===null)CC.smH=targetH; /* first use only: no history to swing from */
-    else CC.smH+=angDelta(CC.smH,targetH)*(1-Math.exp(-CC.headRate*dt));
-    var fx=Math.sin(CC.smH),fz=-Math.cos(CC.smH); /* forward = (sin h, -cos h), the shipped convention */
-    var spd=(typeof speedNow==='function')?speedNow():0;
-    var sf=clamp(spd/340,0,1);
-    var dist=CC.distBase+CC.distRise*sf,hgt=CC.hBase+CC.hRise*sf;
-    var tp={x:player.x-fx*dist,y:hgt,z:player.z-fz*dist};
-    var tl={x:player.x+fx*CC.lookAhead,y:CC.lookY,z:player.z+fz*CC.lookAhead};
-    /* frame-time diagnostics (state surface only): the exact target and
-       car position THIS call used — lets a probe verify the geometry
-       without racing the render loop */
-    if(!CC.lastTp)CC.lastTp={x:0,y:0,z:0};
-    CC.lastTp.x=tp.x;CC.lastTp.y=tp.y;CC.lastTp.z=tp.z;
-    if(!CC.lastCar)CC.lastCar={x:0,z:0};
-    CC.lastCar.x=player.x;CC.lastCar.z=player.z;
-    CC.lastDist=dist;CC.lastSf=sf;
-    if(typeof shake!=='undefined'&&shake>0){tp.x+=(Math.random()-.5)*shake;tp.z+=(Math.random()-.5)*shake;} /* crash shake rides along, shipped idiom */
+   if(act||actF){
+    var modeNow=actF?'foot':'drive';
+    if(CC.owning&&CC.mode&&CC.mode!==modeNow){ /* foot <-> car handover inside CHASE: ownership persists; the blend restarts from the live placement (the activation capture below is skipped — owning && !exiting) */
+     CC.blendClock=0;
+     CC.fromPos={x:CC.pos.x,y:CC.pos.y,z:CC.pos.z};
+     CC.fromLook={x:CC.look.x,y:CC.look.y,z:CC.look.z};
+    }
+    CC.mode=modeNow;
+    var tp,tl;
+    if(actF){
+     /* ---- FOOT CHASE (v30.57): behind the character on its smoothed
+        facing — facing vector (-sin H, -cos H), so the camera sits at
+        player + (sin H, cos H) x dist. Seeded on (re)entry to foot
+        ownership so the target is right from the first frame; the
+        blend below covers the camera's travel. */
+     var targetHF=footFacingH();
+     if(!CC.footLive||CC.smHF===null){CC.smHF=targetHF;CC.footLive=true;}
+     else CC.smHF+=angDelta(CC.smHF,targetHF)*(1-Math.exp(-CC.headRate*dt));
+     var sFx=Math.sin(CC.smHF),cFx=Math.cos(CC.smHF);
+     tp={x:footMode.x+sFx*CC.distF,y:CC.hF,z:footMode.z+cFx*CC.distF};
+     tl={x:footMode.x-sFx*CC.lookAheadF,y:CC.lookYF,z:footMode.z-cFx*CC.lookAheadF};
+     if(!CC.lastTpF)CC.lastTpF={x:0,y:0,z:0};
+     CC.lastTpF.x=tp.x;CC.lastTpF.y=tp.y;CC.lastTpF.z=tp.z;
+     if(!CC.lastFoot)CC.lastFoot={x:0,z:0};
+     CC.lastFoot.x=footMode.x;CC.lastFoot.z=footMode.z;
+     CC.lastDistF=CC.distF;
+     if(typeof shake!=='undefined'&&shake>0){tp.x+=(Math.random()-.5)*shake;tp.z+=(Math.random()-.5)*shake;} /* same shake idiom as the driving branch */
+    }else{
+     CC.footLive=false;
+     /* ---- smoothed heading (shortest-arc exponential approach) ---- */
+     var targetH=player.h;
+     if(CC.smH===null)CC.smH=targetH; /* first use only: no history to swing from */
+     else CC.smH+=angDelta(CC.smH,targetH)*(1-Math.exp(-CC.headRate*dt));
+     var fx=Math.sin(CC.smH),fz=-Math.cos(CC.smH); /* forward = (sin h, -cos h), the shipped convention */
+     var spd=(typeof speedNow==='function')?speedNow():0;
+     var sf=clamp(spd/340,0,1);
+     var dist=CC.distBase+CC.distRise*sf,hgt=CC.hBase+CC.hRise*sf;
+     var tp={x:player.x-fx*dist,y:hgt,z:player.z-fz*dist};
+     var tl={x:player.x+fx*CC.lookAhead,y:CC.lookY,z:player.z+fz*CC.lookAhead};
+     /* frame-time diagnostics (state surface only): the exact target and
+        car position THIS call used — lets a probe verify the geometry
+        without racing the render loop */
+     if(!CC.lastTp)CC.lastTp={x:0,y:0,z:0};
+     CC.lastTp.x=tp.x;CC.lastTp.y=tp.y;CC.lastTp.z=tp.z;
+     if(!CC.lastCar)CC.lastCar={x:0,z:0};
+     CC.lastCar.x=player.x;CC.lastCar.z=player.z;
+     CC.lastDist=dist;CC.lastSf=sf;
+     if(typeof shake!=='undefined'&&shake>0){tp.x+=(Math.random()-.5)*shake;tp.z+=(Math.random()-.5)*shake;} /* crash shake rides along, shipped idiom */
+    }
     if(!CC.owning){ /* activation: capture the live placement as the blend origin */
      CC.owning=true;CC.blendClock=0;
      CC.pos={x:camera.position.x,y:camera.position.y,z:camera.position.z};
@@ -20872,15 +20954,52 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
     var st2=Math.sqrt((CC.pos.x-prevEx)*(CC.pos.x-prevEx)+(CC.pos.y-prevEy)*(CC.pos.y-prevEy)+(CC.pos.z-prevEz)*(CC.pos.z-prevEz));
     CC.lastStep=Math.round(st2*10)/10;if(st2>CC.maxStep)CC.maxStep=Math.round(st2*10)/10;
    }else{
-    CC.owning=false;CC.exiting=false;CC.pos=null;CC.look=null; /* camera left exactly as the shipped path placed it */
+    CC.owning=false;CC.exiting=false;CC.pos=null;CC.look=null;CC.mode=null;CC.footLive=false; /* camera left exactly as the shipped path placed it */
    }
    return r;
   }catch(e){
    CC.err=String(e&&e.message||e);
-   CC.owning=false;CC.exiting=false;CC.active=false;
+   CC.owning=false;CC.exiting=false;CC.active=false;CC.mode=null;CC.footLive=false;
    return camPlaceInner(cx,cz,h,tilt,hMin,hMax);
   }
  };
+ /* ---- v30.57: camera-relative stick while FOOT CHASE is live ----
+    The walker (and combatMoveVec's dodge read) consume the shared
+    stickVec; this rAF (the __D50 tick idiom) rotates it into camera
+    space in place, by the camera's smoothed heading CC.smHF. The
+    bookkeeping mirrors D50's filter: the last written output is
+    remembered, so if stickVec still holds it next tick the physical
+    stick has not moved and the stored raw vector is restored BEFORE
+    re-rotating with the current heading — a rotation is not
+    idempotent and would otherwise compound. A value that differs
+    from the last output is a fresh physical input (or another
+    system's write) and becomes the new raw. When foot chase is not
+    live the raw vector is restored if untouched, so every other
+    view and the driving path read exactly the shipped values.
+    Rotation, in footMode.h space (facing F = (-sin H, -cos H),
+    right R = (cos H, -sin H); stick (sx, sy), sy = -1 is up):
+      move = F x (-sy) + R x sx
+      out.x = sy*sin(H) + sx*cos(H)   out.y = sy*cos(H) - sx*sin(H)
+    Sanity: facing north (H = 0) gives out = (sx, sy) — the shipped
+    mapping, as it must be with the camera due south of the character. */
+ function cfTick(){
+  requestAnimationFrame(cfTick);
+  try{
+   var on=false;try{on=ccFootActiveNow();}catch(e){on=false;}
+   if(on&&typeof stickVec!=='undefined'){
+    if(CC.smHF===null)CC.smHF=footFacingH();
+    if(CC.cfHas&&Math.abs(stickVec.x-CC.cfOutX)<1e-6&&Math.abs(stickVec.y-CC.cfOutY)<1e-6){stickVec.x=CC.cfRawX;stickVec.y=CC.cfRawY;}
+    CC.cfRawX=stickVec.x;CC.cfRawY=stickVec.y;
+    var sH=Math.sin(CC.smHF),cH=Math.cos(CC.smHF);
+    var rx=CC.cfRawY*sH+CC.cfRawX*cH,rz=CC.cfRawY*cH-CC.cfRawX*sH;
+    stickVec.x=rx;stickVec.y=rz;CC.cfOutX=rx;CC.cfOutY=rz;CC.cfHas=true;CC.cfFrames++;
+   }else if(CC.cfHas){
+    if(typeof stickVec!=='undefined'&&Math.abs(stickVec.x-CC.cfOutX)<1e-6&&Math.abs(stickVec.y-CC.cfOutY)<1e-6){stickVec.x=CC.cfRawX;stickVec.y=CC.cfRawY;}
+    CC.cfHas=false;
+   }
+  }catch(e){CC.err='cf: '+String(e&&e.message||e);}
+ }
+ requestAnimationFrame(cfTick);
  /* ---- Settings row (D50 / P51 / I52 idiom: row + toggle + note before [data-close]) ---- */
  function cc54SyncUi(){
   var st=$('cc54SetState'),b=$('cc54SetBtn'),on=ccOn();
@@ -20897,7 +21016,7 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
    row.innerHTML='<span>Chase camera</span><b id="cc54SetState">On</b>';
    var btn=document.createElement('button');btn.className='btn ghost';btn.id='cc54SetBtn';btn.type='button';btn.textContent='Turn Off';
    var note=document.createElement('p');note.className='small';
-   note.textContent='Trial view: tap the camera button round to CHASE while you are driving and the camera drops in behind your car and follows it, swinging through the corners. On foot the CHASE step simply shows the CLASSIC view, and with this setting off the CHASE step acts as CLASSIC everywhere — your other six views are untouched either way.';
+   note.textContent='Trial view: tap the camera button round to CHASE and the camera drops in behind you and follows — behind your car while you are driving, swinging through the corners, and behind your character on foot, where the stick turns to match the view (push up to walk away from the camera). With this setting off the CHASE step acts as CLASSIC everywhere — your other six views are untouched either way.';
    if(anchor){card.insertBefore(row,anchor);card.insertBefore(btn,anchor);card.insertBefore(note,anchor);}
    else{card.appendChild(row);card.appendChild(btn);card.appendChild(note);}
    btn.addEventListener('click',function(){
@@ -20941,9 +21060,9 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
   return {blocked:blocked,blockers:nb,faded:faded};
  }
  /* ---- test driver: hold (pin the car per rAF, post-loop) + recorder ---- */
- var D54={holdCfg:null,recOn:false,rec:[],rafOn:false,lastPinMs:0};
+ var D54={holdCfg:null,footHoldCfg:null,recOn:false,rec:[],rafOn:false,lastPinMs:0};
  function d54Raf(){
-  if(!D54.holdCfg&&!D54.recOn){D54.rafOn=false;return;}
+  if(!D54.holdCfg&&!D54.footHoldCfg&&!D54.recOn){D54.rafOn=false;return;}
   requestAnimationFrame(d54Raf);
   try{
    var nowMs=performance.now();
@@ -20956,6 +21075,13 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
     player.yawVel=0;
     if(player.mesh)player.mesh.position.set(cfg.x,0,cfg.z);
    }
+   var fcfg=D54.footHoldCfg;
+   if(fcfg&&(typeof footMode!=='undefined'&&footMode)){ /* v30.57: pin the walker (post-loop, like the car hold) */
+    footMode.x=fcfg.x;footMode.z=fcfg.z;footMode.vx=0;footMode.vz=0;
+    if(fcfg.h!==undefined&&fcfg.h!==null){footMode.h=fcfg.h;if(player.fig)player.fig.rotation.y=fcfg.h;}
+    player.x=fcfg.x;player.z=fcfg.z;
+    if(player.fig)player.fig.position.set(fcfg.x,0,fcfg.z);
+   }
    if(D54.recOn){
     if(!scratchV)scratchV=new THREE.Vector3();
     camera.getWorldDirection(scratchV);
@@ -20966,6 +21092,9 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
      tilt:Math.round(Math.atan2(-scratchV.y,Math.sqrt(scratchV.x*scratchV.x+scratchV.z*scratchV.z))*180/Math.PI*100)/100,
      h:(typeof player!=='undefined'&&player)?Math.round(player.h*180/Math.PI*100)/100:null,
      err:(CC.smH===null||typeof player==='undefined'||!player)?null:Math.round(angDelta(CC.smH,player.h)*180/Math.PI*100)/100,
+     fh:(typeof footMode!=='undefined'&&footMode&&footMode.h!==undefined)?Math.round(footMode.h*180/Math.PI*100)/100:null,
+     ferr:(CC.smHF===null||typeof footMode==='undefined'||!footMode||footMode.h===undefined)?null:Math.round(angDelta(CC.smHF,footMode.h)*180/Math.PI*100)/100,
+     mode:CC.mode,
      act:CC.active,own:CC.owning,step:CC.lastStep,
      occ:occ?occ.blocked:null,blk:occ?occ.blockers:null,faded:occ?occ.faded:null});
     if(D54.rec.length>9000)D54.rec.splice(0,3000);
@@ -20977,7 +21106,7 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
   version:CC.version,
   enabled:function(){return ccOn();},
   setEnabled:function(b){chaseCamEnabled=!!b;try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={};S.ui.chaseCam=b?1:0;}}catch(e){}cc54SyncUi();return ccOn();},
-  params:function(){return {idx:CC.idx,distBase:CC.distBase,distRise:CC.distRise,hBase:CC.hBase,hRise:CC.hRise,lookAhead:CC.lookAhead,lookY:CC.lookY,headRate:CC.headRate,blendT:CC.blendT,stepCap:CC.stepCap,lookCap:CC.lookCap};},
+  params:function(){return {idx:CC.idx,distBase:CC.distBase,distRise:CC.distRise,hBase:CC.hBase,hRise:CC.hRise,lookAhead:CC.lookAhead,lookY:CC.lookY,distF:CC.distF,hF:CC.hF,lookAheadF:CC.lookAheadF,lookYF:CC.lookYF,headRate:CC.headRate,blendT:CC.blendT,stepCap:CC.stepCap,lookCap:CC.lookCap};},
   views:function(){return CAM_VIEWS.map(function(v,i){return {i:i,name:v.name,tilt:v.tilt,foot:v.foot,driveBase:v.driveBase,driveRise:v.driveRise,hMin:v.hMin,hMax:v.hMax};});},
   state:function(){
    var az=null,tiltDeg=null,focus=null;
@@ -20996,6 +21125,12 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
     viewName:(typeof camView==='function'&&camView())?camView().name:null,idx:CC.idx,
     smHdeg:CC.smH===null?null:Math.round(CC.smH*180/Math.PI*10)/10,
     carHdeg:(typeof player!=='undefined'&&player)?Math.round(player.h*180/Math.PI*10)/10:null,
+    mode:CC.mode,
+    smHFdeg:CC.smHF===null?null:Math.round(CC.smHF*180/Math.PI*10)/10,
+    footHdeg:(typeof footMode!=='undefined'&&footMode&&footMode.h!==undefined)?Math.round(footMode.h*180/Math.PI*10)/10:null,
+    footErrDeg:(CC.smHF===null||typeof footMode==='undefined'||!footMode||footMode.h===undefined)?null:Math.round(angDelta(CC.smHF,footMode.h)*180/Math.PI*10)/10,
+    cfOn:CC.cfHas,cfFrames:CC.cfFrames,
+    lastTpF:CC.lastTpF?{x:Math.round(CC.lastTpF.x*10)/10,y:Math.round(CC.lastTpF.y*10)/10,z:Math.round(CC.lastTpF.z*10)/10}:null,
     headErrDeg:(CC.smH===null||typeof player==='undefined'||!player)?null:Math.round(angDelta(CC.smH,player.h)*180/Math.PI*10)/10,
     camPos:{x:Math.round(camera.position.x*10)/10,y:Math.round(camera.position.y*10)/10,z:Math.round(camera.position.z*10)/10},
     camAzDeg:az===null?null:Math.round(az*10)/10,tiltDeg:tiltDeg,focus:focus,
@@ -21014,6 +21149,11 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
    cycle:function(){cycleCamView();return camModeIdx();},
    hold:function(cfg){D54.holdCfg=cfg||null;if(cfg)d54EnsureRaf();return !!D54.holdCfg;},
    holdState:function(){return D54.holdCfg?{x:D54.holdCfg.x,z:D54.holdCfg.z,h:Math.round(D54.holdCfg.h*1000)/1000,spd:D54.holdCfg.spd}:null;},
+   footHold:function(cfg){D54.footHoldCfg=cfg||null;if(cfg)d54EnsureRaf();return !!D54.footHoldCfg;},
+   footHoldState:function(){return D54.footHoldCfg?{x:D54.footHoldCfg.x,z:D54.footHoldCfg.z,h:(D54.footHoldCfg.h===undefined||D54.footHoldCfg.h===null)?null:Math.round(D54.footHoldCfg.h*1000)/1000}:null;},
+   foot:function(){if(typeof footMode==='undefined'||!footMode)return null;return {x:Math.round(footMode.x*10)/10,z:Math.round(footMode.z*10)/10,h:(footMode.h===undefined?null:Math.round(footMode.h*1000)/1000),vx:Math.round((footMode.vx||0)*10)/10,vz:Math.round((footMode.vz||0)*10)/10,figRot:(typeof player!=='undefined'&&player&&player.fig)?Math.round(player.fig.rotation.y*1000)/1000:null};},
+   stick:function(){return (typeof stickVec!=='undefined')?{x:Math.round(stickVec.x*1000)/1000,y:Math.round(stickVec.y*1000)/1000}:null;},
+   setStick:function(x,y){if(typeof stickVec!=='undefined'){stickVec.x=x;stickVec.y=y;}return (typeof stickVec!=='undefined')?{x:stickVec.x,y:stickVec.y}:null;},
    findOpen:function(){
     var bx,bz,i,dx,dz,ok;
     for(var gx=-6000;gx<=6000;gx+=250){
@@ -21467,7 +21607,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3056={version:'v30.56'};</script>
+<script>window.__V3057={version:'v30.57'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
