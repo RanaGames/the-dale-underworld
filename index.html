@@ -14860,6 +14860,7 @@ if(typeof SEATS!=='undefined'&&SEATS.c63==null){SEATS.c63=1;}
   try{if(svIsObj(S.livingStreets)&&svIsObj(S.livingStreets.profiles))sec.livingStreets={version:1,data:{profiles:svClone(S.livingStreets.profiles)}};}catch(e){}
   try{if(svIsObj(S.homeBase)&&typeof S.homeBase.siteId==='string')sec.homeBase={version:1,data:{siteId:S.homeBase.siteId,mapVer:(typeof S.mapVer==='number'&&isFinite(S.mapVer))?S.mapVer:1}};}catch(e){}
   try{if(window.__CR64&&__CR64.saveSection){var crd64=__CR64.saveSection();if(crd64)sec.charRaces={version:1,data:crd64};}}catch(e){}
+  try{if(window.__MS66&&__MS66.saveSection){var msd66=__MS66.saveSection();if(msd66)sec.mercStarter={version:1,data:msd66};}}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -24450,6 +24451,141 @@ if(!window.__MC65){
 })();
 }
 
+
+/* =====================================================================
+   v30.66 — __MS66 "MY CAR IS THE MERC" (the user's direction, 2026-11-15:
+   "I want my car to be the merc.")
+   ---------------------------------------------------------------------
+   The player's car becomes the Mercedes C63 AMG that v30.65 put on the
+   lot. ADDITIVE ONLY — nothing is taken away: the starter saloon (the
+   M5) stays owned in the garage, Ily's white M5 marker is untouched,
+   and the C63's lot entry is unchanged.
+
+     - NEW GAME: the player starts in the C63 (S.car='c63', owned from
+       the start, the saloon owned alongside it). The C63 presents via
+       __MC65's GLB dressing exactly as a lot-bought one does.
+     - EXISTING SAVE: a ONE-TIME migration the first time a save loads
+       with the flag ON — grants C63 ownership and selects it, leaving
+       every other owned car and all other state untouched. The grant
+       is recorded in a versioned __SAVE35 section (mercStarter
+       {version:1, data:{done:true}}, collected by ONE added try-line
+       in svCollect — the __CR64 charRaces pattern), so it never
+       re-fires: if the player later takes the M5 out of the garage,
+       that choice survives every reload.
+     - FLAG OFF: no migration, new games start with the M5 exactly as
+       shipped. A grant already made is NOT un-done (ownership, once
+       granted, stays — the game's additive-save rule). The OFF state
+       is mirrored in a localStorage key (dale.mercStarterEnabled.v1,
+       the __HOME47 kill-switch precedent) as well as the S.ui pref, so
+       it survives the #fresh save wipe that starts a new game — a
+       player who turned this off keeps M5 starters.
+
+   SOUND / SCALE AUDIT (no edits made): the __RS43 V8 never keyed on
+   the M5 — its want() keys on driving at all (playing, not on foot,
+   not muted), with pitch scaled by the CURRENT car's carSpec().speed,
+   so the Merc gets the V8 exactly as the saloon did, code untouched.
+   The __SC61 scale pass keys on the RC40_GLBCAR instance itself, so
+   its x1.10 stays attached to M5 instances only by construction; the
+   C63 player mesh carries no RC40 instance and is never scaled by it.
+
+   Debug: window.__MS66. */
+var mercStarterEnabled=true; /* v30.66 master "my car is the Merc" flag (default ON) */
+if(!window.__MS66){
+(function(){
+ 'use strict';
+ var MS={version:'ms66-1',err:null,done:false,applied:null,sectionSeen:false};
+ function msStoreOff(){try{return localStorage.getItem('dale.mercStarterEnabled.v1')==='0';}catch(e){return false;}}
+ function msOn(){return !!mercStarterEnabled&&!msStoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.mercStarter===0);}
+ function msSetPref(on){try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}};S.ui.mercStarter=on?1:0;}}catch(e){}
+  try{localStorage.setItem('dale.mercStarterEnabled.v1',on?'1':'0');}catch(e){}}
+ /* the stored section, read straight from the save payload (the __CR64 read pattern) */
+ function msReadSection(){
+  try{var raw=localStorage.getItem('dale.save.v1');if(!raw)return null;
+   var pv=JSON.parse(raw);
+   if(pv&&pv.state&&pv.state.sections&&pv.state.sections.mercStarter&&pv.state.sections.mercStarter.data)return pv.state.sections.mercStarter.data;
+  }catch(e){}
+  return null;
+ }
+ function saveSection(){try{if(MS.done)return {done:true};}catch(e){} return undefined;}
+ /* the one-time grant: own the Merc + select it; the M5 stays owned.
+    Refuses (without recording) while a stolen ride is live, so it can
+    never fight the ride machinery — the next boot applies it instead. */
+ function msGrant(source){
+  if(MS.done)return false;
+  try{
+   if(typeof S==='undefined'||!S||typeof CARS==='undefined'||!CARS.c63)return false;
+   if(!S.ownedCars||typeof S.ownedCars!=='object')return false;
+   if(S.ride)return false;
+   S.ownedCars.c63=true;
+   if(S.carMods&&!S.carMods.c63)S.carMods.c63={color:null,tint:0,alloy:false,loud:false};
+   S.car='c63';
+   /* the new current car's own damage figure, mirroring svRestore's rule */
+   S.carDamage=(S.carDamageBy&&typeof S.carDamageBy.c63==='number'&&isFinite(S.carDamageBy.c63))?S.carDamageBy.c63:0;
+   MS.done=true;MS.applied=source;
+   try{applyCar();}catch(e){}
+   return true;
+  }catch(e){MS.err='grant:'+String(e&&e.message||e);return false;}
+ }
+ /* ---------------- boot: migrate a restored save once; start a fresh
+    game in the Merc. A section already in the save means the grant ran
+    in an earlier session — never re-fire, never re-select. ---------------- */
+ try{
+  var sec0=msReadSection();
+  if(sec0&&sec0.done){MS.done=true;MS.sectionSeen=true;}
+  else if(msOn()){
+   var st66=null;try{st66=(window.__SAVE35&&__SAVE35.status)?__SAVE35.status():null;}catch(e){}
+   if(st66&&st66.restored)msGrant('migration');
+   else msGrant('newgame');
+  }
+ }catch(e){MS.err='boot:'+String(e&&e.message||e);}
+ /* ---------------- settings row (the __BR63/__MC65 idiom) ---------------- */
+ function msSyncSettings(){
+  var st=document.getElementById('ms66SetState'),btn=document.getElementById('ms66SetBtn');
+  if(st){var want=msOn()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=msOn()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function msBuildSettings(){
+  if(document.getElementById('ms66SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">My car — Mercedes C63 AMG</div><div class="setRowNote">Your motor\u2019s the Merc now: new games start in the C63, and a save that\u2019s never had it gets it in the garage, selected — once. The M5 stays yours as well. Off = new games start in the M5 as shipped; a Merc already granted stays granted.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='ms66SetState';st.textContent=msOn()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='ms66SetBtn';btn.textContent=msOn()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){msSetEnabled(!msOn());});
+  row.appendChild(btn);
+  card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function msSetEnabled(on){
+  mercStarterEnabled=!!on;msSetPref(on);
+  if(on&&!MS.done){
+   /* turning it on over a restored save that never had the grant is the
+      same ask as the boot migration — apply it now (msGrant itself
+      refuses mid-ride; the next boot picks it up then) */
+   try{var st66b=(window.__SAVE35&&__SAVE35.status)?__SAVE35.status():null;
+    if(!st66b||st66b.restored||!st66b.hasSave)msGrant('toggle');
+   }catch(e){}
+  }
+  msSyncSettings();
+  return msOn();
+ }
+ setInterval(function(){try{msBuildSettings();msSyncSettings();}catch(e){}},900);
+ window.__MS66={
+  version:'v30.66',
+  on:msOn,
+  setEnabled:msSetEnabled,
+  saveSection:saveSection,
+  state:function(){return {version:MS.version,on:msOn(),done:MS.done,applied:MS.applied,sectionSeen:MS.sectionSeen,err:MS.err,
+   car:(typeof S!=='undefined'&&S)?S.car:null,
+   ownsC63:!!(typeof S!=='undefined'&&S&&S.ownedCars&&S.ownedCars.c63),
+   ownsSaloon:!!(typeof S!=='undefined'&&S&&S.ownedCars&&S.ownedCars.saloon)};}
+ };
+})();
+}
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -24866,7 +25002,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3065={version:'v30.65'};</script>
+<script>window.__V3066={version:'v30.66'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
