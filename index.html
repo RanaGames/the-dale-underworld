@@ -25378,6 +25378,226 @@ window.__IL68={
 };
 })();
 }
+/* =====================================================================
+   v30.69 — __RD69 "CAR RADIO" (appended layer; the version marker swap
+   in the head script tag is this build's only other edit). The user's
+   directions, 2026-11-15: "Let's put a radio system in cars" + "That
+   connects to real rochdale stations".
+   ---------------------------------------------------------------------
+   A radio that exists ONLY in the car. A 📻 Radio button joins the
+   driving pedal row (#pedals — visible only under body.driving, so it
+   can never show on foot); tapping it opens a compact tuner panel
+   listing 13 REAL stations whose streams were verified live from a
+   non-UK connection on 2026-11-15 (files/RADIO-STATIONS.md — Rochdale /
+   Manchester / North West first, then the BBC nationals). One
+   HTMLAudio element owned by this layer plays the chosen stream:
+   MP3/AAC Icecast for the locals, BBC HLS via the lsn.lv redirector at
+   the 96 kbps variant (kinder on mobile data; iOS Safari plays HLS
+   natively in <audio>). The station tap is the user gesture, so the
+   autoplay policy is satisfied; nothing loads at boot (preload=none,
+   no src until he tunes), so the game runs exactly as before offline.
+
+   BEHAVIOUR (the user's brief): the radio starts only while driving.
+   Getting out STOPS it (engine off = radio off). Getting back in never
+   auto-resumes — he taps to tune again. Pause, custody/arrest, day-end
+   and flag-OFF all stop playback. The game's mute (S.muted — the same
+   switch the engine sound and the Breaking Bad anchor honour) silences
+   the radio while muted. A stream that errors or stalls fails
+   QUIETLY: the station is marked unavailable in the tuner, one toast,
+   no throw, no wedged UI; tapping it again retries. The last station
+   is remembered in the pref (S.ui.radio69) for the tuner's highlight —
+   it still never auto-plays. No menu-music / engine-sound / Breaking
+   Bad interference beyond the shared mute; no economy / police / FSM
+   writes anywhere in this layer.
+
+   FLAG: carRadioEnabled default ON, pref S.ui.carRadio, mirrored in
+   the localStorage key dale.carRadioEnabled.v1 (the __MS66/__GR67
+   reasoning: a pref-only OFF would be erased by the #fresh save
+   wipe). OFF: playback stops, the button and panel are removed.
+   Debug: window.__RD69 (state / setEnabled / tune / stop).
+   ===================================================================== */
+var carRadioEnabled=true; /* v30.69 master "Car radio" flag (default ON) */
+if(!window.__RD69){ (function(){
+ var RD_STATIONS=[
+  {name:'Roch Valley Radio',sub:'Rochdale · DAB / online',url:'https://stream.rcs.revma.com/v0k7g3paxd3vv'},
+  {name:'Crescent Radio',sub:'97.0 FM · Rochdale',url:'http://icecast.commedia.org.uk:8000/crescent.mp3'},
+  {name:'BBC Radio Manchester',sub:'95.1 FM · Manchester',url:'https://lsn.lv/bbcradio.m3u8?station=bbc_radio_manchester&bitrate=96000'},
+  {name:'Smooth North West',sub:'100.4 FM · North West',url:'https://media-ice.musicradio.com/SmoothNorthWestMP3'},
+  {name:'Capital Manchester',sub:'102.0 FM · Manchester',url:'https://media-ice.musicradio.com/CapitalManchesterMP3'},
+  {name:'Hits Radio Manchester',sub:'103.0 FM · Manchester',url:'https://stream-al.hellorayo.co.uk/key.mp3?direct=true&aw_0_1st.skey=1602676850&rp_source=1'},
+  {name:'Heart North West',sub:'105.4 FM · North West',url:'https://media-ice.musicradio.com/HeartNorthWestMP3'},
+  {name:'Greatest Hits Radio Manchester',sub:'96.2 FM · Manchester & NW',url:'https://stream-mz.hellorayo.co.uk/magic1152m.mp3?direct=true&aw_0_1st.skey=1602676850&rp_source=1'},
+  {name:'BBC 1Xtra',sub:'National',url:'https://lsn.lv/bbcradio.m3u8?station=bbc_1xtra&bitrate=96000'},
+  {name:'BBC Asian Network',sub:'National',url:'https://lsn.lv/bbcradio.m3u8?station=bbc_asian_network&bitrate=96000'},
+  {name:'BBC Radio 1',sub:'National',url:'https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=96000'},
+  {name:'BBC Radio 2',sub:'National',url:'https://lsn.lv/bbcradio.m3u8?station=bbc_radio_two&bitrate=96000'},
+  {name:'BBC 5 Live',sub:'National',url:'https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=96000'}
+ ];
+ var RD={cur:-1,sel:-1,unavail:{},panel:false,built:false,loadT:0,daySeen:-1,err:''};
+ /* ---------- flag (the family idiom) ---------- */
+ function rdStoreOff(){try{return localStorage.getItem('dale.carRadioEnabled.v1')==='0';}catch(e){return false;}}
+ function rdOn(){return !!carRadioEnabled&&!rdStoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.carRadio===0);}
+ function rdSetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.carRadio=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.carRadioEnabled.v1',on?'1':'0');}catch(e){}}
+ function rdSetEnabled(on){carRadioEnabled=!!on;rdSetPref(on);if(!on)rdStop('flag');rdSyncChrome();}
+ /* ---------- state helpers ---------- */
+ function rdFoot(){return (typeof footMode!=='undefined'&&footMode)?true:false;}
+ function rdCustody(){return (typeof custody!=='undefined'&&custody)?true:false;}
+ function rdCanPlay(){return rdOn()&&typeof S!=='undefined'&&S&&S.playing&&!S.paused&&!rdFoot()&&!rdCustody();}
+ /* ---------- the one audio element ---------- */
+ var au=document.createElement('audio');
+ au.preload='none';au.volume=0.9;
+ au.addEventListener('playing',function(){if(RD.loadT){clearTimeout(RD.loadT);RD.loadT=0;}rdRows();});
+ au.addEventListener('error',function(){if(RD.cur>=0)rdFail(RD.cur,'error');},true);
+ function rdVol(){au.volume=(typeof S!=='undefined'&&S&&S.muted)?0:0.9;}
+ function rdTune(i){
+  if(!rdCanPlay())return false;
+  if(i===RD.cur){rdStop('toggle');return true;}
+  RD.unavail[i]=false;
+  RD.cur=i;RD.sel=i;
+  try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.radio69=i;}catch(e){}
+  rdVol();
+  try{au.src=RD_STATIONS[i].url;var p=au.play();if(p&&p.catch)p.catch(function(){rdFail(i,'play-rejected');});}catch(e){rdFail(i,'throw');}
+  if(RD.loadT)clearTimeout(RD.loadT);
+  RD.loadT=setTimeout(function(){RD.loadT=0;if(RD.cur===i&&au.readyState<2)rdFail(i,'stall');},12000);
+  rdRows();rdSyncChrome();
+  return true;
+ }
+ function rdFail(i,why){
+  if(RD.cur===i){RD.cur=-1;try{au.pause();au.removeAttribute('src');au.load();}catch(e){}}
+  if(RD.loadT){clearTimeout(RD.loadT);RD.loadT=0;}
+  RD.unavail[i]=true;RD.err=String(why||'error');
+  rdRows();rdSyncChrome();
+  try{toast('📻 '+RD_STATIONS[i].name+' — stream unavailable right now');}catch(e){}
+ }
+ function rdStop(why){
+  if(RD.loadT){clearTimeout(RD.loadT);RD.loadT=0;}
+  RD.cur=-1;
+  try{au.pause();au.removeAttribute('src');au.load();}catch(e){}
+  RD.panel=false;rdRows();rdSyncChrome();
+ }
+ function rdStep(d){
+  var n=RD_STATIONS.length,from=(RD.cur>=0?RD.cur:(RD.sel>=0?RD.sel:(d>0?-1:0)));
+  rdTune(((from+d)%n+n)%n);
+ }
+ /* ---------- UI ---------- */
+ function rdRows(){
+  var list=document.getElementById('rd69List');if(!list)return;
+  for(var i=0;i<list.children.length;i++){
+   var r=list.children[i];if(!r||!r.classList)continue;
+   if(RD.cur===i)r.classList.add('live');else r.classList.remove('live');
+   if(RD.unavail[i])r.classList.add('unavail');else r.classList.remove('unavail');
+   var tag=r.querySelector('.rd69Tag');if(tag)tag.textContent=(RD.cur===i)?'▶ on air':(RD.unavail[i]?'unavailable':'');
+  }
+  var now=document.getElementById('rd69Now');
+  if(now)now.textContent=(RD.cur>=0)?RD_STATIONS[RD.cur].name:'Off';
+ }
+ function rdSyncChrome(){
+  var b=document.getElementById('rd69Btn');
+  if(b){b.style.display=rdOn()?'':'none';if(RD.cur>=0)b.classList.add('on');else b.classList.remove('on');}
+  var p=document.getElementById('rd69Panel');
+  if(p){if(RD.panel&&rdOn())p.classList.add('on');else p.classList.remove('on');}
+ }
+ function rdBuild(){
+  if(RD.built)return true;
+  var pedals=document.getElementById('pedals');if(!pedals)return false;
+  if(!document.getElementById('rd69-css')){
+   var st=document.createElement('style');st.id='rd69-css';
+   st.textContent='#rd69Btn.on{background:rgba(232,179,58,.55);border-color:rgba(232,179,58,.8);}'
+    +'#rd69Panel{position:absolute;right:calc(12px + var(--sar));bottom:calc(118px + var(--sab));width:min(268px,74vw);max-height:54vh;display:none;flex-direction:column;background:var(--plate);border:1px solid rgba(232,179,58,.45);border-radius:12px;box-shadow:var(--shadow);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);z-index:65;overflow:hidden;pointer-events:auto;}'
+    +'#rd69Panel.on{display:flex;}'
+    +'.rd69Head{display:flex;align-items:center;gap:5px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.12);}'
+    +'.rd69Title{flex:1;font-family:\'Barlow Condensed\',sans-serif;font-size:16px;letter-spacing:.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
+    +'.rd69HBtn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:var(--ink);border-radius:8px;padding:5px 9px;font-size:13px;cursor:pointer;}'
+    +'.rd69List{overflow-y:auto;-webkit-overflow-scrolling:touch;}'
+    +'.rd69Row{display:flex;align-items:baseline;gap:8px;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid rgba(255,255,255,.06);color:var(--ink);padding:9px 12px;font-size:15px;cursor:pointer;}'
+    +'.rd69Row .rd69Nm{flex:1;}'
+    +'.rd69Row .rd69Sub{font-size:11px;color:var(--dim);white-space:nowrap;}'
+    +'.rd69Row .rd69Tag{font-size:11px;color:#e8b33a;white-space:nowrap;}'
+    +'.rd69Row.live{background:rgba(232,179,58,.16);}'
+    +'.rd69Row.unavail{opacity:.45;}';
+   document.head.appendChild(st);
+  }
+  var btn=document.createElement('button');
+  btn.type='button';btn.className='btn pedal mini';btn.id='rd69Btn';
+  btn.setAttribute('aria-label','Car radio');btn.title='Car radio';
+  btn.innerHTML='📻<br>Radio';
+  btn.addEventListener('click',function(){if(!rdOn())return;RD.panel=!RD.panel;rdRows();rdSyncChrome();});
+  pedals.insertBefore(btn,pedals.firstChild);
+  var panel=document.createElement('div');panel.id='rd69Panel';
+  var head=document.createElement('div');head.className='rd69Head';
+  head.innerHTML='<span class="rd69Title">📻 <span id="rd69Now">Off</span></span>';
+  var prev=document.createElement('button');prev.type='button';prev.className='rd69HBtn';prev.textContent='◀';prev.setAttribute('aria-label','Previous station');
+  prev.addEventListener('click',function(){rdStep(-1);});
+  var next=document.createElement('button');next.type='button';next.className='rd69HBtn';next.textContent='▶';next.setAttribute('aria-label','Next station');
+  next.addEventListener('click',function(){rdStep(1);});
+  var off=document.createElement('button');off.type='button';off.className='rd69HBtn';off.textContent='Off';off.setAttribute('aria-label','Radio off');
+  off.addEventListener('click',function(){rdStop('off');});
+  var close=document.createElement('button');close.type='button';close.className='rd69HBtn';close.textContent='✕';close.setAttribute('aria-label','Close radio');
+  close.addEventListener('click',function(){RD.panel=false;rdSyncChrome();});
+  head.appendChild(prev);head.appendChild(next);head.appendChild(off);head.appendChild(close);
+  panel.appendChild(head);
+  var list=document.createElement('div');list.className='rd69List';list.id='rd69List';
+  RD_STATIONS.forEach(function(s2,i){
+   var r=document.createElement('button');r.type='button';r.className='rd69Row';r.setAttribute('data-rd',String(i));
+   r.innerHTML='<span class="rd69Nm"></span><span class="rd69Tag"></span><span class="rd69Sub"></span>';
+   r.querySelector('.rd69Nm').textContent=s2.name;
+   r.querySelector('.rd69Sub').textContent=s2.sub;
+   r.addEventListener('click',function(){rdTune(i);});
+   list.appendChild(r);
+  });
+  panel.appendChild(list);
+  (pedals.parentNode||document.body).appendChild(panel);
+  try{if(typeof S!=='undefined'&&S&&S.ui&&typeof S.ui.radio69==='number')RD.sel=S.ui.radio69;}catch(e){}
+  RD.built=true;rdRows();rdSyncChrome();
+  return true;
+ }
+ /* ---------- settings row + watchdog (the family interval idiom) ---------- */
+ setInterval(function(){
+  try{
+   rdBuild();
+   var panel=document.querySelector('#settingsPanel .card');
+   if(panel&&!document.getElementById('rd69SetRow')){
+    var row=document.createElement('div');row.className='setRow';row.id='rd69SetRow';
+    row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Car radio \u2014 real Rochdale stations</div><div class="setRowNote">A radio in the car, tuned to the real Rochdale &amp; Manchester stations \u2014 Roch Valley, Crescent 97.0, BBC Radio Manchester, Capital, Hits, Heart, Smooth, Greatest Hits and the BBC nationals, streamed live. Tap \ud83d\udcfb Radio while driving to tune in; it cuts when you get out. Needs internet; a station that can\u2019t stream just shows as unavailable. Off = no radio button, exactly as before.</div></div>';
+    var st=document.createElement('span');st.className='setState';st.id='rd69SetState';st.textContent=rdOn()?'On':'Off';row.appendChild(st);
+    var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='rd69SetBtn';btn.textContent=rdOn()?'Turn off':'Turn on';
+    btn.addEventListener('click',function(){rdSetEnabled(!rdOn());});
+    row.appendChild(btn);
+    var anchor=panel.querySelector('[data-close]');
+    if(anchor)panel.insertBefore(row,anchor);else panel.appendChild(row);
+   }
+   var st2=document.getElementById('rd69SetState');if(st2)st2.textContent=rdOn()?'On':'Off';
+   var b2=document.getElementById('rd69SetBtn');if(b2)b2.textContent=rdOn()?'Turn off':'Turn on';
+   /* watchdog: the stop conditions from the brief */
+   if(typeof S!=='undefined'&&S){
+    if(RD.daySeen<0)RD.daySeen=S.day;
+    if(RD.cur>=0){
+     if(!rdOn())rdStop('flag');
+     else if(!S.playing)rdStop('menu');
+     else if(S.paused)rdStop('pause');
+     else if(rdFoot())rdStop('out');
+     else if(rdCustody())rdStop('custody');
+     else if(RD.daySeen!==S.day)rdStop('day');
+     else rdVol();
+    }
+    if(RD.daySeen!==S.day)RD.daySeen=S.day;
+    if(RD.panel&&(!S.playing||S.paused||rdFoot())){RD.panel=false;rdSyncChrome();}
+   }
+   if(!rdOn()&&(RD.cur>=0||RD.panel)){RD.panel=false;if(RD.cur>=0)rdStop('flag');rdSyncChrome();}
+  }catch(e){RD.err=String(e&&e.message||e);}
+ },500);
+ /* ---------- debug surface ---------- */
+ function rdState(){return {version:'v30.69',on:rdOn(),cur:RD.cur,sel:RD.sel,
+  name:RD.cur>=0?RD_STATIONS[RD.cur].name:null,
+  src:au.currentSrc||au.src||'',readyState:au.readyState,networkState:au.networkState,
+  paused:au.paused,currentTime:Math.round(au.currentTime*10)/10,volume:au.volume,
+  muted:(typeof S!=='undefined'&&S)?!!S.muted:null,
+  driving:(typeof S!=='undefined'&&S)?!!(S.playing&&!S.paused&&!rdFoot()):null,
+  panel:RD.panel,unavail:Object.keys(RD.unavail).filter(function(k){return RD.unavail[k];}),err:RD.err};}
+ window.__RD69={version:'v30.69',on:rdOn,setEnabled:rdSetEnabled,state:rdState,tune:rdTune,stop:function(){rdStop('debug');},
+  stations:RD_STATIONS.map(function(s2){return {name:s2.name,sub:s2.sub,url:s2.url};})};
+})();}
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -25794,7 +26014,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3068={version:'v30.68'};</script>
+<script>window.__V3069={version:'v30.69'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
