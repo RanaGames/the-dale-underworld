@@ -20820,6 +20820,7 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
    return camModeIdx()===CC.idx;
   }catch(e){return false;}
  }
+ function orbF60(){try{var w=window.__IF60;return (w&&w.footOrbit)?w.footOrbit():0;}catch(e){return 0;}} /* v30.60: __IF60 foot-orbit offset for the rotation below */
  function footFacingH(){ /* the character's facing in footMode.h space:
     footMode.h once the walker has run; before its first tick the walker
     itself initialises from player.fig.rotation.y — read the same source */
@@ -20993,7 +20994,7 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
     if(CC.smHF===null)CC.smHF=footFacingH();
     if(CC.cfHas&&Math.abs(stickVec.x-CC.cfOutX)<1e-6&&Math.abs(stickVec.y-CC.cfOutY)<1e-6){stickVec.x=CC.cfRawX;stickVec.y=CC.cfRawY;}
     CC.cfRawX=stickVec.x;CC.cfRawY=stickVec.y;
-    var sH=Math.sin(CC.smHF),cH=Math.cos(CC.smHF);
+    var sH=Math.sin(CC.smHF+orbF60()),cH=Math.cos(CC.smHF+orbF60()); /* v30.60: the foot-chase stick rotation reads the EFFECTIVE heading — __CC54's smoothed heading plus the __IF60 orbit offset (0 when the interface layer is off/absent) */
     var rx=CC.cfRawY*sH+CC.cfRawX*cH,rz=CC.cfRawY*cH-CC.cfRawX*sH;
     stickVec.x=rx;stickVec.y=rz;CC.cfOutX=rx;CC.cfOutY=rz;CC.cfHas=true;CC.cfFrames++;
    }else if(CC.cfHas){
@@ -21047,7 +21048,7 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
      if(!on)return;
      if(CC.smHF===null)CC.smHF=footFacingH();
      CC.cfRawX=stickVec.x;CC.cfRawY=stickVec.y;
-     var sH=Math.sin(CC.smHF),cH=Math.cos(CC.smHF);
+     var sH=Math.sin(CC.smHF+orbF60()),cH=Math.cos(CC.smHF+orbF60()); /* v30.60: the foot-chase stick rotation reads the EFFECTIVE heading — __CC54's smoothed heading plus the __IF60 orbit offset (0 when the interface layer is off/absent) */
      var rx=CC.cfRawY*sH+CC.cfRawX*cH,rz=CC.cfRawY*cH-CC.cfRawX*sH;
      stickVec.x=rx;stickVec.y=rz;CC.cfOutX=rx;CC.cfOutY=rz;CC.cfHas=true;FIX58.frames++;
     }catch(e){FIX58.err='ev: '+String(e&&e.message||e);}
@@ -21965,6 +21966,643 @@ window.__daleMenu={
   if(S.raceRec)Object.keys(S.raceRec).forEach(function(k){var m=null;for(var i=0;i<MATES.length;i++)if(MATES[i].id===k)m=MATES[i];races.push({name:m?m.name:k,w:S.raceRec[k].w,l:S.raceRec[k].l});tw+=S.raceRec[k].w;tl+=S.raceRec[k].l;});
   return {day:S.day,arrests:r.arrests,offences:r.offences.slice(),pending:r.pending.length,points:totalPoints(),races:races,raceW:tw,raceL:tl,snakeHi:S.snakeHi||0};}
 };
+/* ================= v30.60 — INTERFACE BUILD (__IF60) =================
+   His directions, 2026-11-14 — four pieces in ONE appended layer:
+
+   1. CHASE-ONLY DRIVING (his decision, superseding "keep both views"
+      FOR DRIVING): while driving, the camera is always CHASE — the
+      north-up views no longer apply in a car. On foot is UNCHANGED:
+      all views stay, foot chase included. Enforcement is a view-index
+      guard only (an rAF tick + a cycleCamView wrap): while driving
+      with the chase flag on, the index is held at CHASE and cycling
+      re-selects CHASE. The chaseCamEnabled kill switch restores the
+      shipped driving views entirely when OFF — with it off, this
+      piece is inert and the cycle runs shipped, bit-for-bit. While
+      chase owns driving, D50's §8 look-ahead cannot fight it: the
+      __CC54 wrap never calls through while it owns the camera, so
+      D50's lead simply never applies in a car (on foot it runs as
+      shipped). The minimap stays north-up — nothing here touches it.
+
+   2. CHASE CONTROLS: pinch zoom + drag-orbit on the CHASE view,
+      driving first and the same two on the foot chase. Orbit rotates
+      the placed camera around the subject (a post-placement rigid
+      rotation of the __CC54 placement around the car / character,
+      plus a proportional height scale for zoom) and settles back
+      behind at 2.4/s once the drag ends; zoom is a distance
+      multiplier remembered for the rest of that drive / walk
+      (session state, deliberately not saved). On foot the stick
+      follows the EFFECTIVE heading (smoothed heading + orbit): the
+      v30.58 write-seam listeners and the cfTick rotator inside
+      __CC54 read the orbit through window.__IF60.footOrbit() (two
+      enumerated one-token edits + one helper in that layer), so the
+      proven delivery path itself carries the orbit — nothing is
+      re-invented downstream of it. Gestures live on the renderer
+      canvas only: the stick, pedals and buttons are separate
+      elements holding their own pointer captures, so a gesture
+      pointer can never be a control pointer and vice versa — the
+      v30.44 three-finger discipline holds by construction.
+      LIMITS: orbit ±2.6 rad; drive distance clamped 65–330u
+      (multiplier 0.45–1.9 over the shipped 140–185); foot distance
+      clamped 28–175u (multiplier 0.4–2.2 over the shipped 70);
+      free-camera distance 25–500u.
+
+   3. UI REMOVE (his ask: "a feature to remove ui in the edit mode"):
+      the shipped layout editor (Pause → Edit Layout) gains a ✕ chip
+      on every removable unit. A hidden unit stays hidden in play;
+      edit mode shows a dashed ghost in its place (tap to restore);
+      a Reset UI button in the editor bar restores positions AND
+      hidden units together (the shipped Reset Layout still does
+      positions only). GUARD (non-negotiable): the top bar — it
+      carries the pause button — the stick and the pedals are NOT
+      removable and never get a chip. Visibility persists in the
+      existing HUD prefs store (localStorage dale.hudPrefs.v1, keys
+      uiHidden60 / uiGhost60 merged in, other keys preserved; the
+      v30.24 layer's fixed-key save can overwrite the merged object,
+      so this layer re-merges from its runtime state on an interval —
+      the runtime is the in-session truth and the store self-heals).
+
+   4. FREE CAMERA (his ask): Pause → Free Camera. The player
+      controls freeze (inputs zeroed at entry and re-zeroed every
+      frame from inside the camPlace wrap, velocities pinned),
+      EVERY UI element hides (one body class; the game canvas is
+      the only survivor), and the camera orbits the player on
+      finger drags (pinch = distance) while the world keeps living
+      — updateGame is never paused. ONE small ✕ in the corner is
+      the only thing on screen and the only way out. Entry is
+      refused while an arrest sequence or custody is active, and
+      if an arrest starts while it is open it closes itself: the
+      player never moves and the police simulation runs untouched,
+      so it cannot be used to dodge an arrest or gain anything.
+
+   FLAGS: interface60Enabled (default ON) + pref S.ui.if60 (the
+   CC54 / D50 layer idiom; the layer's only save footprint). Flag
+   OFF = every piece inert: cycle shipped, gestures dead, hidden
+   units restored, free camera unavailable. Piece 1 additionally
+   requires the chase flag exactly as specced. Booking, the police
+   FSM and custody outcomes are untouched. The two __CC54 seam
+   edits are enumerated in the build script / report; everything
+   else here is this module, spliced INSIDE the game script's IIFE
+   after __CT59 (the __CT59 splice pattern — the game script's
+   bindings are IIFE-scoped, so an appended <script> block could
+   not reach camPlace / cycleCamView / layoutApply at all).
+   Debug: window.__IF60. */
+var interface60Enabled=true; /* v30.60 master flag (default ON) */
+(function(){
+ 'use strict';
+ function $(id){return document.getElementById(id);}
+ var IF={version:'if60-1',err:null,calls:0,lastMs:0,
+  orbD:0,orbF:0,zoomD:1,zoomF:1,
+  ptrs:{},dragMode:null,pinchD:0,lastMode:null,lastAdj:null,gBound:false,
+  free:false,freeAz:0,freeEl:.5,freeR:120,freeAx:0,freeAy:14,freeAz2:0,
+  freeIn:0,freePos:null,freeLook:null,freeFromPos:null,freeFromLook:null,
+  exitBlend:0,exitPos:null,exitLook:null,exitFromPos:null,exitFromLook:null,
+  hidden:[],ghosts:{},applied:{},editing:false,chipEls:[],ghostEls:[]};
+ var ORB_MAX=2.6,ORB_RATE=2.4,ORB_SENS=0.008;
+ var ZD_MIN=65,ZD_MAX=330,ZD_KMIN=0.45,ZD_KMAX=1.9;
+ var ZF_MIN=28,ZF_MAX=175,ZF_KMIN=0.4,ZF_KMAX=2.2;
+ var FR_MIN=25,FR_MAX=500;
+ var REMOVABLE={feed:1,minimap:1,tasks:1,speed:1,phone:1,fight:1,steer:1,talk:1}; /* topbar (pause), stick, pedals: NOT removable — the guard */
+ function ifOn(){
+  if(!interface60Enabled)return false;
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.if60===0)return false;}catch(e){}
+  return true;
+ }
+ function ccOn(){try{return !!(window.__CC54&&__CC54.enabled());}catch(e){return false;}}
+ function ccIdx(){try{return __CC54.params().idx;}catch(e){return -1;}}
+ function moveToward(p,t,cap){
+  var dx=t.x-p.x,dy=t.y-p.y,dz=t.z-p.z;
+  var d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+  if(d<=cap||d===0){p.x=t.x;p.y=t.y;p.z=t.z;return d;}
+  var k=cap/d;p.x+=dx*k;p.y+=dy*k;p.z+=dz*k;return cap;
+ }
+ function orb(mode){return mode==='foot'?IF.orbF:IF.orbD;}
+ function setOrb(mode,v){v=Math.max(-ORB_MAX,Math.min(ORB_MAX,v));if(mode==='foot')IF.orbF=v;else IF.orbD=v;}
+ function zoom(mode){return mode==='foot'?IF.zoomF:IF.zoomD;}
+ function setZoom(mode,v){if(mode==='foot')IF.zoomF=Math.max(ZF_KMIN,Math.min(ZF_KMAX,v));else IF.zoomD=Math.max(ZD_KMIN,Math.min(ZD_KMAX,v));}
+ /* ---- the chase gate: the __CC54 activity gates, replicated from
+    its own reads (playing, unpaused, no arrest/custody, CHASE index) ---- */
+ function chaseGate(){
+  if(!ifOn()||!ccOn())return null;
+  try{
+   if(typeof S==='undefined'||!S||!S.playing||S.paused)return null;
+   if(typeof arrestSeq!=='undefined'&&arrestSeq)return null;
+   if(typeof custody!=='undefined'&&custody)return null;
+   if(typeof footMode==='undefined')return null;
+   if(camModeIdx()!==ccIdx())return null;
+   return {mode:footMode?'foot':'drive'};
+  }catch(e){return null;}
+ }
+ /* ================= piece 1: chase-only driving ================= */
+ try{
+  var cyclePrev=cycleCamView;
+  cycleCamView=function(){
+   try{
+    if(ifOn()&&ccOn()&&typeof S!=='undefined'&&S&&S.playing&&typeof footMode!=='undefined'&&!footMode){
+     var idx=ccIdx();
+     if(idx>=0){S.camMode=idx;camSnapTo(camView());camSyncBtn();try{feedPush('📷 Camera — CHASE','',2600);}catch(e){}return;}
+    }
+   }catch(e){}
+   return cyclePrev();
+  };
+ }catch(e){IF.err='cycle wrap: '+String(e&&e.message||e);}
+ (function tick(){
+  requestAnimationFrame(tick);
+  try{
+   /* Free-camera auto-exit lives here as well as in the camPlace
+      wrap: custody pauses the game loop, which stops camPlace being
+      called at all — this tick keeps running on rAF, so an arrest
+      that begins while the free camera is open still closes it
+      (measured on the first candidate: wrap-only auto-exit never
+      fired once custody paused the loop). */
+   if(IF.free){try{if((typeof arrestSeq!=='undefined'&&arrestSeq)||(typeof custody!=='undefined'&&custody))exitFree();}catch(e){}}
+   if(ifOn()&&ccOn()&&typeof S!=='undefined'&&S&&S.playing&&!S.paused&&typeof footMode!=='undefined'&&!footMode){
+    var idx=ccIdx();
+    if(idx>=0&&camModeIdx()!==idx)__CC54.drive.setView(idx);
+   }
+  }catch(e){}
+ })();
+ /* ================= pieces 2 + 4: the camPlace wrap =================
+    Outermost wrap (this module executes after __CC54's inside the
+    game script): free camera pre-empts;
+    otherwise the inner chain (CC54 → D50 → shipped) places the camera
+    exactly as in v30.59, and only then — while chase owns the frame —
+    are orbit / zoom applied as a rigid transform of that placement
+    around the subject. Identity offsets = the placement is untouched,
+    bit-for-bit. */
+ function applyAdj(mode){
+  var s;try{s=__CC54.state();}catch(e){return;}
+  var subj,look,H,lookY,lookAhead;
+  if(mode==='foot'){
+   if(typeof footMode==='undefined'||!footMode)return;
+   if(s.smHFdeg===null||s.smHFdeg===undefined)return;
+   H=s.smHFdeg*Math.PI/180;lookY=17;lookAhead=30;
+   subj={x:footMode.x,z:footMode.z};
+   look={x:subj.x-Math.sin(H)*lookAhead,y:lookY,z:subj.z-Math.cos(H)*lookAhead};
+  }else{
+   if(typeof player==='undefined'||!player)return;
+   if(s.smHdeg===null||s.smHdeg===undefined)return;
+   H=s.smHdeg*Math.PI/180;lookY=18;lookAhead=65;
+   subj={x:player.x,z:player.z};
+   look={x:subj.x+Math.sin(H)*lookAhead,y:lookY,z:subj.z-Math.cos(H)*lookAhead};
+  }
+  var P={x:camera.position.x,y:camera.position.y,z:camera.position.z};
+  var dv=new THREE.Vector3();camera.getWorldDirection(dv);
+  var L=Math.sqrt((look.x-P.x)*(look.x-P.x)+(look.y-P.y)*(look.y-P.y)+(look.z-P.z)*(look.z-P.z));
+  if(!(L>0))return;
+  var lookCur={x:P.x+dv.x*L,y:P.y+dv.y*L,z:P.z+dv.z*L};
+  var th=orb(mode),k=zoom(mode);
+  var dh=Math.sqrt((P.x-subj.x)*(P.x-subj.x)+(P.z-subj.z)*(P.z-subj.z));
+  /* While __CC54 is still travelling (its blend / step journey after a
+     view change, a staging teleport, or boot), the live camera
+     position is NOT its placement — leave those frames to the shipped
+     blend untouched, or the distance clamp below would fight the
+     journey (measured: a 4,166u boot journey pinned at the 330u ring).
+     The transform only ever applies to a settled chase placement, and
+     a settled camera is never farther than the mode's max zoom
+     distance — occlusion only ever pulls it closer. */
+  if(dh>(mode==='foot'?ZF_MAX:ZD_MAX)*1.15)return;
+  if(dh>1){
+   var want=dh*k,mn=(mode==='foot'?ZF_MIN:ZD_MIN),mx=(mode==='foot'?ZF_MAX:ZD_MAX);
+   k=Math.max(mn,Math.min(mx,want))/dh;
+  }
+  var c=Math.cos(th),sn=Math.sin(th);
+  function T(p){
+   var dx=p.x-subj.x,dz=p.z-subj.z;
+   var rx=(dx*c+dz*sn)*k,rz=(-dx*sn+dz*c)*k;
+   return {x:subj.x+rx,y:lookY+(p.y-lookY)*k,z:subj.z+rz};
+  }
+  var P2=T(P),L2=T(lookCur);
+  camera.position.set(P2.x,P2.y,P2.z);
+  camera.lookAt(L2.x,L2.y,L2.z);
+  IF.lastAdj={mode:mode,th:Math.round(th*1000)/1000,k:Math.round(k*1000)/1000,dh:Math.round(dh*10)/10};
+ }
+ function freezeInputs(){
+  try{if(typeof stickVec!=='undefined'){stickVec.x=0;stickVec.y=0;}}catch(e){}
+  try{if(typeof input!=='undefined'&&input){input.throttle=0;input.brake=false;input.hb=false;input.sL=false;input.sR=false;if(input.keys)for(var k in input.keys)input.keys[k]=false;}}catch(e){}
+  try{if(typeof combat!=='undefined'&&combat)combat.blockHeld=false;}catch(e){}
+  try{if(typeof player!=='undefined'&&player){player.vx=0;player.vz=0;player.yawVel=0;}}catch(e){}
+  try{if(typeof footMode!=='undefined'&&footMode){footMode.vx=0;footMode.vz=0;}}catch(e){}
+ }
+ function freeTarget(){
+  var ce=Math.cos(IF.freeEl);
+  return {x:IF.freeAx+IF.freeR*ce*Math.sin(IF.freeAz),y:IF.freeAy+IF.freeR*Math.sin(IF.freeEl),z:IF.freeAz2+IF.freeR*ce*Math.cos(IF.freeAz)};
+ }
+ function freePlace(dt){
+  var tp=freeTarget();
+  var tl={x:IF.freeAx,y:IF.freeAy+8,z:IF.freeAz2};
+  if(!IF.freePos){
+   IF.freePos={x:camera.position.x,y:camera.position.y,z:camera.position.z};
+   var dv=new THREE.Vector3();camera.getWorldDirection(dv);
+   IF.freeLook={x:IF.freePos.x+dv.x*100,y:IF.freePos.y+dv.y*100,z:IF.freePos.z+dv.z*100};
+  }
+  if(IF.freeIn>0&&IF.freeFromPos){
+   IF.freeIn-=dt;
+   var e=camEase(Math.min(1,Math.max(0,1-IF.freeIn/0.6)));
+   var cp={x:IF.freeFromPos.x+(tp.x-IF.freeFromPos.x)*e,y:IF.freeFromPos.y+(tp.y-IF.freeFromPos.y)*e,z:IF.freeFromPos.z+(tp.z-IF.freeFromPos.z)*e};
+   var cl={x:IF.freeFromLook.x+(tl.x-IF.freeFromLook.x)*e,y:IF.freeFromLook.y+(tl.y-IF.freeFromLook.y)*e,z:IF.freeFromLook.z+(tl.z-IF.freeFromLook.z)*e};
+   moveToward(IF.freePos,cp,45);moveToward(IF.freeLook,cl,90);
+   if(IF.freeIn<=0){IF.freeFromPos=null;IF.freeFromLook=null;}
+  }else{
+   moveToward(IF.freePos,tp,45);moveToward(IF.freeLook,tl,90);
+  }
+  camera.position.set(IF.freePos.x,IF.freePos.y,IF.freePos.z);
+  camera.lookAt(IF.freeLook.x,IF.freeLook.y,IF.freeLook.z);
+ }
+ function exitBlendStep(dt){
+  IF.exitBlend-=dt;
+  var e=camEase(Math.min(1,Math.max(0,1-IF.exitBlend/0.6)));
+  var sp={x:camera.position.x,y:camera.position.y,z:camera.position.z};
+  var dv=new THREE.Vector3();camera.getWorldDirection(dv);
+  var sl={x:sp.x+dv.x*100,y:sp.y+dv.y*100,z:sp.z+dv.z*100};
+  var cp={x:IF.exitFromPos.x+(sp.x-IF.exitFromPos.x)*e,y:IF.exitFromPos.y+(sp.y-IF.exitFromPos.y)*e,z:IF.exitFromPos.z+(sp.z-IF.exitFromPos.z)*e};
+  var cl={x:IF.exitFromLook.x+(sl.x-IF.exitFromLook.x)*e,y:IF.exitFromLook.y+(sl.y-IF.exitFromLook.y)*e,z:IF.exitFromLook.z+(sl.z-IF.exitFromLook.z)*e};
+  moveToward(IF.exitPos,cp,45);moveToward(IF.exitLook,cl,90);
+  var done=(IF.exitBlend<=0&&Math.abs(IF.exitPos.x-sp.x)<.5&&Math.abs(IF.exitPos.y-sp.y)<.5&&Math.abs(IF.exitPos.z-sp.z)<.5);
+  if(done){IF.exitBlend=0;IF.exitFromPos=null;IF.exitFromLook=null;IF.exitPos=null;IF.exitLook=null;return;}
+  camera.position.set(IF.exitPos.x,IF.exitPos.y,IF.exitPos.z);
+  camera.lookAt(IF.exitLook.x,IF.exitLook.y,IF.exitLook.z);
+ }
+ function enterFree(){
+  if(!ifOn()||IF.free)return false;
+  try{
+   if(typeof S==='undefined'||!S||!S.playing)return false;
+   if(typeof arrestSeq!=='undefined'&&arrestSeq)return false; /* never during an arrest */
+   if(typeof custody!=='undefined'&&custody)return false;     /* never during custody */
+   if(window.__daleLayout&&__daleLayout.editing())return false;
+   if(S.paused){var rb=$('resumeBtn');if(rb)rb.click();if(S.paused)return false;}
+  }catch(e){return false;}
+  var onFoot=(typeof footMode!=='undefined'&&footMode);
+  var fx=onFoot?footMode.x:player.x,fz=onFoot?footMode.z:player.z;
+  IF.freeAx=fx;IF.freeAz2=fz;IF.freeAy=14;
+  var dx=camera.position.x-fx,dy=camera.position.y-IF.freeAy,dz=camera.position.z-fz;
+  var rr=Math.sqrt(dx*dx+dy*dy+dz*dz);
+  IF.freeR=Math.max(FR_MIN,Math.min(FR_MAX,rr));
+  IF.freeAz=Math.atan2(dx,dz);
+  IF.freeEl=Math.max(0.06,Math.min(1.35,Math.asin(Math.max(-1,Math.min(1,dy/Math.max(1,rr))))));
+  IF.freeFromPos={x:camera.position.x,y:camera.position.y,z:camera.position.z};
+  var dv=new THREE.Vector3();camera.getWorldDirection(dv);
+  IF.freeFromLook={x:IF.freeFromPos.x+dv.x*100,y:IF.freeFromPos.y+dv.y*100,z:IF.freeFromPos.z+dv.z*100};
+  IF.freePos=null;IF.freeLook=null;IF.freeIn=0.6;
+  IF.free=true;
+  freezeInputs();
+  document.body.classList.add('if60-free');
+  var xb=$('if60FreeExit');if(xb)xb.style.display='block';
+  return true;
+ }
+ function exitFree(){
+  if(!IF.free)return false;
+  IF.free=false;
+  document.body.classList.remove('if60-free');
+  var xb=$('if60FreeExit');if(xb)xb.style.display='none';
+  if(IF.freePos&&IF.freeLook){
+   IF.exitFromPos={x:IF.freePos.x,y:IF.freePos.y,z:IF.freePos.z};
+   IF.exitFromLook={x:IF.freeLook.x,y:IF.freeLook.y,z:IF.freeLook.z};
+   IF.exitPos={x:IF.freePos.x,y:IF.freePos.y,z:IF.freePos.z};
+   IF.exitLook={x:IF.freeLook.x,y:IF.freeLook.y,z:IF.freeLook.z};
+   IF.exitBlend=0.6;
+  }
+  IF.freePos=null;IF.freeLook=null;IF.freeIn=0;IF.freeFromPos=null;IF.freeFromLook=null;
+  IF.ptrs={};IF.dragMode=null;IF.pinchD=0;
+  return true;
+ }
+ var camPlacePrev=camPlace;
+ camPlace=function(cx,cz,h,tilt,hMin,hMax){
+  IF.calls++;
+  var now=performance.now();
+  var dt=Math.min(.1,Math.max(0,(now-(IF.lastMs||now))/1000));IF.lastMs=now;
+  try{
+   if(IF.free){
+    var held=false;
+    try{held=(typeof arrestSeq!=='undefined'&&!!arrestSeq)||(typeof custody!=='undefined'&&!!custody);}catch(e){}
+    if(held){exitFree(); /* an arrest starting closes it — the shipped sequence owns the camera */
+    }else{freezeInputs();freePlace(dt);return;}
+   }
+   if(IF.exitBlend>0&&IF.exitFromPos){
+    var rb=camPlacePrev(cx,cz,h,tilt,hMin,hMax);
+    exitBlendStep(dt);
+    return rb;
+   }
+   var gate=chaseGate();
+   if(gate)IF.lastMode=gate.mode;
+   var mode=gate?gate.mode:IF.lastMode;
+   if(!mode)return camPlacePrev(cx,cz,h,tilt,hMin,hMax);
+   if(!gate&&orb(mode)===0&&zoom(mode)===1){IF.lastMode=null;return camPlacePrev(cx,cz,h,tilt,hMin,hMax);}
+   var r=camPlacePrev(cx,cz,h,tilt,hMin,hMax);
+   if(!gate){
+    /* released (arrest, view change, mode handover): decay the offsets
+       to identity across the __CC54 exit blend, so the camera lands
+       exactly on the shipped placement; once the inner layer stops
+       owning, reset for a clean next entry */
+    var owning=false;try{owning=!!__CC54.state().owning;}catch(e){}
+    if(!owning){setOrb(mode,0);setZoom(mode,1);IF.lastMode=null;return r;}
+    var kd=Math.exp(-5*dt);
+    setOrb(mode,orb(mode)*kd);if(Math.abs(orb(mode))<0.002)setOrb(mode,0);
+    setZoom(mode,1+(zoom(mode)-1)*kd);if(Math.abs(zoom(mode)-1)<0.002)setZoom(mode,1);
+    if(orb(mode)===0&&zoom(mode)===1){IF.lastMode=null;return r;}
+   }else if(IF.dragMode!==mode&&!IF.pinchD){
+    var od=orb(mode); /* settle-back behind the car / character */
+    if(od!==0){var nd=od*Math.exp(-ORB_RATE*dt);if(Math.abs(nd)<0.0015)nd=0;setOrb(mode,nd);}
+   }
+   applyAdj(mode);
+   return r;
+  }catch(e){
+   IF.err='wrap: '+String(e&&e.message||e);
+   try{return camPlacePrev(cx,cz,h,tilt,hMin,hMax);}catch(e2){return undefined;}
+  }
+ };
+ /* ================= piece 2 gestures + free-cam gestures =================
+    Canvas pointers only. The stick / pedals / buttons hold their own
+    captures on their own elements, so ids never collide: a pointer is
+    a gesture pointer iff it landed on the canvas itself. */
+ function bindGestures(){
+  var cv=null;
+  try{cv=(typeof renderer!=='undefined'&&renderer)?renderer.domElement:null;}catch(e){}
+  if(!cv||IF.gBound)return;
+  IF.gBound=true;
+  cv.addEventListener('pointerdown',function(e){
+   try{
+    if(IF.free){
+     IF.ptrs[e.pointerId]={x:e.clientX,y:e.clientY,free:true};
+     var ids=Object.keys(IF.ptrs);
+     if(ids.length===2){var a=IF.ptrs[ids[0]],b=IF.ptrs[ids[1]];IF.pinchD=Math.hypot(a.x-b.x,a.y-b.y);}
+     try{cv.setPointerCapture(e.pointerId);}catch(err){}
+     return;
+    }
+    if(!ifOn())return;
+    var g=chaseGate();if(!g)return;
+    IF.ptrs[e.pointerId]={x:e.clientX,y:e.clientY,mode:g.mode};
+    var ids2=Object.keys(IF.ptrs);
+    if(ids2.length===1)IF.dragMode=g.mode;
+    else if(ids2.length===2){var a2=IF.ptrs[ids2[0]],b2=IF.ptrs[ids2[1]];IF.pinchD=Math.hypot(a2.x-b2.x,a2.y-b2.y);IF.dragMode=null;}
+    try{cv.setPointerCapture(e.pointerId);}catch(err){}
+   }catch(err){IF.err='pd: '+String(err&&err.message||err);}
+  });
+  cv.addEventListener('pointermove',function(e){
+   var p=IF.ptrs[e.pointerId];if(!p)return;
+   var dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
+   try{
+    var ids=Object.keys(IF.ptrs);
+    if(ids.length===2){
+     var a=IF.ptrs[ids[0]],b=IF.ptrs[ids[1]];
+     var nd=Math.hypot(a.x-b.x,a.y-b.y);
+     if(IF.pinchD>0&&nd>0){
+      if(IF.free)IF.freeR=Math.max(FR_MIN,Math.min(FR_MAX,IF.freeR*IF.pinchD/nd));
+      else if(p.mode)setZoom(p.mode,zoom(p.mode)*IF.pinchD/nd);
+     }
+     IF.pinchD=nd;return;
+    }
+    if(ids.length!==1)return;
+    if(IF.free){IF.freeAz+=dx*ORB_SENS;IF.freeEl=Math.max(0.06,Math.min(1.35,IF.freeEl-dy*ORB_SENS));return;}
+    if(IF.dragMode&&p.mode===IF.dragMode)setOrb(IF.dragMode,orb(IF.dragMode)+dx*ORB_SENS);
+   }catch(err){IF.err='pm: '+String(err&&err.message||err);}
+  });
+  function endPtr(e){
+   delete IF.ptrs[e.pointerId];
+   var ids=Object.keys(IF.ptrs);
+   if(ids.length<2)IF.pinchD=0;
+   if(ids.length===0)IF.dragMode=null;
+   else if(ids.length===1){var p=IF.ptrs[ids[0]];IF.dragMode=p.free?null:(p.mode||null);}
+  }
+  cv.addEventListener('pointerup',endPtr);
+  cv.addEventListener('pointercancel',endPtr);
+ }
+ var gTries=0;
+ var gTimer=setInterval(function(){bindGestures();if(IF.gBound||++gTries>40)clearInterval(gTimer);},250);
+ bindGestures();
+ /* free camera: the shipped desktop-mouse combat path (canvas
+    mousedown = attack) must not fire while controls are frozen */
+ document.addEventListener('mousedown',function(e){if(IF.free)e.stopPropagation();},true);
+ window.addEventListener('keydown',function(e){if(IF.free){e.stopImmediatePropagation();e.preventDefault();}},true);
+ window.addEventListener('keyup',function(e){if(IF.free){e.stopImmediatePropagation();e.preventDefault();}},true);
+ /* ================= piece 3: UI remove ================= */
+ function prefsRead(){try{var r=localStorage.getItem('dale.hudPrefs.v1');return r?JSON.parse(r):{};}catch(e){return {};}}
+ function prefsWrite(){
+  try{
+   var raw=localStorage.getItem('dale.hudPrefs.v1');
+   var o=raw?JSON.parse(raw):{};
+   o.uiHidden60=IF.hidden.slice();o.uiGhost60=IF.ghosts;
+   var s=JSON.stringify(o);
+   if(s!==raw)localStorage.setItem('dale.hudPrefs.v1',s);
+  }catch(e){}
+ }
+ function prefsLoad(){
+  var o=prefsRead();
+  if(o&&Object.prototype.toString.call(o.uiHidden60)==='[object Array]')IF.hidden=o.uiHidden60.filter(function(k){return !!REMOVABLE[k];});
+  if(o&&o.uiGhost60&&typeof o.uiGhost60==='object')IF.ghosts=o.uiGhost60;
+ }
+ function unitEl(key){
+  try{
+   var us=window.__daleLayout?__daleLayout.units:null;
+   if(!us)return null;
+   for(var i=0;i<us.length;i++)if(us[i].key===key)return us[i].el();
+  }catch(e){}
+  return null;
+ }
+ function applyHidden(){
+  var on=ifOn();
+  for(var i=0;i<IF.hidden.length;i++){
+   if(!on)break;
+   var el=unitEl(IF.hidden[i]);
+   if(el){el.style.setProperty('display','none','important');IF.applied[IF.hidden[i]]=1;}
+  }
+  for(var k in IF.applied){
+   if(!on||IF.hidden.indexOf(k)<0){
+    var el2=unitEl(k);
+    if(el2)el2.style.removeProperty('display');
+    delete IF.applied[k];
+   }
+  }
+ }
+ function hideUnit(key){
+  if(!ifOn()||!REMOVABLE[key]||IF.hidden.indexOf(key)>=0)return false;
+  var el=unitEl(key);
+  if(el){
+   var r=el.getBoundingClientRect();
+   var root=$('root'),rr=root?root.getBoundingClientRect():null;
+   if(rr&&rr.width&&r.width)IF.ghosts[key]={x:Math.round((r.left-rr.left)/rr.width*10000)/100,y:Math.round((r.top-rr.top)/rr.height*10000)/100,w:Math.round(r.width/rr.width*10000)/100,h:Math.round(r.height/rr.height*10000)/100};
+  }
+  IF.hidden.push(key);prefsWrite();applyHidden();buildEditDecor();
+  return true;
+ }
+ function restoreUnit(key){
+  var i=IF.hidden.indexOf(key);if(i<0)return false;
+  IF.hidden.splice(i,1);delete IF.ghosts[key];prefsWrite();applyHidden();
+  try{layoutApply();}catch(e){}
+  buildEditDecor();
+  return true;
+ }
+ function resetUi(){
+  try{resetLayout();}catch(e){}
+  IF.hidden=[];IF.ghosts={};prefsWrite();applyHidden();buildEditDecor();
+ }
+ function clearDecor(){
+  IF.chipEls.forEach(function(c){if(c.parentNode)c.parentNode.removeChild(c);});
+  IF.ghostEls.forEach(function(c){if(c.parentNode)c.parentNode.removeChild(c);});
+  IF.chipEls=[];IF.ghostEls=[];
+ }
+ function buildEditDecor(){
+  clearDecor();
+  if(!IF.editing||!ifOn())return;
+  try{
+   var us=__daleLayout.units;
+   for(var i=0;i<us.length;i++){
+    var u=us[i];
+    if(!REMOVABLE[u.key]||IF.hidden.indexOf(u.key)>=0)continue;
+    var el=u.el();if(!el)continue;
+    var r=el.getBoundingClientRect();if(!r.width||!r.height)continue;
+    var chip=document.createElement('button');
+    chip.type='button';chip.className='if60-chip';chip.textContent='✕';
+    chip.title='Hide '+u.key;chip.setAttribute('aria-label','Hide '+u.key);
+    chip.dataset.key=u.key;
+    chip.style.left=(r.right-16)+'px';chip.style.top=(r.top+2)+'px';
+    (function(key){chip.addEventListener('click',function(ev){ev.stopPropagation();hideUnit(key);});})(u.key);
+    document.body.appendChild(chip);IF.chipEls.push(chip);
+   }
+   var root=$('root'),rr=root?root.getBoundingClientRect():{left:0,top:0,width:window.innerWidth,height:window.innerHeight};
+   IF.hidden.forEach(function(key){
+    var g=IF.ghosts[key];if(!g)return;
+    var d=document.createElement('button');
+    d.type='button';d.className='if60-ghost';d.textContent=key+' — tap to restore';
+    d.style.left=(rr.left+g.x/100*rr.width)+'px';d.style.top=(rr.top+g.y/100*rr.height)+'px';
+    d.style.width=(g.w/100*rr.width)+'px';d.style.height=(g.h/100*rr.height)+'px';
+    d.addEventListener('click',function(ev){ev.stopPropagation();restoreUnit(key);});
+    document.body.appendChild(d);IF.ghostEls.push(d);
+   });
+  }catch(e){IF.err='decor: '+String(e&&e.message||e);}
+ }
+ function repositionChips(){
+  IF.chipEls.forEach(function(chip){
+   var el=unitEl(chip.dataset.key);if(!el)return;
+   var r=el.getBoundingClientRect();if(!r.width)return;
+   chip.style.left=(r.right-16)+'px';chip.style.top=(r.top+2)+'px';
+  });
+ }
+ try{ /* re-assert hidden units after any shipped layout apply */
+  var laPrev=layoutApply;
+  layoutApply=function(){var r=laPrev.apply(this,arguments);try{applyHidden();}catch(e){}return r;};
+ }catch(e){IF.err='layout wrap: '+String(e&&e.message||e);}
+ prefsLoad();
+ applyHidden();
+ setInterval(function(){
+  try{
+   var ed=!!(window.__daleLayout&&__daleLayout.editing());
+   if(ed!==IF.editing){
+    IF.editing=ed;
+    if(ed){applyHidden();buildEditDecor();}
+    else clearDecor();
+   }
+   if(IF.editing)repositionChips();
+  }catch(e){}
+ },200);
+ setInterval(function(){ /* prefs self-heal (v30.24's fixed-key save can
+    overwrite the merged object) + hidden re-assert (a shipped mode
+    toggle can stomp the inline display) */
+  try{prefsWrite();applyHidden();}catch(e){}
+ },2000);
+ /* ================= furniture: style, settings row, buttons ================= */
+ try{
+  var stEl=document.createElement('style');stEl.id='if60-css';
+  stEl.textContent=
+   '#if60FreeExit{position:fixed;right:14px;bottom:14px;z-index:99999;width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.55);background:rgba(10,14,20,.55);color:#fff;font-size:20px;line-height:44px;text-align:center;padding:0;}'
+  +'.if60-chip{position:fixed;z-index:99998;width:30px;height:30px;border-radius:50%;border:1px solid rgba(255,120,120,.85);background:rgba(60,10,10,.78);color:#ffb3b3;font-size:15px;line-height:28px;text-align:center;padding:0;}'
+  +'.if60-ghost{position:fixed;z-index:99997;border:2px dashed rgba(232,179,58,.75);background:rgba(232,179,58,.08);color:#f3e3b3;font-size:12px;border-radius:10px;padding:4px;}'
+  +'body.if60-free #root>*:not(#game){display:none!important;}'
+  +'body.if60-free #layoutBar{display:none!important;}';
+  document.head.appendChild(stEl);
+ }catch(e){}
+ function syncUi(){
+  var st=$('if60SetState'),b=$('if60SetBtn'),on=ifOn();
+  if(st)st.textContent=on?'On':'Off';
+  if(b)b.textContent=on?'Turn Off':'Turn On';
+ }
+ function buildUi(){
+  try{
+   if(!$('if60SetBtn')){
+    var panel=$('settingsPanel'),card=panel?panel.querySelector('.card'):null;
+    if(card){
+     var anchor=card.querySelector('[data-close]');
+     var row=document.createElement('div');row.className='rowline';row.style.marginTop='14px';
+     row.innerHTML='<span>Interface extras</span><b id="if60SetState">On</b>';
+     var btn=document.createElement('button');btn.className='btn ghost';btn.id='if60SetBtn';btn.type='button';btn.textContent='Turn Off';
+     var note=document.createElement('p');note.className='small';
+     note.textContent='Driving is chase-only while the chase camera is on. On the chase view, drag sideways on the view itself to orbit the camera (it settles back behind you) and pinch to zoom — on foot the stick follows the view, orbit included. Pause → Edit Layout can hide pieces with the ✕ chips (the bar, stick and pedals can never be hidden) and Reset UI restores everything. Pause → Free Camera freezes you, clears the whole screen and lets you look around while the world carries on. Off = the previous build\u2019s behaviour everywhere.';
+     if(anchor){card.insertBefore(row,anchor);card.insertBefore(btn,anchor);card.insertBefore(note,anchor);}
+     else{card.appendChild(row);card.appendChild(btn);card.appendChild(note);}
+     btn.addEventListener('click',function(){
+      try{
+       if(typeof S==='undefined'||!S)return;
+       if(!S.ui||typeof S.ui!=='object')S.ui={};
+       var on=!ifOn();
+       S.ui.if60=on?1:0;interface60Enabled=on;
+       if(!on){if(IF.free)exitFree();setOrb('drive',0);setOrb('foot',0);setZoom('drive',1);setZoom('foot',1);applyHidden();clearDecor();}
+       syncUi();
+      }catch(e){}
+     });
+    }
+   }
+   if(!$('if60FreeBtn')){
+    var pp=document.querySelector('#pauseScreen .panel');
+    if(pp){
+     var rb=$('restartBtn');
+     var fb=document.createElement('button');fb.className='btn ghost';fb.id='if60FreeBtn';fb.type='button';fb.textContent='Free Camera';fb.style.cssText='width:100%;margin:6px 0;';
+     if(rb)pp.insertBefore(fb,rb);else pp.appendChild(fb);
+     fb.addEventListener('click',function(){enterFree();});
+    }
+   }
+   if(!$('if60ResetUiBtn')){
+    var lb=$('layoutBar');
+    if(lb){
+     var ub=document.createElement('button');ub.className='btn ghost';ub.id='if60ResetUiBtn';ub.type='button';ub.textContent='Reset UI';
+     lb.appendChild(ub);
+     ub.addEventListener('click',function(){resetUi();});
+    }
+   }
+   if(!$('if60FreeExit')){
+    var xb=document.createElement('button');
+    xb.id='if60FreeExit';xb.type='button';xb.textContent='✕';xb.title='Exit free camera';xb.setAttribute('aria-label','Exit free camera');
+    xb.style.display='none';
+    document.body.appendChild(xb);
+    xb.addEventListener('click',function(){exitFree();});
+   }
+   syncUi();
+  }catch(e){}
+ }
+ var uiTries=0;
+ var uiTimer=setInterval(function(){buildUi();if($('if60SetBtn')&&$('if60FreeBtn')&&$('if60FreeExit')||++uiTries>40)clearInterval(uiTimer);},500);
+ buildUi();
+ /* ================= test / debug surface ================= */
+ window.__IF60={
+  version:IF.version,
+  enabled:function(){return ifOn();},
+  setEnabled:function(b){
+   interface60Enabled=!!b;
+   try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={};S.ui.if60=b?1:0;}}catch(e){}
+   if(!b&&IF.free)exitFree();
+   try{applyHidden();}catch(e){}
+   syncUi();
+   return ifOn();
+  },
+  footOrbit:function(){return ifOn()?IF.orbF:0;},
+  state:function(){
+   var g=null;try{g=chaseGate();}catch(e){}
+   return {err:IF.err,calls:IF.calls,free:IF.free,
+    orbD:Math.round(IF.orbD*1000)/1000,orbF:Math.round(IF.orbF*1000)/1000,
+    zoomD:Math.round(IF.zoomD*1000)/1000,zoomF:Math.round(IF.zoomF*1000)/1000,
+    hidden:IF.hidden.slice(),editing:IF.editing,lastMode:IF.lastMode,
+    lastAdj:IF.lastAdj,ptrs:Object.keys(IF.ptrs).length,gate:g?g.mode:null,
+    freeR:Math.round(IF.freeR*10)/10,freeAz:Math.round(IF.freeAz*1000)/1000,freeEl:Math.round(IF.freeEl*1000)/1000};
+  },
+  enterFree:enterFree,
+  exitFree:exitFree,
+  hideUnit:hideUnit,
+  restoreUnit:restoreUnit,
+  resetUi:resetUi,
+  setOrbit:function(m,v){setOrb(m,v);return orb(m);},
+  setZoom:function(m,v){setZoom(m,v);return zoom(m);}
+ };
+})();
+/* ================= /v30.60 INTERFACE BUILD (__IF60) ================= */
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -22381,7 +23019,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3059={version:'v30.59'};</script>
+<script>window.__V3060={version:'v30.60'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
