@@ -7272,7 +7272,7 @@ function ensureGoods(){
  ['hud','ctl','mm','feed'].forEach(function(k){if(typeof S.ui[k]!=='number'||!isFinite(S.ui[k]))S.ui[k]=1;S.ui[k]=Math.max(0,Math.min(2,Math.floor(S.ui[k])));});
  if(typeof S.ui.mmShow!=='boolean')S.ui.mmShow=S.ui.mmShow!==false;
  if(!S.ui.pos||typeof S.ui.pos!=='object'||Array.isArray(S.ui.pos))S.ui.pos={}; /* v30.10: append-only — movable-UI positions; old states default to {} = all shipped positions */
- (function(){var LK=['feed','minimap','tasks','topbar','speed','phone','stick','fight','steer','pedals','talk'];Object.keys(S.ui.pos).forEach(function(k){if(LK.indexOf(k)<0){delete S.ui.pos[k];return;}var p=S.ui.pos[k];if(!p||typeof p!=='object'||typeof p.x!=='number'||typeof p.y!=='number'||!isFinite(p.x)||!isFinite(p.y)){delete S.ui.pos[k];return;}p.x=Math.max(0,Math.min(100,p.x));p.y=Math.max(0,Math.min(100,p.y));});})(); /* v30.10: sanitise the positions map — unknown keys and corrupt entries are dropped, never thrown */
+ (function(){var LK=['feed','minimap','tasks','topbar','speed','phone','stick','fight','steer','pedals','talk','bars'];Object.keys(S.ui.pos).forEach(function(k){if(LK.indexOf(k)<0){delete S.ui.pos[k];return;}var p=S.ui.pos[k];if(!p||typeof p!=='object'||typeof p.x!=='number'||typeof p.y!=='number'||!isFinite(p.x)||!isFinite(p.y)){delete S.ui.pos[k];return;}p.x=Math.max(0,Math.min(100,p.x));p.y=Math.max(0,Math.min(100,p.y));});})(); /* v30.10: sanitise the positions map — unknown keys and corrupt entries are dropped, never thrown */
  if(S.ui.gfx===undefined||(S.ui.gfx!==0&&S.ui.gfx!==1))S.ui.gfx=1; /* v30.16: append-only — Graphics quality tier (1 = High, 0 = Balanced); old states default to High, the tier the pass is budgeted for */
  if(!S.seenCams)S.seenCams=[]; /* X-3 (v31): append-only — ANPR cameras the player has discovered (design §7.1 fairness ruling); safe default empty, old saves load clean */
  if(S.missedTotal===undefined)S.missedTotal=0;
@@ -22062,7 +22062,7 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
  var ZD_MIN=65,ZD_MAX=330,ZD_KMIN=0.45,ZD_KMAX=1.9;
  var ZF_MIN=28,ZF_MAX=175,ZF_KMIN=0.4,ZF_KMAX=2.2;
  var FR_MIN=25,FR_MAX=500;
- var REMOVABLE={feed:1,minimap:1,tasks:1,speed:1,phone:1,fight:1,steer:1,talk:1}; /* topbar (pause), stick, pedals: NOT removable — the guard */
+ var REMOVABLE={feed:1,minimap:1,tasks:1,speed:1,phone:1,fight:1,steer:1,talk:1,bars:1}; /* topbar (pause), stick, pedals: NOT removable — the guard */
  function ifOn(){
   if(!interface60Enabled)return false;
   try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.if60===0)return false;}catch(e){}
@@ -23331,6 +23331,169 @@ window.__P62={
 };
 }
 
+/* ================= v30.63 — HP/ST BARS FIX (__BR63) =================
+   His words (2026-11-15): the two bars "get in the way" and can't be
+   moved. The HP (red) / ST (yellow) pill bars live in the shipped
+   #hpDock (bottom-centre), which was never wired into either UI
+   system: the v30.10 movable-UI editor (LAY_UNITS, positions in
+   S.ui.pos) has no bars unit, and the v30.60 UI-remove set
+   (__IF60 REMOVABLE) has no bars key. This layer wires it into BOTH,
+   through their own machinery — no parallel drag, hide or store:
+
+   1. MOVABLE — the layer pushes ONE unit {key:'bars', el:#hpDock,
+      tf:true} into window.__daleLayout.units, the very array the
+      shipped editor iterates for its drag handlers, layoutApply,
+      resetLayout and the edit-mode .lay-unit class (which also gives
+      the dock pointer-events in edit mode — it is pointer-events:
+      none in play). tf:true because the dock is centred by
+      translateX(-50%), which laySetLocal must neutralise once an
+      explicit left/top is pinned (the shipped 'speed' unit does the
+      same). NO fixW: the dock's width stays CSS-responsive
+      (min(430px,52vw); vh-based under html.dale-rot), so a moved
+      dock still sizes itself correctly in both orientations.
+      Positions persist exactly like every other unit's: S.ui.pos.
+      bars, carried by the shipped save, sanitised by ensureGoods
+      (the 'bars' key is added to its whitelist — shipped-line edit
+      2) and applied by the shipped layoutApply on the shipped
+      triggers (rotation/resize/class changes/edit enter+exit).
+   2. HIDEABLE — 'bars' joins __IF60's REMOVABLE set (shipped-line
+      edit 3). __IF60's own code then does everything: the ✕ chip in
+      edit mode (its buildEditDecor iterates __daleLayout.units),
+      the dashed ghost at the stored rect (tap to restore), the
+      display:none !important re-asserted after every layoutApply,
+      persistence merged into dale.hudPrefs.v1 as uiHidden60 /
+      uiGhost60, and Reset UI restoring visibility AND position
+      together (its resetUi runs the shipped resetLayout, which now
+      includes the bars). The IF60 guard is untouched: topbar
+      (pause), stick and pedals still get no chip. The bars are
+      information, not controls — hiding them cannot soft-lock
+      anything. If Interface extras is OFF, __IF60 restores every
+      hidden unit itself, bars included; the bars stay movable.
+   3. FLAG OFF (barsFixEnabled / pref S.ui.bars63): the unit is
+      unregistered and the dock returns to EXACTLY the shipped
+      behaviour — fixed bottom-centre, always visible. Suspend, not
+      destroy (the __IF60 idiom): a stored position is stashed and
+      restored around the shipped clear, and __IF60's hidden entry
+      is retained in its prefs — while unregistered its unitEl()
+      cannot resolve the dock, so it can neither hide nor unhide it;
+      this layer lifts the inline hide itself on the way out, and
+      __IF60 re-applies it if the flag comes back on.
+
+   Save format unchanged: no new save section; the only footprint is
+   the S.ui.bars63 pref (written on toggle, like every layer pref)
+   plus the S.ui.pos.bars entry the shipped editor itself writes.
+   Debug: window.__BR63. */
+var barsFixEnabled=true; /* v30.63 master flag (default ON) */
+(function(){
+ 'use strict';
+ function $(id){return document.getElementById(id);}
+ var BR={version:'br63-1',err:null,applied:null};
+ var UNIT={key:'bars',el:function(){return $('hpDock');},tf:true};
+ function brOn(){
+  if(!barsFixEnabled)return false;
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.bars63===0)return false;}catch(e){}
+  return true;
+ }
+ function units(){try{return (window.__daleLayout&&__daleLayout.units)?__daleLayout.units:null;}catch(e){return null;}}
+ function isRegistered(){
+  var us=units();if(!us)return false;
+  for(var i=0;i<us.length;i++)if(us[i]&&us[i].key==='bars')return true;
+  return false;
+ }
+ function register(){
+  var us=units();if(!us)return false;
+  if(isRegistered())return true;
+  us.push(UNIT);return true;
+ }
+ function unregister(){
+  var us=units();if(!us)return;
+  for(var i=us.length-1;i>=0;i--)if(us[i]&&us[i].key==='bars')us.splice(i,1);
+ }
+ function posMap(){try{return window.__daleLayout?__daleLayout.pos():null;}catch(e){return null;}}
+ function if60Hidden(){
+  try{return !!(window.__IF60&&__IF60.state&&__IF60.state().hidden.indexOf('bars')>=0);}catch(e){return false;}
+ }
+ function editing(){try{return !!(window.__daleLayout&&__daleLayout.editing());}catch(e){return false;}}
+ /* OFF transition: restore the shipped presentation through the
+    shipped clear path (delete the stored spot -> layoutApply runs
+    layClearOne on the still-registered unit -> restore the spot),
+    then unregister, then lift any __IF60 inline hide (its unitEl
+    can no longer resolve the dock once unregistered). */
+ function suspend(){
+  var m=posMap(),stash=null,had=false;
+  try{if(m&&m.bars){stash=m.bars;had=true;delete m.bars;}}catch(e){}
+  try{layoutApply();}catch(e){}
+  try{var m2=posMap();if(m2&&had)m2.bars=stash;}catch(e){}
+  unregister();
+  try{if(if60Hidden()){var d=$('hpDock');if(d)d.style.removeProperty('display');}}catch(e){}
+ }
+ function reconcile(){
+  if(editing())return; /* never fight a live drag */
+  var on=brOn(),reg=isRegistered();
+  if(on&&!reg){
+   if(register()){
+    BR.applied='on';
+    /* applies any stored position through the shipped path; the
+       __IF60 layoutApply wrap then re-asserts a persisted hidden
+       state now that its unitEl('bars') resolves */
+    try{layoutApply();}catch(e){}
+   }
+  }else if(!on&&reg){
+   suspend();
+   BR.applied='off';
+  }else{
+   BR.applied=on?'on':'off';
+  }
+ }
+ /* ---------- Settings row (the __SC61 row idiom) ---------- */
+ function brSyncSettings(){
+  var st=document.getElementById('br63SetState'),btn=document.getElementById('br63SetBtn');
+  if(st){var want=brOn()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=brOn()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function brBuildSettings(){
+  if(document.getElementById('br63SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">HP / ST bars \u2014 movable &amp; hideable</div><div class="setRowNote">The health and stamina bars join the layout editor: Pause \u2192 Edit Layout to drag them anywhere, tap their \u2715 chip to hide them (tap the dashed ghost to bring them back), Reset UI restores everything. Off = the bars sit fixed at the bottom-centre, exactly as shipped.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='br63SetState';st.textContent=brOn()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='br63SetBtn';btn.textContent=brOn()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){brSetEnabled(!brOn());});
+  row.appendChild(btn);card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function brSetEnabled(on){
+  barsFixEnabled=!!on;
+  try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}};S.ui.bars63=on?1:0;}}catch(e){}
+  reconcile();brSyncSettings();
+  return brOn();
+ }
+ setInterval(function(){try{reconcile();brBuildSettings();brSyncSettings();}catch(e){BR.err='tick:'+String(e&&e.message||e);}},900);
+ reconcile();
+ window.__BR63={
+  version:BR.version,
+  on:brOn,
+  setEnabled:brSetEnabled,
+  registered:isRegistered,
+  state:function(){
+   var d=$('hpDock'),r=null;
+   try{if(d){var b=d.getBoundingClientRect();r={x:Math.round(b.left),y:Math.round(b.top),w:Math.round(b.width),h:Math.round(b.height)};}}catch(e){}
+   var m=posMap();
+   return {version:BR.version,on:brOn(),err:BR.err,registered:isRegistered(),
+    pos:(m&&m.bars)?{x:m.bars.x,y:m.bars.y}:null,
+    hidden:if60Hidden(),
+    dock:r,
+    dockMoved:!!(d&&d.classList&&d.classList.contains('lay-moved')),
+    dockDisplay:d?(d.style.display||''):null,
+    pref:(typeof S!=='undefined'&&S&&S.ui)?(S.ui.bars63===undefined?null:S.ui.bars63):null};
+  }
+ };
+})();
+/* ================= /v30.63 HP/ST BARS FIX (__BR63) ================= */
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -23747,7 +23910,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3062={version:'v30.62'};</script>
+<script>window.__V3063={version:'v30.63'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
