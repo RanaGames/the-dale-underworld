@@ -21000,6 +21000,60 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
   }catch(e){CC.err='cf: '+String(e&&e.message||e);}
  }
  requestAnimationFrame(cfTick);
+ /* ---- v30.58 HOTFIX (foot-chase controls): rotate at the WRITE seam ----
+    WHY THIS EXISTS: v30.57 rotated stickVec inside cfTick, this layer's
+    own rAF — but the shipped main loop registered its rAF earlier in
+    this file (requestAnimationFrame(loop) sits ~120 KB before this
+    module), so in every frame updateGame reads stickVec BEFORE cfTick
+    rotates it. On paper the rotated value then waits for the next
+    frame — but on a real phone the thumb keeps firing pointermove on
+    #stick, and the shipped stick handler rewrites stickVec with the
+    fresh RAW vector between cfTick and that next read. The walker
+    therefore only ever saw raw, north-up values (his iPhone report
+    2026-11-14: the chase controls "act as we are still in bird view",
+    "he just points north"). The v30.57 probe never dispatched a
+    pointer event: it wrote stickVec directly (__CC54.drive.setStick),
+    so nothing ever overwrote the rotated value and the rotation MATH
+    passed while the delivery path was never exercised.
+    THE FIX: trailing pointerdown / pointermove listeners on #stick
+    itself. Listeners on one element run in registration order — the
+    shipped handler was registered in the core's initial run, this
+    layer's later — so for every real stick event the shipped handler
+    FIRST writes the fresh raw vector, and this listener then rotates
+    THAT value in place, inside the same dispatch: no frame boundary
+    is crossed and no later event can slip a raw value past the walker.
+    The bookkeeping (cfRaw / cfOut / cfHas) is updated to match, so
+    cfTick's held-stick restore / re-rotate stays consistent and never
+    double-rotates; cfTick itself is unchanged (it still covers the
+    held-still case — the camera heading moving under a thumb that is
+    not moving). Gate = ccFootActiveNow(): in every other view, while
+    driving, and with the flag OFF, this listener is inert and the
+    shipped values flow exactly as before. WASD / arrow keys never
+    flow through stickVec (the walker applies them to its local copy
+    after the stick read) and are untouched, as in v30.57.
+    Debug surface: window.__CC58FIX {bound, frames, err}. */
+ var FIX58={bound:false,frames:0,err:null};
+ window.__CC58FIX=FIX58;
+ try{
+  var stickEl58=$('stick');
+  if(stickEl58){
+   var cfEvRotate=function(){
+    try{
+     if(typeof stickVec==='undefined')return;
+     var on=false;try{on=ccFootActiveNow();}catch(e){on=false;}
+     if(!on)return;
+     if(CC.smHF===null)CC.smHF=footFacingH();
+     CC.cfRawX=stickVec.x;CC.cfRawY=stickVec.y;
+     var sH=Math.sin(CC.smHF),cH=Math.cos(CC.smHF);
+     var rx=CC.cfRawY*sH+CC.cfRawX*cH,rz=CC.cfRawY*cH-CC.cfRawX*sH;
+     stickVec.x=rx;stickVec.y=rz;CC.cfOutX=rx;CC.cfOutY=rz;CC.cfHas=true;FIX58.frames++;
+    }catch(e){FIX58.err='ev: '+String(e&&e.message||e);}
+   };
+   stickEl58.addEventListener('pointerdown',cfEvRotate);
+   stickEl58.addEventListener('pointermove',cfEvRotate);
+   FIX58.bound=true;
+  }
+ }catch(e){FIX58.err='bind: '+String(e&&e.message||e);}
  /* ---- Settings row (D50 / P51 / I52 idiom: row + toggle + note before [data-close]) ---- */
  function cc54SyncUi(){
   var st=$('cc54SetState'),b=$('cc54SetBtn'),on=ccOn();
@@ -21607,7 +21661,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3057={version:'v30.57'};</script>
+<script>window.__V3058={version:'v30.58'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
