@@ -14716,6 +14716,23 @@ if(typeof CARS!=='undefined'&&!CARS.c63){CARS.c63={name:'Mercedes C63 AMG',desc:
 if(typeof CAR_TUNE!=='undefined'&&!CAR_TUNE.c63){CAR_TUNE.c63={align:1.14,steer:1.0,roll:.72,tau:1.48,brake:326,revF:.28};}
 if(typeof SEATS!=='undefined'&&SEATS.c63==null){SEATS.c63=1;}
 
+/* ================= v30.67 — EARLY REGISTRATION (GOLF R, PLAYER'S BLUE) =================
+   The player's own Golf R is a SIBLING key, 'golfb' — not the shipped
+   'golfr', whose key the Leader Car layer owns (its lot wrapper hides
+   the key unless it is the current car, and its day flow repairs a
+   current 'golfr' with no ride record). Stats are golfr's EXACT values
+   (speed 352, accel 462, handling 1.18, boot 10, attention 58, flex 12,
+   w 15.8, l 31, body 'hatch'; tune and seats copied verbatim). defColor
+   0x000650 is the nearest hex to the GLB's authored CarPaint factor
+   [0, 0.024296, 0.315457] (Lapiz Blue). Registered here, before the
+   save system's boot restore validates a saved S.car against CARS —
+   the C63 precedent above. Registration only: no presentation, no
+   behaviour. The __GR67 layer at the end of the script re-checks these
+   idempotently and owns the grant, Immy's marker car and the paint. */
+if(typeof CARS!=='undefined'&&!CARS.golfb){CARS.golfb={name:'Golf R — Lapiz Blue',desc:'Your own Golf R in Lapiz Blue — savage AWD launch, planted grip, quad pipes.',price:4500,rep:55,speed:352,accel:462,handling:1.18,boot:10,attention:58,flex:12,w:15.8,l:31,body:'hatch',defColor:0x000650};}
+if(typeof CAR_TUNE!=='undefined'&&!CAR_TUNE.golfb){CAR_TUNE.golfb={align:1.24,steer:1.10,roll:.62,tau:1.52,brake:330,revF:.28};}
+if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
+
 /* ================= v30.35 — SAVE SYSTEM (progression persistence) =================
    The game shipped with NO gameplay persistence: every load was a fresh boot
    and the menu's Continue only ever resumed a live in-page session. This
@@ -14861,6 +14878,7 @@ if(typeof SEATS!=='undefined'&&SEATS.c63==null){SEATS.c63=1;}
   try{if(svIsObj(S.homeBase)&&typeof S.homeBase.siteId==='string')sec.homeBase={version:1,data:{siteId:S.homeBase.siteId,mapVer:(typeof S.mapVer==='number'&&isFinite(S.mapVer))?S.mapVer:1}};}catch(e){}
   try{if(window.__CR64&&__CR64.saveSection){var crd64=__CR64.saveSection();if(crd64)sec.charRaces={version:1,data:crd64};}}catch(e){}
   try{if(window.__MS66&&__MS66.saveSection){var msd66=__MS66.saveSection();if(msd66)sec.mercStarter={version:1,data:msd66};}}catch(e){}
+  try{if(window.__GR67&&__GR67.saveSection){var grd67=__GR67.saveSection();if(grd67)sec.golfR67={version:1,data:grd67};}}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -24586,6 +24604,271 @@ if(!window.__MS66){
 })();
 }
 
+
+/* =====================================================================
+   v30.67 — __GR67 "GOLF Rs FOR THE MANDEM" (the user's directions,
+   2026-11-15: "Spawn me a the blue golf r as well" + "Immy and sunny
+   should have a golf r as well.")
+   ---------------------------------------------------------------------
+   Sunny already has his (the Leader Car + his __CR64 car are the Golf
+   R GLB in black since v30.65 — untouched here). This layer adds the
+   other two:
+
+     - THE PLAYER'S BLUE GOLF R: a one-time grant (the __MS66 pattern —
+       a versioned __SAVE35 section, golfR67 {version:1,data:{done:true}},
+       collected by ONE added try-line in svCollect) puts a Golf R in
+       LAPIZ BLUE in the player's garage. UNLIKE the Merc grant it does
+       NOT change his current car — he stays in whatever he's driving;
+       the Golf R waits in the garage for the shipped Take Out flow.
+     - IMMY'S GREY GOLF R: a solid territory-marker car on the real GLB
+       parked at Immy's spot on Moss Street, Newbold — the Ily pattern:
+       a makeCarMesh group + an s3AddSolid, NEVER registered as a spare,
+       so it can't be stolen, ridden or carjacked, and no economy /
+       Tension hook touches it. __MC65 dresses it with the embedded
+       Golf R GLB in grey (his tracksuit colourway).
+
+   SPEC KEY DECISION: the player's car is a NEW sibling key, 'golfb',
+   NOT the shipped 'golfr'. The 'golfr' key is owned by the Leader Car
+   layer: its lot-render wrapper hides the key unless it's the current
+   car, and its day flow treats S.car==='golfr' with no ride record as
+   a stranded state to repair — an owned garage 'golfr' would fight
+   both. 'golfb' carries golfr's EXACT stats (speed 352, accel 462,
+   handling 1.18, boot 10, attention 58, flex 12, w 15.8, l 31, body
+   'hatch'; CAR_TUNE and SEATS copied verbatim), registered EARLY —
+   before the save system's boot restore validates S.car, the C63
+   precedent — and re-checked idempotently here. __MC65 needs no edit:
+   its dressing classifies by the body-box fingerprint ('15.8x31' ->
+   the Golf R GLB) and paints from the mesh's body colour.
+
+   THE BLUE: the reduced GLB's CarPaint baseColorFactor, read off the
+   file, is [0, 0.024296, 0.315457] — Lapiz Blue. CARS.golfb.defColor is
+   0x000650, the nearest hex (components 0, 6/255, 80/255 — within
+   0.002 per channel), so __MC65's own paint pass lands on the authored
+   colour; this layer then sets the dressed CarPaint clone to the
+   EXACT authored factor via setRGB (the same call __MC65's parser
+   builds the template with) whenever the player is in the golfb at
+   its default colour. If he recolours the car through the mods, the
+   body colour changes, __MC65 repaints, and this pass stands down.
+   The 'blue' accent material is never touched (Kat precedent).
+
+   FLAG: golfR67Enabled default ON, pref S.ui.golfR67, mirrored in the
+   localStorage key dale.golfR67Enabled.v1 (the __MS66 reasoning: a
+   pref-only OFF would be erased by the #fresh save wipe). OFF: the
+   grant never fires and Immy's car is withdrawn (mesh + solid). A
+   grant already made is NOT un-done (ownership, once granted, stays —
+   the game's additive-save rule), exactly as __MS66 states for the
+   Merc; the two grants coexist — neither touches the other's state.
+
+   Debug: window.__GR67. */
+var golfR67Enabled=true; /* v30.67 master "Golf Rs for the mandem" flag (default ON) */
+if(!window.__GR67){
+(function(){
+ 'use strict';
+ var GR={version:'gr67-1',err:null,done:false,applied:null,sectionSeen:false,
+         immyMesh:null,immySolid:null,immyPos:null,paintFixes:0};
+ var LAPIZ=[0,0.024295850623258536,0.3154568193938017]; /* authored CarPaint factor (Lapiz Blue) */
+ var LAPIZ_HEX=0x000650; /* CARS.golfb defColor: nearest hex to the authored factor */
+ var IMMY_GREY=0x8a8f96; /* mid grey — Immy's tracksuit colourway */
+ function grStoreOff(){try{return localStorage.getItem('dale.golfR67Enabled.v1')==='0';}catch(e){return false;}}
+ function grOn(){return !!golfR67Enabled&&!grStoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.golfR67===0);}
+ function grSetPref(on){try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}};S.ui.golfR67=on?1:0;}}catch(e){}
+  try{localStorage.setItem('dale.golfR67Enabled.v1',on?'1':'0');}catch(e){}}
+ /* the stored section, read straight from the save payload (the __CR64/__MS66 read pattern) */
+ function grReadSection(){
+  try{var raw=localStorage.getItem('dale.save.v1');if(!raw)return null;
+   var pv=JSON.parse(raw);
+   if(pv&&pv.state&&pv.state.sections&&pv.state.sections.golfR67&&pv.state.sections.golfR67.data)return pv.state.sections.golfR67.data;
+  }catch(e){}
+  return null;
+ }
+ function saveSection(){try{if(GR.done)return {done:true};}catch(e){} return undefined;}
+ /* registration: the early block before the save layer does this first;
+    re-checked here idempotently (the __MC65 mcRegisterC63 pattern). */
+ function grRegister(){
+  try{
+   if(typeof CARS!=='undefined'&&!CARS.golfb){CARS.golfb={name:'Golf R — Lapiz Blue',desc:'Your own Golf R in Lapiz Blue — savage AWD launch, planted grip, quad pipes.',price:4500,rep:55,speed:352,accel:462,handling:1.18,boot:10,attention:58,flex:12,w:15.8,l:31,body:'hatch',defColor:LAPIZ_HEX};}
+   if(typeof CAR_TUNE!=='undefined'&&!CAR_TUNE.golfb){CAR_TUNE.golfb={align:1.24,steer:1.10,roll:.62,tau:1.52,brake:330,revF:.28};}
+   if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
+  }catch(e){}
+ }
+ /* the one-time grant: own the blue Golf R. His CURRENT CAR IS NOT
+    TOUCHED — the Merc (or whatever he's in) stays his motor; the Golf
+    R waits in the garage. carMods seeded with the shipped default (the
+    __MS66 grant idiom) so applyCar can never meet a missing entry. */
+ function grGrant(source){
+  if(GR.done)return false;
+  try{
+   if(typeof S==='undefined'||!S||typeof CARS==='undefined'||!CARS.golfb)return false;
+   if(!S.ownedCars||typeof S.ownedCars!=='object')return false;
+   S.ownedCars.golfb=true;
+   if(S.carMods&&!S.carMods.golfb)S.carMods.golfb={color:null,tint:0,alloy:false,loud:false};
+   GR.done=true;GR.applied=source;
+   return true;
+  }catch(e){GR.err='grant:'+String(e&&e.message||e);return false;}
+ }
+ /* ---------------- Immy's grey Golf R (territory marker) ----------------
+    Pose from Immy's LEADER_DEFS spot, projected onto Moss Street with
+    this layer's own sampling (roadNear lives in the S3 sub-scope and
+    is not visible here; ROADS + pathPoint are). The car sits on
+    Immy's side of the road, shifted along it so it stands alongside
+    him, aligned with the road — the lcSpotPose convention (mesh
+    rotY = atan2(dx,dz)+PI; the solid takes h = -rotY, the LC spare's
+    own pairing). Measured at build time: his def (2526,459) is 11.5u
+    west of the centreline (2537,460). */
+ function grRoadNear(x,z){
+  var best=null,bd=1e18,bt=0;
+  for(var i=0;i<ROADS.length;i++){var r=ROADS[i];if(r.cls==='R')continue;
+   for(var s=0;s<=160;s++){var p=pathPoint(r.pts,s/160);var d=dist2(x,z,p.x,p.z);
+    if(d<bd){bd=d;best=r;bt=s/160;}}}
+  return best?{road:best,t:bt,d:bd}:null;
+ }
+ function grImmyPose(){
+  try{
+   var dx=2526,dz=459; /* LEADER_DEFS immy (fallback; read live below) */
+   try{var imm=leaderById('immy');if(imm&&imm.def){dx=imm.def.x;dz=imm.def.z;}}catch(e){}
+   var nr=grRoadNear(dx,dz);if(!nr||!nr.road)return null;
+   var p=pathPoint(nr.road.pts,nr.t);
+   var rotY=Math.atan2(p.dx,p.dz)+Math.PI;
+   var px=p.dz,pz=-p.dx; /* perpendicular candidate (unit: p.d* is unit) */
+   if(px*(dx-p.x)+pz*(dz-p.z)<0){px=-px;pz=-pz;} /* Immy's side of the road */
+   var tries=[[17,20],[17,-20],[20,20],[20,-20],[17,46],[17,-46]];
+   for(var i=0;i<tries.length;i++){
+    var x=p.x+px*tries[i][0]+p.dx*tries[i][1],z=p.z+pz*tries[i][0]+p.dz*tries[i][1];
+    var blocked=false;try{blocked=!!footBlocked(x,z);}catch(e){}
+    if(!blocked)return {x:x,z:z,rotY:rotY,road:nr.road.name||'',cx:p.x,cz:p.z,defX:dx,defZ:dz,
+                        off:tries[i][0]};
+   }
+   return {x:p.x+px*17+p.dx*20,z:p.z+pz*17+p.dz*20,rotY:rotY,road:nr.road.name||'',cx:p.x,cz:p.z,defX:dx,defZ:dz,
+           off:17};
+  }catch(e){return null;}
+ }
+ function grImmySync(){
+  try{
+   if(typeof scene==='undefined'||!scene)return;
+   var on=grOn();
+   if(GR.immyMesh&&GR.immyMesh.parent!==scene){ /* detached by a day rebuild: drop the pair cleanly */
+    if(GR.immySolid){try{s3RemoveSolid(GR.immySolid);}catch(e){} GR.immySolid=null;}
+    GR.immyMesh=null;
+   }
+   if(on){
+    if(!GR.immyMesh){
+     var pose=grImmyPose();if(!pose)return;
+     var mesh=makeCarMesh(CARS.golfr,IMMY_GREY,2,true);
+     mesh.position.set(pose.x,0,pose.z);
+     mesh.rotation.y=pose.rotY;
+     mesh.userData.gr67Immy=true;
+     scene.add(mesh);
+     GR.immyMesh=mesh;GR.immyPos=pose;
+     GR.immySolid=s3AddSolid(pose.x,pose.z,-pose.rotY,'golfr');
+    }else if(!GR.immySolid&&GR.immyPos){
+     GR.immySolid=s3AddSolid(GR.immyPos.x,GR.immyPos.z,-GR.immyPos.rotY,'golfr');
+    }
+   }else{
+    if(GR.immyMesh){try{scene.remove(GR.immyMesh);}catch(e){} GR.immyMesh=null;}
+    if(GR.immySolid){try{s3RemoveSolid(GR.immySolid);}catch(e){} GR.immySolid=null;}
+   }
+  }catch(e){GR.err='immy:'+String(e&&e.message||e);}
+ }
+ /* ---------------- the exact Lapiz paint pass ----------------
+    __MC65 paints the dressed CarPaint clone from the mesh body colour
+    (defColor 0x000650 — within 0.002/channel of authored). This pass
+    finishes the job: while the player is in the golfb AT THAT DEFAULT
+    colour, the clone's colour is set to the authored factor itself,
+    with the same setRGB call the template was built with. A recolour
+    through the mods changes tag.paint and stands this pass down. */
+ function grPaintSync(){
+  try{
+   if(!grOn())return;
+   if(typeof S==='undefined'||!S||S.car!=='golfb')return;
+   if(typeof player==='undefined'||!player||!player.mesh)return;
+   var tag=player.mesh.userData.__mc65;
+   if(!tag||tag.kind!=='golf'||tag.paint!==LAPIZ_HEX||!tag.grp)return;
+   tag.grp.traverse(function(o){
+    if(o.isMesh&&o.material&&o.material.name==='CarPaint'){
+     var c=o.material.color;
+     if(Math.abs(c.r-LAPIZ[0])>1e-6||Math.abs(c.g-LAPIZ[1])>1e-6||Math.abs(c.b-LAPIZ[2])>1e-6){
+      c.setRGB(LAPIZ[0],LAPIZ[1],LAPIZ[2]);GR.paintFixes++;
+     }
+    }
+   });
+  }catch(e){}
+ }
+ /* ---------------- boot: grant once (migration or new game — the same
+    grant either way; it never selects the car) ---------------- */
+ try{
+  grRegister();
+  var sec0=grReadSection();
+  if(sec0&&sec0.done){GR.done=true;GR.sectionSeen=true;}
+  else if(grOn()){
+   var st67=null;try{st67=(window.__SAVE35&&__SAVE35.status)?__SAVE35.status():null;}catch(e){}
+   grGrant((st67&&st67.restored)?'migration':'newgame');
+  }
+ }catch(e){GR.err='boot:'+String(e&&e.message||e);}
+ /* ---------------- settings row (the __MS66 idiom) ---------------- */
+ function grSyncSettings(){
+  var st=document.getElementById('gr67SetState'),btn=document.getElementById('gr67SetBtn');
+  if(st){var want=grOn()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=grOn()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function grBuildSettings(){
+  if(document.getElementById('gr67SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Golf Rs — yours (blue) & Immy\u2019s (grey)</div><div class="setRowNote">Your own Golf R in Lapiz Blue lands in your garage — once; your current motor stays your motor. Immy gets a grey one parked up on Moss Street. Off = no grant and Immy\u2019s car goes; a Golf R already granted stays granted.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='gr67SetState';st.textContent=grOn()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='gr67SetBtn';btn.textContent=grOn()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){grSetEnabled(!grOn());});
+  row.appendChild(btn);
+  card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function grSetEnabled(on){
+  golfR67Enabled=!!on;grSetPref(on);
+  if(on&&!GR.done){
+   /* turning it on over a save that never had the grant is the same
+      ask as the boot grant — apply it now */
+   try{var st67b=(window.__SAVE35&&__SAVE35.status)?__SAVE35.status():null;
+    if(!st67b||st67b.restored||!st67b.hasSave)grGrant('toggle');
+   }catch(e){}
+  }
+  grImmySync();
+  grSyncSettings();
+  return grOn();
+ }
+ setInterval(function(){try{grRegister();
+  if(typeof S!=='undefined'&&S&&S.ownedCars&&S.ownedCars.golfb&&S.carMods&&!S.carMods.golfb)S.carMods.golfb={color:null,tint:0,alloy:false,loud:false};
+  grImmySync();grPaintSync();grBuildSettings();grSyncSettings();}catch(e){}},900);
+ window.__GR67={
+  version:'v30.67',
+  on:grOn,
+  setEnabled:grSetEnabled,
+  saveSection:saveSection,
+  state:function(){
+   var im=null;
+   if(GR.immyPos){var t=(GR.immyMesh&&GR.immyMesh.userData)?GR.immyMesh.userData.__mc65:null;
+    im={built:!!GR.immyMesh,inScene:!!(GR.immyMesh&&GR.immyMesh.parent),
+        x:Math.round(GR.immyPos.x),z:Math.round(GR.immyPos.z),rotY:+GR.immyPos.rotY.toFixed(3),
+        road:GR.immyPos.road,offCentre:GR.immyPos.off,
+        defDist:Math.round(Math.hypot(GR.immyPos.x-GR.immyPos.defX,GR.immyPos.z-GR.immyPos.defZ)),
+        solidIn:!!(GR.immySolid&&typeof PARKED_SOLIDS!=='undefined'&&PARKED_SOLIDS.indexOf(GR.immySolid)>=0),
+        dress:t?{kind:t.kind,paint:t.paint}:null};}
+   var pt=null,cp=null;
+   try{if(typeof player!=='undefined'&&player&&player.mesh){var tg=player.mesh.userData.__mc65;
+    if(tg){pt=tg.paint;if(tg.grp)tg.grp.traverse(function(o){if(!cp&&o.isMesh&&o.material&&o.material.name==='CarPaint'){var c=o.material.color;cp=[+c.r.toFixed(6),+c.g.toFixed(6),+c.b.toFixed(6)];}});}}}catch(e){}
+   return {version:GR.version,on:grOn(),done:GR.done,applied:GR.applied,sectionSeen:GR.sectionSeen,err:GR.err,
+    car:(typeof S!=='undefined'&&S)?S.car:null,
+    ownsGolfB:!!(typeof S!=='undefined'&&S&&S.ownedCars&&S.ownedCars.golfb),
+    ownsC63:!!(typeof S!=='undefined'&&S&&S.ownedCars&&S.ownedCars.c63),
+    ownsSaloon:!!(typeof S!=='undefined'&&S&&S.ownedCars&&S.ownedCars.saloon),
+    immy:im,paintFixes:GR.paintFixes,playerTagPaint:pt,playerCarPaint:cp};
+  }
+ };
+})();
+}
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -25002,7 +25285,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3066={version:'v30.66'};</script>
+<script>window.__V3067={version:'v30.67'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
