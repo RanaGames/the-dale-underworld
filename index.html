@@ -14947,6 +14947,7 @@ if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
   try{if(window.__ML70&&__ML70.saveSection){var mld70=__ML70.saveSection();if(mld70)sec.mandem={version:1,data:mld70};}}catch(e){}
   try{if(window.__R74&&__R74.saveSection){var r74d=__R74.saveSection();if(r74d)sec.localStanding={version:1,data:r74d};}}catch(e){}
   try{if(window.__T75&&__T75.saveSection){var t75d=__T75.saveSection();if(t75d)sec.territory={version:1,data:t75d};}}catch(e){}
+  try{if(window.__R76&&__R76.saveSection){var r76d=__R76.saveSection();if(r76d)sec.relationships={version:1,data:r76d};}}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -28493,6 +28494,506 @@ if(!window.__T75){ (function(){
   controllerOf:function(d){t75MaybeRestore();var r=T75.data?T75.data.districts[d]:null;return r?r.controller:null;},
   influenceOf:function(d,f){t75MaybeRestore();var r=T75.data?T75.data.districts[d]:null;return r?(r.inf[f]||0):0;}};
 })();}
+/* ================= v30.76 — PHASE 3 · STAGE 4: RELATIONSHIPS (__R76) =================
+   Relationships, loyalty, trust & betrayal — built by EXTENDING the
+   stores that already own this data, per PHASE3-STAGE4-RELATIONSHIPS-
+   SPEC.md and its binding audit notes. There is NO second
+   relationship manager and NO relationship database in this layer:
+
+   - The per-NPC record store stays LS Stage 5's npcMemory (__NM39):
+     every record this stage adds is written through __NM39.record(),
+     the shipped record path (its dedupe ledger, its caps, its Story
+     protection) — never into a private copy.
+   - Mates stay owned by the shipped mateState {loyalty, injured,
+     nicked}; leaders by S.leaderMem {met, beaten, respect,
+     lastBeatenDay}. This layer reads both, writes neither directly.
+   - Trust / Familiarity / Resentment are DERIVED on read from the
+     records (the same age-softened weights __NM39's disposition
+     derivation uses — replicated exactly, and proven equal to
+     __NM39.disposition().score) plus the shipped terms (leader
+     respect, mate loyalty). Loyalty is the owning store's own value
+     for mates (mateState.loyalty verbatim) and is derived from
+     leaderMem respect for leaders; aunties carry none.
+   - The unified read view (window.__R76.view / .known) is a pure
+     function of those stores. It cannot drift: there is nothing
+     stored to drift.
+
+   CHANGE SOURCES (spec S3 — only recorded events move values, each
+   once, via the npcMemory dedupe ledger):
+   - Everything __NM39 already records (first meetings, compliments,
+     backed-down threats, provocations, parleys, banter, apologies,
+     assaults, leaders put down, mate races, witnessed incidents,
+     conversation/encounter familiarity) feeds the view unchanged.
+   - NEW in this stage, hooked at the one authoritative point the
+     shipped game resolves them — the mate legal-fee resolution
+     inside dailyRollovers(), observed by before/after state deltas
+     (the house observe-after idiom; the shipped body runs first,
+     untouched):
+       fee sorted (cash covered it)  -> Positive record for the mate
+         ('fee-sorted', importance 2, effect +1.5, policy long),
+         eventId pos:fee:mate_<id>:d<due day>.
+       fee left (loyalty tanked -22) -> Negative record
+         ('fee-let-down', importance 2, effect -2, policy long),
+         eventId neg:fee:mate_<id>:d<due day> — the spec's
+         "abandoning a supported commitment".
+   - Spec sources that DO NOT EXIST in the shipped game are NOT
+     invented: the get-well GBP60 the injury toast mentions has no
+     payment mechanic anywhere in the shipped code (the MATES view
+     only invites/drops), and a mate's mid-combat injury is an RNG
+     outcome inside the combat tick with no authoritative wrap
+     point. Both are flagged, neither is hooked.
+
+   DIALOGUE (spec S8, audit note 4): __NM39's recognition pools
+   already voice the trusted / neutral / distrustful cases from
+   stored history. The one spec line with no shipped equivalent —
+   the former ally, "Things ain't how they used to be." — is added
+   here for exactly the case __NM39 leaves on the shipped pool:
+   derived label Neutral (its pool is null) BUT a real history both
+   ways (Familiarity weight >= 4, a Positive record of importance
+   >= 2, and a Negative/Story record of importance >= 2). The swap
+   uses __NM39's own mechanism (the shipped pool is exchanged for
+   this one synchronous doInteract call and restored in a finally),
+   under __NM39's own guards (playing, no fighters, no police
+   chase) plus a matching 20 game-second per-NPC cooldown. It can
+   never override a line __NM39 chose: it fires only when
+   __NM39.recognitionPool() returns a null pool.
+
+   BETRAYAL (spec S6 + audit note 3): A DORMANT FRAMEWORK ONLY.
+   The game contains no betrayal events and this stage invents
+   none. What ships:
+   - an eligibility check (persistent character with a stable ID +
+     recorded relationship history in npcMemory);
+   - an APPROVED-TRIGGER REGISTRY that ships EMPTY. Triggers are
+     code-level registrations by a future, separately approved
+     story/mission stage — the register door exists only on this
+     module's debug surface, and NO shipped code path calls it or
+     the attempt door (grep-provable in the build report);
+   - a once-only event ledger (persisted, below) keyed
+     npcId:triggerId;
+   - the single attempt door: no registered trigger -> 'no-trigger'
+     (the only outcome reachable in this build); ineligible ->
+     'ineligible'; repeat -> 'dup'; otherwise it writes ONE
+     npcMemory record (category 'Betrayal', importance 3, effect -2,
+     policy perm — relationship deterioration through the normal
+     disposition derivation, which is also what later dialogue
+     reads) plus the ledger entry, and invokes the registering
+     stage's own onFire hook if it supplied one. This stage wires
+     NO hostility, NO mission branch, NO cash theft, NO item
+     deletion, NO forced failure — ever, without an approved
+     mechanic (spec S6, hard).
+   Story characters get no special exemption in the check because
+   the framework cannot fire at all; eligibility is about identity
+   + history only.
+
+   UI (spec S9 + audit note 6): ONE phone surface, consolidated
+   with Stage 2's. No new Nokia page: the RELATIONSHIPS block is
+   appended INSIDE Stage 2's STANDING page (#bigMain, after
+   __R74's renderer writes — a MutationObserver re-appends after
+   each of its 600 ms rewrites, with the 1 s tick as backstop),
+   listing each known character with descriptor, affiliation and
+   the derived Trust / Familiarity / Resentment (+ Loyalty where
+   the character carries one). Contact actions stay where they
+   already live (MATES for mates) — nothing is duplicated. If
+   Stage 2 is off, its page does not exist and this block has no
+   home (the data, framework and dialogue above are unaffected —
+   they never read __R74). No bars over NPCs, nothing in the HUD.
+
+   PERSISTENCE: npcMemory / mates / leaderMem keep their existing
+   save paths UNCHANGED in shape (no new fields in any of them).
+   The only new saved data is the betrayal ledger, in a versioned
+   `relationships` section through __SAVE35 (ONE added try-line in
+   svCollect, the __R74/__T75 precedent); restore reads the stored
+   payload at boot (order-independent, read-only). Flag OFF:
+   saveSection returns null, so a stored section is carried over
+   verbatim by the shipped carry-over — frozen, harmless.
+
+   GUARDRAILS: no score-driven combat (audit note 5) — nothing in
+   this layer starts, prevents or modifies a fight; friendly-fire
+   protection for mates, companion navigation/inventory/commands
+   are untouched; global Rep is never read for the view and never
+   written; localStanding (__R74) and territory (__T75) are never
+   read or written — the stores stay separate (proven).
+
+   FLAG: relationshipsEnabled (default ON), pref S.ui.relationships,
+   mirrored in localStorage dale.relationshipsEnabled.v1. OFF = no
+   hooks fire, no dialogue swaps, no phone block, no store writes —
+   the game exactly as v30.75. Failure isolation: any throw
+   disables ONLY this module. Debug: window.__R76. */
+var relationshipsEnabled=true; /* v30.76 master "Relationships" flag (default ON) */
+if(!window.__R76){ (function(){
+ 'use strict';
+ var R76={restored:false,dirty:false,err:null,dlgCd:{},lastDialogue:null,
+          triggers:{},betrayalRecords:{},obsOn:false};
+ var R76_RETAIN={short:150,day:300,long:900,perm:Infinity}; /* __NM39's table */
+ var R76_FORMER_ALLY=['Things ain\u2019t how they used to be.'];
+ function r76StoreOff(){try{return localStorage.getItem('dale.relationshipsEnabled.v1')==='0';}catch(e){return false;}}
+ function r76On(){return !!relationshipsEnabled&&!r76StoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.relationships===0);}
+ function r76SetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.relationships=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.relationshipsEnabled.v1',on?'1':'0');}catch(e){}}
+ function r76Clamp100(v){v=(typeof v==='number'&&isFinite(v))?Math.round(v):0;return Math.max(0,Math.min(100,v));}
+ /* total game seconds — the __NM39 nmNow() formula, replicated */
+ function r76Now(){
+  if(typeof S==='undefined'||!S)return 0;
+  var c=(typeof S.clock==='number')?Math.max(0,Math.min(300,S.clock)):300;
+  return ((S.day||1)-1)*300+(300-c);
+ }
+ /* age-softened record weight — __NM39 nmWeight(), replicated exactly */
+ function r76Weight(r,now){
+  if(r.policy==='perm'||r.importance>=3)return 1;
+  var ret=R76_RETAIN[r.policy]||300,age=now-r.t;
+  if(age<=0)return 1;
+  var w=1-age/ret;return w<0.15?0.15:w;
+ }
+ function r76Label(score){
+  if(score>=3.5)return 'Friendly';
+  if(score>=1.2)return 'Familiar';
+  if(score<=-4)return 'Hostile';
+  if(score<=-1.2)return 'Cautious';
+  return 'Neutral';
+ }
+ /* ---------------- the known-characters catalogue ----------------
+    Stable identities only — the same persistent class __NM39
+    recognises: the four leaders, the three mates, the ten aunties.
+    The interception rival is anonymous and transient (spawnRival /
+    clearRival) and ambient peds have no stable IDs, so neither is
+    catalogued — exactly as __NM39 excludes them. */
+ function r76Catalogue(){
+  /* built fresh on every call (17 entries — cheap): caching risks
+     freezing a partial list if a source array is not yet populated */
+  var out=[],i;
+  try{if(typeof LEADER_DEFS!=='undefined')for(i=0;i<LEADER_DEFS.length;i++){var d=LEADER_DEFS[i];
+   out.push({npcId:'leader_'+d.id,kind:'leader',name:d.name,affil:d.gang||'',area:d.area,def:d});}}catch(e){}
+  try{if(typeof MATES!=='undefined')for(i=0;i<MATES.length;i++){var m=MATES[i];
+   out.push({npcId:'mate_'+m.id,kind:'mate',name:m.name,affil:(m.role||'')+' \u00B7 your crew',area:m.area,def:m});}}catch(e){}
+  try{if(typeof aunties!=='undefined')for(i=0;i<aunties.length;i++){var a=aunties[i];
+   out.push({npcId:'aunty'+i,kind:'aunty',name:'Aunty',affil:(a&&a.street)||'her street',area:null,def:a});}}catch(e){}
+  return out;
+ }
+ function r76CatById(npcId){
+  var cat=r76Catalogue();
+  for(var i=0;i<cat.length;i++)if(cat[i].npcId===npcId)return cat[i];
+  return null;
+ }
+ /* ---------------- the derived read view -------------------------
+    A pure function of the owning stores: __NM39's records for the
+    NPC + S.leaderMem (leaders) + mateState (mates). The score is
+    __NM39's disposition derivation replicated term for term, so
+    view.score === __NM39.disposition(npcId).score by construction
+    (proven in the build probes). Trust / Resentment split the
+    score's positive / negative mass; Familiarity is the total
+    record weight; Loyalty is the owning store's value (mates) or
+    derived from leaderMem respect (leaders); aunties carry none. */
+ function r76View(npcId){
+  var recs=[];
+  try{if(window.__NM39&&__NM39.memories)recs=__NM39.memories(npcId)||[];}catch(e){recs=[];}
+  var now=r76Now(),score=0,pos=0,neg=0,fsum=0,hasPos=false,hasNeg=false,i,r,w;
+  for(i=0;i<recs.length;i++){r=recs[i];w=r76Weight(r,now);
+   var c=r.effect*r.importance*w;
+   score+=c;fsum+=r.importance*w;
+   if(c>0)pos+=c;else if(c<0)neg+=-c;
+   if(r.category==='Positive'&&r.importance>=2&&r.effect>0)hasPos=true;
+   if((r.category==='Negative'||r.category==='Story')&&r.importance>=2&&r.effect<0)hasNeg=true;
+  }
+  var loyalty=null,cat=r76CatById(npcId),kind=cat?cat.kind:null;
+  try{
+   if(npcId.indexOf('leader_')===0&&typeof S!=='undefined'&&S&&S.leaderMem){
+    var lm=S.leaderMem[npcId.slice(7)];
+    if(lm){var lt=(lm.respect||0)*1.5;score+=lt;
+     if(lt>0)pos+=lt;else if(lt<0)neg+=-lt;
+     loyalty=r76Clamp100(50+(lm.respect||0)*25);}
+   }
+   if(npcId.indexOf('mate_')===0&&typeof mateState!=='undefined'){
+    var ms=mateState[npcId.slice(5)];
+    if(ms){var mt=Math.max(-2,Math.min(2,((ms.loyalty||60)-60)/20));score+=mt;
+     if(mt>0)pos+=mt;else if(mt<0)neg+=-mt;
+     loyalty=(typeof ms.loyalty==='number')?Math.round(ms.loyalty):null;}
+   }
+  }catch(e){}
+  score=Math.round(score*100)/100;
+  var label=r76Label(score);
+  var formerAlly=(label==='Neutral'&&fsum>=4&&hasPos&&hasNeg);
+  var descriptor=formerAlly?'Former ally':
+   (score>=3.5?'Trusted friend':(score>=1.2?'Sound associate':
+   (score<=-1.2?'Distrustful contact':'Neutral associate')));
+  var top=null,topW=0;
+  for(i=0;i<recs.length;i++){r=recs[i];var mag=Math.abs(r.effect)*r.importance*r76Weight(r,now);
+   if(mag>topW){topW=mag;top=r;}}
+  return {npcId:npcId,kind:kind,count:recs.length,score:score,label:label,
+   descriptor:descriptor,formerAlly:formerAlly,
+   trust:r76Clamp100(pos*12),resentment:r76Clamp100(neg*12),
+   familiarity:r76Clamp100(fsum*8),loyalty:loyalty,
+   top:top?{eventType:top.eventType,category:top.category,eventId:top.eventId}:null};
+ }
+ /* known = worth a row on the phone: mates always (your crew);
+    leaders once met or remembered; aunties once remembered */
+ function r76Known(){
+  var cat=r76Catalogue(),out=[];
+  for(var i=0;i<cat.length;i++){
+   var c=cat[i],v=r76View(c.npcId),show=false;
+   if(c.kind==='mate')show=true;
+   else if(c.kind==='leader'){try{var lm=(typeof S!=='undefined'&&S&&S.leaderMem)?S.leaderMem[c.def.id]:null;
+    show=!!(v.count>0||(lm&&lm.met>0));}catch(e){show=v.count>0;}}
+   else show=v.count>0;
+   if(show)out.push({npcId:c.npcId,kind:c.kind,name:c.name,affil:c.affil,area:c.area,view:v});
+  }
+  return out;
+ }
+ /* ---------------- change source: the mate legal fee -------------
+    dailyRollovers() is the shipped, authoritative resolution
+    point: a pending nicked fee whose due day has arrived is either
+    paid out of cash (loyalty held) or not (loyalty -22). Observed
+    by before/after deltas; the shipped body runs first, untouched.
+    Cash attribution is sequential in MATES order, mirroring the
+    shipped loop (the fee is the only S.cash mutation in the body —
+    fines land in S.fines). Records go through __NM39.record():
+    the owning store, its dedupe ledger. */
+ function r76RecordFee(id,sorted,due,fee){
+  try{
+   if(!window.__NM39||!__NM39.record)return;
+   if(sorted)__NM39.record('mate_'+id,{eventId:'pos:fee:mate_'+id+':d'+due,eventType:'fee-sorted',
+    category:'Positive',importance:2,effect:1.5,policy:'long',ctx:'legal fee \u00A3'+fee+' sorted'});
+   else __NM39.record('mate_'+id,{eventId:'neg:fee:mate_'+id+':d'+due,eventType:'fee-let-down',
+    category:'Negative',importance:2,effect:-2,policy:'long',ctx:'legal fee left unpaid'});
+  }catch(e){}
+ }
+ try{
+  if(typeof dailyRollovers==='function'&&!dailyRollovers.__r76Wrapped){
+   var r76OrigRoll=dailyRollovers;
+   var r76RollWrap=function(){
+    var snap=null;
+    try{
+     if(r76On()&&typeof MATES!=='undefined'&&typeof mateState!=='undefined'&&typeof S!=='undefined'&&S){
+      var list=[];
+      for(var i=0;i<MATES.length;i++){var st=mateState[MATES[i].id];
+       if(st&&st.nicked&&st.nicked.due<=S.day)list.push({id:MATES[i].id,fee:st.nicked.fee,due:st.nicked.due,loyalty:st.loyalty});}
+      if(list.length)snap={cash:S.cash,list:list};
+     }
+    }catch(e){snap=null;}
+    var r=r76OrigRoll.apply(this,arguments);
+    try{
+     if(snap){
+      var remaining=snap.cash-((typeof S!=='undefined'&&S)?S.cash:0);
+      for(var j=0;j<snap.list.length;j++){
+       var s0=snap.list[j],st2=mateState[s0.id];
+       if(!st2||st2.nicked)continue; /* still pending — not resolved here */
+       if(remaining>=s0.fee-0.5){remaining-=s0.fee;r76RecordFee(s0.id,true,s0.due,s0.fee);}
+       else if(st2.loyalty<s0.loyalty)r76RecordFee(s0.id,false,s0.due,s0.fee);
+      }
+     }
+    }catch(e){}
+    return r;
+   };
+   r76RollWrap.__r76Wrapped=true;
+   dailyRollovers=r76RollWrap;
+  }
+ }catch(e){}
+ /* ---------------- dialogue: the former-ally line ----------------
+    Fires ONLY where __NM39's recognition leaves the shipped pool
+    in place (its pool is null — the Neutral case) and this stage's
+    former-ally history test passes. Same swap mechanism, same
+    guards, same 20 game-second cooldown shape as __NM39. */
+ function r76NpcIdOf(n){
+  try{
+   if(!n)return null;
+   if(n.type==='leader'&&n.leaderRef&&n.leaderRef.def)return 'leader_'+n.leaderRef.def.id;
+   if(n.type==='mate'&&n.crewRef&&n.crewRef.def)return 'mate_'+n.crewRef.def.id;
+   if(n.type==='aunty'&&n.ref&&typeof aunties!=='undefined'){var i=aunties.indexOf(n.ref);if(i>=0)return 'aunty'+i;}
+  }catch(e){}
+  return null;
+ }
+ try{
+  if(typeof doInteract==='function'&&!doInteract.__r76Wrapped){
+   var r76OrigInteract=doInteract;
+   var r76InteractWrap=function(kind){
+    var swap=null,id=null;
+    try{
+     if(kind==='chat'&&r76On()&&typeof interactNPC!=='undefined'&&interactNPC
+        &&typeof S!=='undefined'&&S&&S.playing
+        &&(typeof fighters==='undefined'||!fighters.length)
+        &&(typeof police==='undefined'||!police||police.mode!=='chase')){
+      id=r76NpcIdOf(interactNPC);
+      if(id&&window.__NM39&&__NM39.recognitionPool){
+       var now=r76Now();
+       if(!(R76.dlgCd[id]>now)){
+        var rp=__NM39.recognitionPool(id);
+        if(rp&&!rp.pool&&r76View(id).formerAlly){
+         var n=interactNPC;
+         if(n.type==='leader'&&typeof LEADER_LINES!=='undefined'){
+          var lp=LEADER_LINES[n.leaderRef.def.id];
+          if(lp){swap={chat:lp.chat,again:lp.again};lp.chat=R76_FORMER_ALLY;lp.again=R76_FORMER_ALLY;}
+         }else if(n.type==='mate'&&typeof LINES!=='undefined'){
+          swap={mate:LINES.mate};LINES.mate=R76_FORMER_ALLY;
+         }else if(n.type==='aunty'&&typeof LINES!=='undefined'){
+          swap={auntyChat:LINES.auntyChat};LINES.auntyChat=R76_FORMER_ALLY;
+         }
+         if(swap){R76.dlgCd[id]=now+20;
+          R76.lastDialogue={npcId:id,line:R76_FORMER_ALLY[0],t:now};}
+         else id=null;
+        }
+       }
+      }
+     }
+    }catch(e){swap=null;}
+    try{return r76OrigInteract(kind);}
+    finally{
+     if(swap){
+      try{
+       if(swap.chat!==undefined&&typeof LEADER_LINES!=='undefined'&&id){var lp2=LEADER_LINES[id.slice(7)];if(lp2){lp2.chat=swap.chat;lp2.again=swap.again;}}
+       if(swap.mate!==undefined&&typeof LINES!=='undefined')LINES.mate=swap.mate;
+       if(swap.auntyChat!==undefined&&typeof LINES!=='undefined')LINES.auntyChat=swap.auntyChat;
+      }catch(e){}
+     }
+    }
+   };
+   r76InteractWrap.__r76Wrapped=true;
+   doInteract=r76InteractWrap;
+  }
+ }catch(e){}
+ /* ---------------- betrayal: the dormant framework --------------
+    R76.triggers SHIPS EMPTY and nothing in the game registers or
+    attempts a trigger. Eligibility + once-only ledger + the one
+    attempt door exist so a future approved story/mission stage
+    has a controlled way in — and so this build can PROVE the
+    framework cannot fire: with eligibility forced true, attempt()
+    still returns 'no-trigger' and writes nothing. */
+ function r76BetrayalEligible(npcId){
+  var persistent=!!r76CatById(npcId),hist=0;
+  try{if(window.__NM39&&__NM39.memories)hist=(__NM39.memories(npcId)||[]).length;}catch(e){}
+  return {npcId:npcId,persistent:persistent,history:hist,ok:persistent&&hist>0};
+ }
+ function r76AttemptBetrayal(npcId,triggerId){
+  if(!r76On())return 'off';
+  var trig=R76.triggers[triggerId];
+  if(!trig)return 'no-trigger'; /* <- the only reachable outcome in this build */
+  var el=r76BetrayalEligible(npcId);
+  if(!el.ok)return 'ineligible';
+  var key=npcId+':'+triggerId;
+  if(R76.betrayalRecords[key])return 'dup';
+  R76.betrayalRecords[key]={day:(typeof S!=='undefined'&&S)?(S.day||1):1,t:r76Now(),trigger:triggerId};
+  R76.dirty=true;
+  try{if(window.__NM39&&__NM39.record)__NM39.record(npcId,{eventId:'betrayal:'+key,
+   eventType:'betrayal',category:'Betrayal',importance:3,effect:-2,policy:'perm',ctx:triggerId});}catch(e){}
+  if(typeof trig.onFire==='function'){try{trig.onFire(npcId);}catch(e){}}
+  return 'fired';
+ }
+ /* ---------------- persistence: the betrayal ledger only -------- */
+ function r76Restore(){
+  if(R76.restored)return;
+  R76.restored=true;
+  try{
+   var raw=localStorage.getItem('dale.save.v1');
+   if(raw){
+    var p=JSON.parse(raw),sec=(p&&p.state&&p.state.sections)?p.state.sections.relationships:null;
+    if(sec&&sec.version===1&&sec.data&&sec.data.betrayal&&sec.data.betrayal.records){
+     var recs=sec.data.betrayal.records;
+     for(var k in recs){
+      if(typeof k!=='string'||k.length>80)continue;
+      var v=recs[k];
+      if(v&&typeof v==='object')R76.betrayalRecords[k]={day:(typeof v.day==='number')?v.day:1,
+       t:(typeof v.t==='number')?v.t:0,trigger:(typeof v.trigger==='string')?v.trigger:''};
+     }
+    }
+   }
+  }catch(e){}
+ }
+ function r76SaveSection(){
+  if(!r76On())return null; /* OFF: the shipped carry-over keeps any stored section verbatim */
+  try{return JSON.parse(JSON.stringify({betrayal:{records:R76.betrayalRecords}}));}catch(e){return null;}
+ }
+ /* ---------------- phone UI: inside Stage 2's STANDING page ----- */
+ function r76Esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+ function r76RelHtml(){
+  var list=r76Known();
+  var h='<span style="font-size:12px;">RELATIONSHIPS</span>\n';
+  if(!list.length)h+='<span style="font-size:11px;">No one knows you yet.</span>\n';
+  for(var i=0;i<list.length;i++){
+   var c=list[i],v=c.view;
+   h+='<span style="font-size:11px;">'+r76Esc(c.name)+' \u2014 '+v.descriptor+'</span>\n';
+   h+='<span style="font-size:10px;">'+r76Esc(c.affil)+' \u00B7 Trust '+v.trust+' \u00B7 Fam '+v.familiarity+' \u00B7 Res '+v.resentment+(v.loyalty!==null?' \u00B7 Loyalty '+v.loyalty+'%':'')+'</span>\n';
+  }
+  h+='<span style="font-size:10px;">Favours sorted, fees left, rows\nand races move it. Small talk\ndoesn\u2019t. Mates: use MATES.</span>';
+  return h;
+ }
+ function r76TryAppend(){
+  try{
+   var bm=document.getElementById('bigMain');if(!bm)return;
+   if(!r76On()){
+    var old=document.getElementById('r76Rel');if(old&&old.parentNode)old.parentNode.removeChild(old);
+    return;
+   }
+   if(typeof phoneOpen==='undefined'||!phoneOpen||typeof phoneView==='undefined'||phoneView!=='standing')return;
+   if(bm.textContent.indexOf('LOCAL STANDING')<0)return; /* Stage 2's page owns this view */
+   if(document.getElementById('r76Rel'))return;
+   var d=document.createElement('div');d.id='r76Rel';d.innerHTML=r76RelHtml();
+   bm.appendChild(d);
+  }catch(e){}
+ }
+ function r76InstallObserver(){
+  if(R76.obsOn)return;
+  try{
+   var bm=document.getElementById('bigMain');if(!bm||typeof MutationObserver==='undefined')return;
+   var mo=new MutationObserver(function(){r76TryAppend();});
+   mo.observe(bm,{childList:true});
+   R76.obsOn=true;
+  }catch(e){}
+ }
+ /* ---------------- settings row (the __R74 idiom) ---------------- */
+ function r76SyncSettings(){
+  var st=document.getElementById('r76SetState'),btn=document.getElementById('r76SetBtn');
+  if(st){var want=r76On()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=r76On()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function r76BuildSettings(){
+  if(document.getElementById('r76SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';row.id='r76SetRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Relationships \u2014 trust, loyalty, betrayal</div><div class="setRowNote">Who trusts you and who holds a grudge, read from what folk actually remember \u2014 favours sorted, fees left, rows and races. It\u2019s on the Nokia STANDING page. The betrayal framework ships dormant: no event in the game can fire it.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='r76SetState';st.textContent=r76On()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='r76SetBtn';btn.textContent=r76On()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){r76SetEnabled(!r76On());});
+  row.appendChild(btn);
+  card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function r76SetEnabled(on){
+  relationshipsEnabled=!!on;r76SetPref(on);
+  r76SyncSettings();r76TryAppend();
+  return r76On();
+ }
+ /* ---------------- tick: settings sync + UI backstop ------------ */
+ setInterval(function(){
+  try{
+   r76InstallObserver();
+   r76TryAppend();
+   r76BuildSettings();r76SyncSettings();
+  }catch(e){R76.err='tick:'+String(e&&e.message||e);}
+ },1000);
+ /* ---------------- init ---------------- */
+ try{
+  if(r76On())r76Restore();
+ }catch(e){R76.err='init:'+String(e&&e.message||e);relationshipsEnabled=false;}
+ /* ---------------- debug surface ---------------- */
+ function r76State(){
+  var known=r76Known().map(function(c){return {npcId:c.npcId,name:c.name,affil:c.affil,
+   descriptor:c.view.descriptor,score:c.view.score,label:c.view.label,trust:c.view.trust,
+   familiarity:c.view.familiarity,resentment:c.view.resentment,loyalty:c.view.loyalty,
+   count:c.view.count,formerAlly:c.view.formerAlly};});
+  return {version:'v30.76',on:r76On(),restored:R76.restored,dirty:R76.dirty,err:R76.err,
+   known:known,lastDialogue:R76.lastDialogue,
+   betrayal:{triggers:Object.keys(R76.triggers),records:JSON.parse(JSON.stringify(R76.betrayalRecords))}};
+ }
+ window.__R76={version:'v30.76',on:r76On,setEnabled:r76SetEnabled,state:r76State,
+  view:r76View,known:r76Known,saveSection:r76SaveSection,
+  betrayalEligible:r76BetrayalEligible,attemptBetrayal:r76AttemptBetrayal,
+  /* the trigger door: for a FUTURE approved story/mission stage to
+     register its trigger (and for build probes to prove the
+     once-only machinery). No shipped code calls this. */
+  registerTrigger:function(id,def){if(typeof id==='string'&&id)R76.triggers[id]=def||{};return Object.keys(R76.triggers);},
+  unregisterTrigger:function(id){delete R76.triggers[id];return Object.keys(R76.triggers);}};
+})();}
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -28909,7 +29410,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3075={version:'v30.75'};</script>
+<script>window.__V3076={version:'v30.76'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
