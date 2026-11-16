@@ -8741,7 +8741,7 @@ function updateGame(dt,realDt){
    }
    var nearCar=dist2(footMode.x,footMode.z,carPark.x,carPark.z)<30&&(footMode.reason!=='roam'||(footMode.leftCar&&footMode.exitT>.8));
    var nearSafe=dist2(footMode.x,footMode.z,SAFE.x,SAFE.z)<80;
-   if((nearCar&&!carDead)||(nearSafe&&footMode.reason==='station')){
+   if(((nearCar&&!carDead)&&!(typeof mlTapOnly==='function'&&mlTapOnly()))||(nearSafe&&footMode.reason==='station')){
      if(footMode.reason==='station'&&S.impounded[S.car]&&nearSafe){/* swap to another car at home */
        var alt=Object.keys(S.ownedCars).filter(function(k){return !S.impounded[k];})[0];if(alt){S.car=alt;applyCar();}}
      footMode=null;carPark=null;player.fig.visible=false;
@@ -14879,6 +14879,7 @@ if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
   try{if(window.__CR64&&__CR64.saveSection){var crd64=__CR64.saveSection();if(crd64)sec.charRaces={version:1,data:crd64};}}catch(e){}
   try{if(window.__MS66&&__MS66.saveSection){var msd66=__MS66.saveSection();if(msd66)sec.mercStarter={version:1,data:msd66};}}catch(e){}
   try{if(window.__GR67&&__GR67.saveSection){var grd67=__GR67.saveSection();if(grd67)sec.golfR67={version:1,data:grd67};}}catch(e){}
+  try{if(window.__ML70&&__ML70.saveSection){var mld70=__ML70.saveSection();if(mld70)sec.mandem={version:1,data:mld70};}}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -25598,6 +25599,987 @@ if(!window.__RD69){ (function(){
  window.__RD69={version:'v30.69',on:rdOn,setEnabled:rdSetEnabled,state:rdState,tune:rdTune,stop:function(){rdStop('debug');},
   stations:RD_STATIONS.map(function(s2){return {name:s2.name,sub:s2.sub,url:s2.url};})};
 })();}
+/* ================= v30.70 — THE MANDEM: LINK-UP & GROUP (__ML70) =================
+   The user's directions, 2026-11-15: "Make a feature to have all the
+   mandem link in outside the safe house" / "let multiple people ride
+   in a car" / "Remove auto car getting in" / "Stealing a car shows u
+   dragging them out the door" / "U can run people over" / "Make a
+   group system to choose who you want to follow u" / "Make it a phone
+   option to call everyone" / "In UK ur crew". One appended layer,
+   __ML70, plus THREE shipped-line edits (enumerated in the build
+   report): the version marker, ONE svCollect try-line collecting the
+   `mandem` save section, and ONE guarded condition in the foot walker
+   (§6). Everything else is runtime layer work (including the s3Carjack
+   wrapper, §7 — the __CT59 wrapper precedent).
+
+   FLAG: crewLinkUpEnabled default ON, pref S.ui.crewLinkUp, mirrored
+   in the localStorage key dale.crewLinkUpEnabled.v1 (the __MS66
+   reasoning). Settings row "The Mandem — link-up & your group".
+   Surface: window.__ML70. OFF = the game exactly as v30.69: every
+   borrowed figure is returned, Kobe and his bike are hidden, the
+   carjack wrapper passes straight through, and the §6 walker guard
+   (§6 hook mlTapOnly, declared below at IIFE top level because the
+   shipped walker calls it — the v30.62 lesson) returns false, so the
+   shipped proximity entry works exactly as before.
+
+   WHO THE MANDEM ARE (roster: files/CREW-ROSTER.md): the four shipped
+   leaders (CHIKO, SUNNY, IMMY, KUZZO), the __CT59 named figures (ILY,
+   BT, JAM, KALA TOMMY, REHAN · TATANI) and KOBE (§1, new in this
+   build). KAT has no on-foot figure anywhere in the game — she exists
+   only as her circuit car — so she cannot join a foot link-up without
+   breaking __CT59's ownership of her; she is excluded and that is
+   stated, not papered over. Freddy's roadmen are not the mandem.
+
+   BORROWING (coordinate, don't fight): leaders are driven through
+   their shipped record (L.x/L.z/L.tx — updateLeaders walks them at
+   22 u/s, so this layer moves the record directly and re-pins L.tx
+   each tick; a leader who leaves 'active' state — fighting, down,
+   cruising in the Leader Car — is released the same tick and never
+   touched again). __CT59 figure records are closure-private, so CT59
+   figures are RENDER-DRIVEN: this layer's rAF is registered after
+   __CT59's ctTick, so its position/rotation/animation writes win the
+   frame while borrowed; release drives the figure back onto its live
+   __CT59 position (read from __CT59.state()) until the two coincide,
+   so there is no snap home. Ily is never borrowed while __IL68 has
+   him on tour (phase 'tour'), and nobody is borrowed twice.
+
+   §8 CONSEQUENCES: this layer writes NO Heat, NO Tension, NO economy
+   values anywhere. A run-over calls the shipped witness authority
+   (s2Witness) at the site — the exact call the shipped carjack flow
+   makes — and knocks the pedestrian down with the exact shipped civ
+   fields (down / s2DownT / s2FleeT, the s2ApplyHit flooring values).
+   What the authority then does (aunties calling, street complaints,
+   police response) is the shipped system's decision, not this layer's.
+   ===================================================================== */
+var crewLinkUpEnabled=true; /* v30.70 master "The Mandem" flag (default ON) */
+/* §6 hook — called by ONE guarded shipped line in the foot walker.
+   Returns true only while the link-up flag is fully ON; any doubt
+   (flag off, pref off, storage off, error) returns false and the
+   shipped proximity auto-entry runs exactly as in v30.69. */
+function mlTapOnly(){
+ try{
+  if(!crewLinkUpEnabled)return false;
+  if(localStorage.getItem('dale.crewLinkUpEnabled.v1')==='0')return false;
+  if(typeof S!=='undefined'&&S&&S.ui&&S.ui.crewLinkUp===0)return false;
+  return true;
+ }catch(e){return false;}
+}
+if(!window.__ML70){ (function(){
+ var ML={version:'v30.70',err:'',init:false,group:[],members:{},order:[],
+  cj:null,ringReadyAt:0,ringLog:[],linkActive:false,day:-1,wasFoot:null,
+  hits:0,witnessCalls:0,downs:[],kobe:null,bike:null,bikeMode:'parked',
+  bikeRide:null,nextRideAt:0,saveSeen:false,phoneTick:0,linkBubbleCd:10};
+ /* ---------------- flag (the family idiom) ---------------- */
+ function mlStoreOff(){try{return localStorage.getItem('dale.crewLinkUpEnabled.v1')==='0';}catch(e){return false;}}
+ function mlOn(){return !!crewLinkUpEnabled&&!mlStoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.crewLinkUp===0);}
+ function mlSetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.crewLinkUp=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.crewLinkUpEnabled.v1',on?'1':'0');}catch(e){}}
+ function mlSetEnabled(on){
+  crewLinkUpEnabled=!!on;mlSetPref(on);
+  if(!on)mlReleaseAll('flag');
+  mlSyncSettings();
+  return mlOn();
+ }
+ /* ---------------- small helpers ---------------- */
+ function mlD(ax,az,bx,bz){return Math.sqrt((ax-bx)*(ax-bx)+(az-bz)*(az-bz));}
+ function mlBlocked(x,z){try{return !!footBlocked(x,z);}catch(e){return false;}}
+ function mlCustody(){try{return (typeof custody!=='undefined'&&custody)?true:false;}catch(e){return false;}}
+ function mlPlaying(){try{return !!(typeof S!=='undefined'&&S&&S.playing&&!S.paused);}catch(e){return false;}}
+ function mlFigOf(m){
+  if(!m)return null;
+  if(m.kind==='leader'){var L=null;try{L=leaderById(m.id);}catch(e){}return L?L.fig:null;}
+  if(m.kind==='kobe')return ML.kobe?ML.kobe.fig:null;
+  return m.figObj||null;
+ }
+ function mlPosOf(m){
+  if(!m)return null;
+  if(m.kind==='leader'){var L=null;try{L=leaderById(m.id);}catch(e){}return L?{x:L.x,z:L.z}:null;}
+  /* CT59 figures while borrowed: the VIRTUAL position is authoritative.
+     CT59's own tick re-seats the rendered figure from its private state
+     every frame, so reading fig.position back never accumulates the
+     progress this layer makes — the virtual position is integrated
+     here and rendered over theirs each frame instead. */
+  if(m.px!==undefined)return {x:m.px,z:m.pz};
+  var f=mlFigOf(m);if(!f||!f.position)return null;
+  return {x:f.position.x,z:f.position.z};
+ }
+ /* a formation slot that is not inside a building footprint */
+ function mlSlotPos(cx,cz,ang,r){
+  for(var i=0;i<7;i++){
+   var a=ang+(i===0?0:(i%2?1:-1)*Math.ceil(i/2)*0.55);
+   var x=cx+Math.sin(a)*r,z=cz+Math.cos(a)*r;
+   if(!mlBlocked(x,z))return {x:x,z:z};
+  }
+  return {x:cx+Math.sin(ang)*r,z:cz+Math.cos(ang)*r};
+ }
+ function mlHomeOf(m){
+  if(!m)return null;
+  if(m.kind==='leader'){var L=null;try{L=leaderById(m.id);}catch(e){}return L?{x:L.def.x,z:L.def.z}:null;}
+  if(m.kind==='kobe')return ML.kobe?{x:ML.kobe.hx,z:ML.kobe.hz}:null;
+  try{var st=window.__CT59?__CT59.state():null;
+   if(st&&st.figs&&st.figs[m.id])return {x:st.figs[m.id][0],z:st.figs[m.id][1]};}catch(e){}
+  return null;
+ }
+ /* availability: may this layer borrow the member right now? */
+ function mlAvail(m){
+  if(!m||!mlOn())return false;
+  if(m.mode==='ride')return false;
+  if(m.kind==='leader'){
+   var L=null;try{L=leaderById(m.id);}catch(e){}
+   if(!L||L.state!=='active'||!L.fig||!L.fig.visible)return false;
+   if(L.inCar)return false;
+   return true;
+  }
+  if(m.kind==='kobe')return !!(ML.kobe&&ML.bikeMode==='parked');
+  /* ct59 figure */
+  try{if(!window.__CT59||!__CT59.on())return false;}catch(e){return false;}
+  if(!m.figObj)return false;
+  if(m.id==='ily'){try{var il=window.__IL68?__IL68.state():null;if(il&&il.phase==='tour')return false;}catch(e){}}
+  return true;
+ }
+ /* ---------------- §1 KOBE + his pedal bike ----------------
+    Look (the user's own photo, files/character-models/kobe-reference.jpg):
+    light blue cap, white/black Nike Tech zip-up, light blue tech
+    joggers, black Adidas-style trainers, black man bag. The figure
+    palette carries ONE top colour, so the zip-up is its dominant
+    white panel (the black lower panel cannot be reproduced by the
+    palette — stated plainly); cap + joggers carry the light blue,
+    trainers are black, and the man bag is the shipped gear bag. */
+ function mlTube(a,b,r,mat,parent){
+  var d=new THREE.Vector3(b[0]-a[0],b[1]-a[1],b[2]-a[2]);var len=d.length();
+  var mesh=new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,6),mat);
+  mesh.position.set((a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.normalize());
+  parent.add(mesh);return mesh;
+ }
+ function mlBuildBike(){
+  var g=new THREE.Group();
+  var black=new THREE.MeshLambertMaterial({color:0x14161a});
+  var blue=new THREE.MeshLambertMaterial({color:0x7fb2e0});
+  var rubber=new THREE.MeshLambertMaterial({color:0x0c0c0e});
+  var metal=new THREE.MeshLambertMaterial({color:0x8a8f96});
+  function wheel(z){
+   var pivot=new THREE.Group();pivot.position.set(0,5.2,z);
+   var w=new THREE.Mesh(new THREE.TorusGeometry(5.2,0.55,8,20),rubber);
+   w.rotation.y=Math.PI/2;pivot.add(w);
+   var hub=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,1.6,8),metal);
+   hub.rotation.z=Math.PI/2;pivot.add(hub);
+   g.add(pivot);return pivot;
+  }
+  var wF=wheel(10),wR=wheel(-10);
+  var R=[0,5.2,-10],F=[0,5.2,10],ST=[0,13.5,-6.5],HT=[0,13,7.5],BB=[0,6.2,-1];
+  mlTube(R,ST,0.5,black,g);mlTube(R,BB,0.5,black,g);mlTube(ST,BB,0.55,black,g);
+  mlTube(BB,HT,0.6,black,g);mlTube(ST,HT,0.55,blue,g);mlTube(HT,F,0.5,black,g);
+  mlTube(ST,[0,15,-6.8],0.45,metal,g);
+  var seat=new THREE.Mesh(new THREE.BoxGeometry(3.2,0.9,5.6),black);seat.position.set(0,15.4,-6.8);g.add(seat);
+  mlTube(HT,[0,15.5,8.2],0.45,metal,g);
+  var bar=new THREE.Mesh(new THREE.BoxGeometry(10,0.8,0.8),black);bar.position.set(0,15.8,8.2);g.add(bar);
+  var crank=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,1.4,10),metal);crank.rotation.z=Math.PI/2;crank.position.set(0,6.2,-1);g.add(crank);
+  var p1=new THREE.Mesh(new THREE.BoxGeometry(3.6,0.5,1.6),black);p1.position.set(2.4,4.6,-1);g.add(p1);
+  var p2=new THREE.Mesh(new THREE.BoxGeometry(3.6,0.5,1.6),black);p2.position.set(-2.4,7.8,-1);g.add(p2);
+  g.userData.wF=wF;g.userData.wR=wR;
+  return g;
+ }
+ function mlSpawnKobe(){
+  if(ML.kobe)return;
+  /* his spot: Deeplish, on the pavement by Fareed's / Tweedale Street —
+     first unblocked candidate from a small list around the FENCE */
+  var cands=[];
+  try{cands=[[FENCE.x+46,FENCE.z+58],[FENCE.x+70,FENCE.z+30],[FENCE.x-64,FENCE.z+52],[FENCE.x+24,FENCE.z+92],[FENCE.x-110,FENCE.z-30]];}catch(e){}
+  cands.push([846,1660],[900,1700],[760,1700]);
+  var spot=null;
+  for(var i=0;i<cands.length;i++){if(!mlBlocked(cands[i][0],cands[i][1])){spot=cands[i];break;}}
+  if(!spot)spot=cands[0];
+  var fig=makeFigure(0xf2f3f5,0x7fb2e0,0x8a5a3b,{gear:true,shoe:0x141519});
+  try{cmRebuild(fig,'male',{skin:0x8a5a3b,hair:0x0f0d0c,top:0xf2f3f5,bottom:0x7fb2e0,shoes:0x141519,accent:0x7fb2e0,metal:0xd8d8de,hivis:0xc8e64a});}catch(e){}
+  try{setHat(fig,'cap',0x7fb2e0);}catch(e){}
+  try{if(fig.userData&&fig.userData.gear&&fig.userData.gear.bag){fig.userData.gear.bag.visible=true;
+   if(fig.userData.gear.bagMat)fig.userData.gear.bagMat.color.setHex(0x141519);}}catch(e){}
+  fig.position.set(spot[0],0,spot[1]);scene.add(fig);
+  var label=makeNameSprite('KOBE','#bcd7ff');label.position.set(spot[0],38,spot[1]);scene.add(label);
+  var bike=mlBuildBike();
+  var bx=spot[0]+13,bz=spot[1]+4;
+  bike.position.set(bx,0,bz);bike.rotation.y=0.7;bike.rotation.z=0.16;
+  scene.add(bike);
+  ML.kobe={fig:fig,label:label,hx:spot[0],hz:spot[1],x:spot[0],z:spot[1],h:0,pedalPh:0,bagOk:!!(fig.userData&&fig.userData.gear&&fig.userData.gear.bag&&fig.userData.gear.bag.visible)};
+  ML.bike=bike;ML.bikeMode='parked';
+  ML.bikePark={x:bx,z:bz,rotY:0.7};
+  ML.nextRideAt=(typeof gameT!=='undefined'?gameT:0)+55+Math.random()*40;
+ }
+ /* Kobe's rides: a short Deeplish circuit on the shipped roads
+    (Tweedale Street / Milkstone Road, the Kat pattern — pathPoint
+    along the centreline, kerb-side offset), bicycle pace ~55 u/s.
+    His legs PEDAL: animateFigure's leg swing is overridden after its
+    call with an alternating hip swing while seated (see mlKobeTick). */
+ function mlKobeRideStart(){
+  var roads=[];try{
+   for(var i=0;i<ROADS.length;i++){if(ROADS[i].name==='Tweedale Street'||ROADS[i].name==='B6223 · Milkstone Road')roads.push(ROADS[i]);}
+  }catch(e){}
+  if(!roads.length)return false;
+  var r=roads[Math.floor(Math.random()*roads.length)];
+  var near=mlRoadNear(r,ML.kobe.hx,ML.kobe.hz);
+  ML.bikeRide={road:r,t:near.t,dir:near.t>0.5?-1:1,legs:0};
+  ML.bikeMode='toRoad';
+  return true;
+ }
+ function mlRoadNear(r,x,z){
+  var bt=0,bd=1e18;
+  for(var s=0;s<=60;s++){var p=pathPoint(r.pts,s/60);var d=mlD(x,z,p.x,p.z);if(d<bd){bd=d;bt=s/60;}}
+  return {t:bt,d:bd};
+ }
+ function mlKobeTick(dt){
+  var K=ML.kobe;if(!K)return;
+  var on=mlOn();
+  K.fig.visible=on;if(K.label)K.label.visible=on;
+  if(ML.bike)ML.bike.visible=on;
+  if(!on)return;
+  var m=ML.members.kobe;
+  if(m&&(m.mode==='follow'||m.mode==='gather'||m.mode==='hang'||m.mode==='ride'||m.mode==='return'))return; /* the member driver owns him */
+  if(!mlPlaying())return;
+  var now=(typeof gameT!=='undefined')?gameT:0;
+  if(ML.bikeMode==='parked'){
+   /* idle at his spot */
+   K.fig.position.set(K.hx,0,K.hz);
+   var dP=mlD(K.hx,K.hz,player.x,player.z);
+   K.fig.rotation.y=(dP<70)?Math.atan2(player.x-K.hx,player.z-K.hz)+Math.PI:0.7;
+   animateFigure(K.fig,dt,0,false,false);
+   if(K.label)K.label.position.set(K.hx,38,K.hz);
+   if(ML.bike){ML.bike.position.set(ML.bikePark.x,0,ML.bikePark.z);ML.bike.rotation.set(0,ML.bikePark.rotY,0.16);}
+   if(now>=ML.nextRideAt&&m&&m.mode==='free'&&mlAvail(m))mlKobeRideStart();
+   return;
+  }
+  /* riding states: toRoad -> circuit (2 legs) -> toSpot -> parked */
+  var R=ML.bikeRide;if(!R){ML.bikeMode='parked';return;}
+  var spd=55,target=null;
+  if(ML.bikeMode==='toRoad'){
+   var p0=pathPoint(R.road.pts,R.t);target={x:p0.x,z:p0.z};
+   if(mlD(K.x,K.z,target.x,target.z)<16)ML.bikeMode='circuit';
+  }else if(ML.bikeMode==='circuit'){
+   R.t+=R.dir*(spd*dt/Math.max(60,R.road.len||600));
+   if(R.t>=0.97||R.t<=0.03){R.legs++;R.dir*=-1;R.t=Math.max(0.02,Math.min(0.98,R.t));
+    if(R.legs>=2){ML.bikeMode='toSpot';}}
+   var pp=pathPoint(R.road.pts,R.t);
+   var off=14;target={x:pp.x+pp.dz*off,z:pp.z-pp.dx*off,h:Math.atan2(pp.dx*R.dir,pp.dz*R.dir)};
+  }else{ /* toSpot */
+   target={x:K.hx,z:K.hz};
+   if(mlD(K.x,K.z,target.x,target.z)<10){
+    ML.bikeMode='parked';ML.bikeRide=null;
+    ML.nextRideAt=now+80+Math.random()*70;
+    K.x=K.hx;K.z=K.hz;mlKobeTick(0);return;
+   }
+  }
+  var dx=target.x-K.x,dz=target.z-K.z,d=Math.sqrt(dx*dx+dz*dz);
+  if(d>1){var step=Math.min(d,spd*dt);K.x+=dx/d*step;K.z+=dz/d*step;
+   K.h=Math.atan2(dx,dz);}
+  if(target.h!==undefined)K.h=target.h;
+  K.pedalPh+=dt*7.5;
+  /* bike under him, wheels turning */
+  if(ML.bike){ML.bike.position.set(K.x,0,K.z);ML.bike.rotation.set(0,K.h,0);
+   var spin=spd*dt/5.2;ML.bike.userData.wF.rotation.x-=spin;ML.bike.userData.wR.rotation.x-=spin;}
+  /* seated figure: sunk to the saddle, legs pedalling (figure
+     facing carries the shipped +PI convention; the bike's own
+     forward is +Z, so the bike takes K.h unshifted) */
+  K.fig.position.set(K.x,1.2,K.z);K.fig.rotation.y=K.h+Math.PI;
+  animateFigure(K.fig,dt,0,false,false);
+  var u=K.fig.userData;
+  if(u&&u.legL&&u.legR){
+   var s1=Math.sin(K.pedalPh),s2=Math.sin(K.pedalPh+Math.PI);
+   u.legL.hip.rotation.x=-1.35+s1*0.42;u.legR.hip.rotation.x=-1.35+s2*0.42;
+   u.legL.shin.rotation.x=0.75+Math.max(0,-s1)*0.35;u.legR.shin.rotation.x=0.75+Math.max(0,-s2)*0.35;
+   if(u.armL){u.armL.sh.rotation.x=-0.8;u.armL.fore.rotation.x=0.35;}
+   if(u.armR){u.armR.sh.rotation.x=-0.8;u.armR.fore.rotation.x=0.35;}
+   if(u.body)u.body.rotation.x=-0.16;
+  }
+  if(K.label)K.label.position.set(K.x,38,K.z);
+ }
+ /* ---------------- members ---------------- */
+ var ML_DEFS=[
+  {id:'chico',name:'CHIKO',kind:'leader'},
+  {id:'sunny',name:'SUNNY',kind:'leader'},
+  {id:'immy',name:'IMMY',kind:'leader'},
+  {id:'kuzzo',name:'KUZZO',kind:'leader'},
+  {id:'ily',name:'ILY',kind:'ct59'},
+  {id:'bt',name:'BT',kind:'ct59'},
+  {id:'jam',name:'JAM',kind:'ct59'},
+  {id:'tommy',name:'KALA TOMMY',kind:'ct59'},
+  {id:'rehan',name:'REHAN · TATANI',kind:'ct59'},
+  {id:'kobe',name:'KOBE',kind:'kobe'}
+ ];
+ function mlScanCt59Figs(){
+  var st=null;try{st=window.__CT59?__CT59.state():null;}catch(e){}
+  if(!st||!st.figs)return;
+  ML_DEFS.forEach(function(d){
+   if(d.kind!=='ct59')return;
+   var m=ML.members[d.id];if(!m||m.figObj)return;
+   var fp=st.figs[d.id];if(!fp)return;
+   var best=null,bd=1e18;
+   for(var i=0;i<scene.children.length;i++){var o=scene.children[i];
+    if(!o||o.type!=='Group'||!o.userData||!o.userData.jm||!o.position)continue;
+    var claimed=false;ML_DEFS.forEach(function(d2){var m2=ML.members[d2.id];if(m2&&m2.figObj===o)claimed=true;});
+    if(claimed)continue;
+    var dd=mlD(o.position.x,o.position.z,fp[0],fp[1]);
+    if(dd<bd){bd=dd;best=o;}
+   }
+   if(best&&bd<70){
+    m.figObj=best;
+    for(var j=0;j<scene.children.length;j++){var sp=scene.children[j];
+     if(sp&&sp.type==='Sprite'&&Math.abs(sp.position.x-best.position.x)<7&&Math.abs(sp.position.z-best.position.z)<7&&sp.position.y>30&&sp.position.y<46){m.labelObj=sp;break;}}
+   }
+  });
+ }
+ function mlInitMembers(){
+  ML_DEFS.forEach(function(d){
+   if(!ML.members[d.id]){ML.members[d.id]={id:d.id,name:d.name,kind:d.kind,mode:'free',tx:0,tz:0,
+    blockT:0,lastX:0,lastZ:0,downT:0,bubCd:12+Math.random()*14,figObj:null,labelObj:null,slotA:0};}
+  });
+  ML.order=ML_DEFS.map(function(d){return d.id;});
+  ML.order.forEach(function(id,i){ML.members[id].slotA=(i/ML.order.length)*Math.PI*2;});
+ }
+ /* move one borrowed member toward (tx,tz); returns distance left.
+    maxSpd caps the pace. allowSnap permits the §3 catch-up
+    reposition (follow/gather only — never on a return journey). */
+ function mlDrive(m,tx,tz,dt,maxSpd,allowSnap){
+  var pos=mlPosOf(m);if(!pos)return 1e9;
+  var dx=tx-pos.x,dz=tz-pos.z,d=Math.sqrt(dx*dx+dz*dz);
+  var spd=d>10?Math.min(maxSpd,Math.max(60,d*2.4)):0;
+  /* stuck detection: little progress while trying to move */
+  if(spd>0&&d>12){
+   var moved=mlD(pos.x,pos.z,m.lastX,m.lastZ);
+   if(moved<2*dt*10)m.stuckT=(m.stuckT||0)+dt;else m.stuckT=0;
+  }else m.stuckT=0;
+  if(allowSnap&&(d>620||(m.stuckT||0)>10)){
+   /* §3 catch-up rule: reposition behind the player, out of immediate
+      view (70u behind his facing — facing is (-sin h, -cos h) in the
+      walker's heading convention), then carry on */
+   var hh=(typeof footMode!=='undefined'&&footMode&&footMode.h!==undefined)?footMode.h:0;
+   var bx=player.x+Math.sin(hh)*70;
+   var bz=player.z+Math.cos(hh)*70;
+   if(mlBlocked(bx,bz)){bx=player.x;bz=player.z;}
+   mlSetPos(m,bx,bz);m.stuckT=0;
+   return mlD(bx,bz,tx,tz);
+  }
+  if((m.stuckT||0)>25){
+   /* deep-stuck escape (any journey): hop 150u toward the target */
+   var hx2=pos.x+dx/d*150,hz2=pos.z+dz/d*150;
+   if(!mlBlocked(hx2,hz2)){mlSetPos(m,hx2,hz2);m.stuckT=0;return mlD(hx2,hz2,tx,tz);}
+   m.stuckT=0;
+  }
+  m.lastX=pos.x;m.lastZ=pos.z;
+  if(d<=3)return 0;
+  var step=Math.min(d,spd*dt);
+  var nx=pos.x+dx/d*step,nz=pos.z+dz/d*step;
+  if(mlBlocked(nx,nz)){
+   if(!mlBlocked(nx,pos.z))nz=pos.z;
+   else if(!mlBlocked(pos.x,nz))nx=pos.x;
+   else{ /* hop the block corner — a small lift over a kerb/planter */
+    nx=pos.x+dx/d*Math.min(d,26);nz=pos.z+dz/d*Math.min(d,26);
+   }
+  }
+  mlSetPos(m,nx,nz,Math.atan2(dx,dz),spd);
+  return mlD(nx,nz,tx,tz);
+ }
+ function mlSetPos(m,x,z,heading,spd){
+  if(m.kind==='leader'){
+   var L=null;try{L=leaderById(m.id);}catch(e){}
+   if(!L)return;
+   L.x=x;L.z=z;L.tx=x;L.tz=z;
+   /* hold his wander re-pick while borrowed — updateLeaders would
+      otherwise pick a fresh home target every few seconds and walk
+      him back, fighting this layer's drive */
+   if(L.waitT!==undefined)L.waitT=9;
+   L.fig.position.set(x,0,z);
+   if(heading!==undefined)L.fig.rotation.y=heading+Math.PI;
+   if(L.label)L.label.position.set(x,38,z);
+   L.proxy.x=x;L.proxy.z=z;
+   if(spd!==undefined)animateFigure(L.fig,0.016,spd,spd>115,false);
+   return;
+  }
+  if(m.kind==='kobe'){
+   var K=ML.kobe;if(!K)return;
+   K.x=x;K.z=z;K.fig.position.set(x,0,z);
+   if(heading!==undefined)K.fig.rotation.y=heading+Math.PI;
+   if(K.label)K.label.position.set(x,38,z);
+   if(spd!==undefined)animateFigure(K.fig,0.016,spd,spd>115,false);
+   return;
+  }
+  m.px=x;m.pz=z;
+  var f=m.figObj;if(!f)return;
+  f.position.set(x,0,z);
+  if(heading!==undefined)f.rotation.y=heading+Math.PI;
+  if(m.labelObj)m.labelObj.position.set(x,38,z);
+  if(spd!==undefined)animateFigure(f,0.016,spd,spd>115,false);
+ }
+ function mlFacePlayer(m){
+  var pos=mlPosOf(m);if(!pos)return;
+  var f=mlFigOf(m);if(!f)return;
+  f.rotation.y=Math.atan2(player.x-pos.x,player.z-pos.z)+Math.PI;
+ }
+ /* release one member back to its owner layer */
+ function mlRelease(m,why){
+  if(!m||m.mode==='free')return;
+  if(m.mode==='ride')mlEject(m);
+  m.mode='return';
+ }
+ function mlReleaseAll(why){
+  ML.order.forEach(function(id){var m=ML.members[id];if(m&&m.mode!=='free')mlRelease(m,why);});
+  ML.linkActive=false;ML.cj=null;
+ }
+ /* return journey: leaders walk the record home (snap when far and
+    unwatched); CT59 figures are driven onto their live CT59 position
+    until the two coincide — then the owner layer has them back with
+    no snap at all; Kobe walks to his spot. */
+ function mlReturnTick(m,dt){
+  if(m.kind==='leader'){
+   var L=null;try{L=leaderById(m.id);}catch(e){}
+   if(!L){m.mode='free';return;}
+   if(L.state!=='active'){m.mode='free';return;}
+   var d=mlD(L.x,L.z,L.def.x,L.def.z);
+   if(d<8){m.mode='free';return;}
+   if(d>520&&mlD(L.x,L.z,player.x,player.z)>460){L.x=L.def.x;L.z=L.def.z;L.tx=L.def.x;L.tz=L.def.z;L.fig.position.set(L.x,0,L.z);if(L.label)L.label.position.set(L.x,38,L.z);m.mode='free';return;}
+   mlDrive(m,L.def.x,L.def.z,dt,190,false);
+   return;
+  }
+  if(m.kind==='kobe'){
+   var K=ML.kobe;if(!K){m.mode='free';return;}
+   if(mlD(K.x,K.z,K.hx,K.hz)<6){m.mode='free';return;}
+   mlDrive(m,K.hx,K.hz,dt,190,false);
+   return;
+  }
+  var home=mlHomeOf(m);
+  if(!home){m.mode='free';return;}
+  var left=mlDrive(m,home.x,home.z,dt,215,false);
+  if(left<13){m.mode='free';m.px=undefined;m.pz=undefined;}
+ }
+ /* ---------------- §4 passengers ---------------- */
+ function mlSeatCap(){
+  var s=2;try{s=(typeof SEATS!=='undefined'&&SEATS[S.car]!=null)?SEATS[S.car]:2;}catch(e){}
+  var mates=0;try{mates=crewCount();}catch(e){}
+  return Math.max(0,s-mates);
+ }
+ function mlBoard(){
+  var cap=mlSeatCap(),n=0;
+  var mp=(player.mesh&&player.mesh.position)?player.mesh.position:{x:player.x,z:player.z};
+  ML.order.forEach(function(id){
+   var m=ML.members[id];if(!m)return;
+   if(ML.group.indexOf(id)<0)return;
+   if(n>=cap)return;
+   if(!(m.mode==='follow'||m.mode==='gather'||m.mode==='hang'))return;
+   if(!mlAvail(m))return;
+   var pos=mlPosOf(m);if(!pos)return;
+   if(mlD(pos.x,pos.z,mp.x,mp.z)>115)return;
+   m.mode='ride';n++;
+   var f=mlFigOf(m);if(f)f.visible=false;
+   if(m.labelObj)m.labelObj.visible=false;
+   if(m.kind==='leader'){var L=null;try{L=leaderById(m.id);}catch(e){}if(L&&L.label)L.label.visible=false;}
+   if(m.kind==='kobe'&&ML.kobe&&ML.kobe.label)ML.kobe.label.visible=false;
+  });
+  return n;
+ }
+ function mlEject(m){
+  var mp=(player.mesh&&player.mesh.position)?player.mesh.position:{x:player.x,z:player.z};
+  var side=(ML.order.indexOf(m.id)%2)?1:-1;
+  var ex=mp.x+side*20,ez=mp.z+14;
+  if(mlBlocked(ex,ez)){ex=mp.x;ez=mp.z;}
+  mlSetPos(m,ex,ez);
+  var f=mlFigOf(m);if(f)f.visible=true;
+  if(m.labelObj)m.labelObj.visible=true;
+  if(m.kind==='leader'){var L=null;try{L=leaderById(m.id);}catch(e){}if(L&&L.label)L.label.visible=true;}
+  if(m.kind==='kobe'&&ML.kobe&&ML.kobe.label)ML.kobe.label.visible=true;
+  m.mode=(ML.group.indexOf(m.id)>=0)?'follow':'return';
+ }
+ function mlEjectAll(){
+  ML.order.forEach(function(id){var m=ML.members[id];if(m&&m.mode==='ride')mlEject(m);});
+ }
+ function mlRideTick(){
+  var mp=(player.mesh&&player.mesh.position)?player.mesh.position:null;
+  ML.order.forEach(function(id){
+   var m=ML.members[id];if(!m||m.mode!=='ride')return;
+   var f=mlFigOf(m);if(f)f.visible=false; /* re-hidden every tick — figTick/updateLeaders re-show their own */
+   if(m.labelObj)m.labelObj.visible=false;
+   if(m.kind==='leader'){
+    var L=null;try{L=leaderById(m.id);}catch(e){}
+    if(L){if(mp){L.x=mp.x;L.z=mp.z;L.tx=mp.x;L.tz=mp.z;L.proxy.x=mp.x;L.proxy.z=mp.z;}
+     if(L.label)L.label.visible=false;
+     if(L.state!=='active'){ /* he got pulled into a fight state — bail out clean */
+      m.mode=(ML.group.indexOf(m.id)>=0)?'follow':'return';if(f)f.visible=true;}
+    }
+   }
+   if(m.kind==='kobe'&&ML.kobe&&ML.kobe.label)ML.kobe.label.visible=false;
+  });
+ }
+ /* ---------------- §5 ring the mandem ---------------- */
+ function mlRing(){
+  if(!mlOn())return {ok:false,why:'off'};
+  var now=(typeof gameT!=='undefined')?gameT:0;
+  if(now<ML.ringReadyAt)return {ok:false,why:'cooldown',left:Math.round(ML.ringReadyAt-now)};
+  ML.ringReadyAt=now+40;
+  var targets=ML.group.length?ML.group.slice():ML.order.slice();
+  var sent=0;
+  targets.forEach(function(id){
+   var m=ML.members[id];if(!m)return;
+   if(m.mode==='ride')return;
+   if(!mlAvail(m)&&(m.mode==='free'||m.mode==='return'))return;
+   if(m.mode==='free'||m.mode==='return'||m.mode==='hang'){
+    var pos=mlPosOf(m);
+    if(pos&&mlD(pos.x,pos.z,player.x,player.z)>820){
+     /* arrive from off-screen: reposition ~700u out, then run in */
+     var a=Math.atan2(pos.x-player.x,pos.z-player.z);
+     var ax=player.x+Math.sin(a)*700,az=player.z+Math.cos(a)*700;
+     if(!mlBlocked(ax,az))mlSetPos(m,ax,az);
+    }
+    m.mode='gather';m.gx=player.x;m.gz=player.z;m.gatherKind='ring';m.ringSummon=true;sent++;
+   }
+  });
+  ML.ringLog.push({t:Math.round(now),sent:sent});
+  try{toast('📞 You rang the mandem — '+(sent?sent+' on their way':'nobody free right now'));}catch(e){}
+  return {ok:true,sent:sent};
+ }
+ /* ---------------- §7 carjack drag-out ----------------
+    The shipped s3Carjack spawns the driver AT the car's side and
+    resolves him through S2 in the same instant the player teleports
+    in — the driver simply appears. This wrapper (the __CT59 wrapper
+    precedent; the original below is CT59's own wrapper, so Kat's
+    floor-it and every shipped consequence are preserved verbatim)
+    holds that call for a short scripted beat: the player walks to
+    the driver's door, pulls (the shipped attack-arm gesture), and
+    only then does the original fire — and the civ driver it spawns
+    is floored at the door with the shipped knockdown fields, so he
+    ends up OUT of the car on the pavement, gets up after a beat and
+    legs it (the ped loop's own s2DownT expiry does exactly that).
+    Fighter-type drivers square up through S2 exactly as shipped.
+    Nothing is called early: witnesses/heat fire inside the original
+    at the moment of the theft, as shipped. */
+ var mlCJorig=s3Carjack;
+ s3Carjack=function(t){
+  if(!mlOn()||ML.cj||!t||t.kat59||t.leaderCar||typeof footMode==='undefined'||!footMode||mlCustody()){
+   return mlCJorig(t);
+  }
+  var hx=-Math.sin(t.mesh.rotation.y),hz=-Math.cos(t.mesh.rotation.y);
+  ML.cj={t:t,phase:0,timer:0,doorX:t.x+hz*21,doorZ:t.z-hx*21,fired:false,pedsBefore:-1};
+ };
+ function mlCJAbort(){ML.cj=null;}
+ function mlCJTick(dt){
+  var CJ=ML.cj;if(!CJ)return;
+  var t=CJ.t;
+  if(CJ.phase===0){
+   if(mlCustody()||typeof footMode==='undefined'||!footMode){mlCJAbort();return;}
+   try{if(typeof pReact!=='undefined'&&(pReact.staggerT>0||pReact.kdT>0)){mlCJAbort();return;}}catch(e){}
+   var ix=-1;try{ix=traffic.indexOf(t);}catch(e){}
+   if(ix<0){mlCJAbort();return;}
+   var tspd=(t.spd===undefined?t.speed:t.spd);
+   if(tspd>70){mlCJAbort();return;}
+   CJ.timer+=dt;
+   var dx=CJ.doorX-footMode.x,dz=CJ.doorZ-footMode.z,d=Math.sqrt(dx*dx+dz*dz);
+   if(d>4){
+    var step=Math.min(d,195*dt);
+    footMode.x+=dx/d*step;footMode.z+=dz/d*step;
+    player.x=footMode.x;player.z=footMode.z;
+    player.fig.position.set(footMode.x,0,footMode.z);
+    player.fig.rotation.y=Math.atan2(dx,dz)+Math.PI;
+    animateFigure(player.fig,dt,195,true,false);
+   }else{
+    player.fig.rotation.y=Math.atan2(t.x-footMode.x,t.z-footMode.z)+Math.PI;
+    animateFigure(player.fig,dt,0,false,false);
+   }
+   if(d<=5||CJ.timer>1.7){
+    CJ.phase=1;CJ.timer=0;
+    try{player.fig.userData.atkT=0.32;}catch(e){}
+    try{bubble(player.fig,'Out. Now.');}catch(e){}
+   }
+   return;
+  }
+  /* phase 1: the pull — fire the original, then floor its civ driver */
+  CJ.timer+=dt;
+  if(!CJ.fired){
+   CJ.fired=true;
+   var before=-1;try{before=peds.length;}catch(e){}
+   try{mlCJorig(CJ.t);}catch(e){}
+   try{
+    if(before>=0&&peds.length>before){
+     var drv=peds[peds.length-1];
+     if(drv&&!drv.down){drv.down=true;drv.s2DownT=2.1;drv.s2FleeT=0;}
+    }
+   }catch(e){}
+  }
+  if(CJ.timer>0.45)ML.cj=null;
+ }
+ /* ---------------- §8 run people over ----------------
+    Contact = the pedestrian inside the player car's footprint
+    (OBB in the car's frame, the v30.33 pattern) at speed. Below
+    ~45 u/s there is no knockdown from this layer — the shipped ped
+    dive and scatter handle slow brushes. Fighters, aunties (they
+    dive, shipped) and the police officer figure are not this
+    layer's to floor. */
+ function mlCarFrame(){
+  var spec=null;try{spec=carSpec();}catch(e){}
+  var l=(spec&&spec.l)?spec.l:31,w=(spec&&spec.w)?spec.w:16;
+  return {fx:Math.sin(player.h),fz:-Math.cos(player.h),rx:Math.cos(player.h),rz:Math.sin(player.h),hl:l/2+6,hw:w/2+5};
+ }
+ function mlInCar(x,z,F){
+  var relx=x-player.x,relz=z-player.z;
+  var lo=relx*F.fx+relz*F.fz,la=relx*F.rx+relz*F.rz;
+  return (Math.abs(lo)<F.hl&&Math.abs(la)<F.hw)?{lo:lo,la:la}:null;
+ }
+ function mlRunOverTick(dt){
+  if(typeof footMode!=='undefined'&&footMode)return;
+  var spd=0;try{spd=speedNow();}catch(e){}
+  if(spd<45)return;
+  var F=mlCarFrame();
+  var i,p;
+  try{
+   for(i=0;i<peds.length;i++){p=peds[i];
+    if(!p||p.down||p.aunty)continue;
+    if(p.__mlCd&&gameT<p.__mlCd)continue;
+    var hit=mlInCar(p.x,p.z,F);
+    if(!hit)continue;
+    p.__mlCd=gameT+4;
+    /* push him out of the footprint to the nearer side, then floor
+       him with the shipped fields (s2ApplyHit's values, verbatim) */
+    var side=hit.la>=0?1:-1;
+    p.x=player.x+F.rx*(F.hw+3)*side+F.fx*hit.lo;
+    p.z=player.z+F.rz*(F.hw+3)*side+F.fz*hit.lo;
+    p.down=true;p.s2DownT=2.6;p.s2FleeT=0;
+    ML.hits++;
+    try{s2Witness(p.x,p.z);ML.witnessCalls++;}catch(e){}
+   }
+  }catch(e){}
+  /* named figures: knockdown PRESENTATION only — rotation flat for
+     the shipped 2.6s beat, no state of theirs is read or written */
+  ML.order.forEach(function(id){
+   var m=ML.members[id];if(!m)return;
+   if(m.mode==='ride')return;
+   if(m.kind==='leader'){var L=null;try{L=leaderById(m.id);}catch(e){}if(!L||L.state!=='active')return;}
+   if(m.downT>0)return;
+   var pos=mlPosOf(m);if(!pos)return;
+   if(!mlInCar(pos.x,pos.z,F))return;
+   m.downT=2.6;ML.hits++;
+   try{s2Witness(pos.x,pos.z);ML.witnessCalls++;}catch(e){}
+  });
+ }
+ function mlDownsTick(dt){
+  for(var i=ML.downs.length-1;i>=0;i--){
+   var dn=ML.downs[i];dn.t-=dt;
+   if(dn.fig)dn.fig.rotation.z=(dn.t>0)?(Math.PI/2*0.92):0;
+   if(dn.t<=0)ML.downs.splice(i,1);
+  }
+  ML.order.forEach(function(id){
+   var m=ML.members[id];if(!m||m.downT<=0)return;
+   m.downT-=dt;
+   var f=mlFigOf(m);
+   if(f)f.rotation.z=(m.downT>0)?(Math.PI/2*0.92):0;
+   if(m.downT<=0&&f)f.rotation.z=0;
+  });
+ }
+ /* ---------------- §2/§3 the gathering + following driver ---------------- */
+ var ML_BUBBLES=['you alright pal','oh my days','sound','proper buzzin’','ya get me bro','nowt like a link-up'];
+ function mlBubbleFor(m){
+  if(m.kind==='leader'){
+   try{var pool=LEADER_LINES[m.id]&&LEADER_LINES[m.id].chat;if(pool&&pool.length)return pick(pool);}catch(e){}
+  }
+  if(m.id==='bt')return null; /* BT's own __CT59 pool (incl. his Kasmira) already bubbles */
+  return pick(ML_BUBBLES);
+ }
+ function mlMemberTick(m,dt){
+  if(m.downT>0)return; /* floored by §8 — lies there till the beat ends */
+  if(m.mode==='ride')return;
+  if(m.mode==='return'){mlReturnTick(m,dt);return;}
+  if(m.mode==='free'){if(m.px!==undefined){m.px=undefined;m.pz=undefined;}return;}
+  var pos=mlPosOf(m);if(!pos)return;
+  var inGroup=ML.group.indexOf(m.id)>=0;
+  if(m.mode==='follow'){
+   if(typeof footMode==='undefined'||!footMode){return;}
+   var sp=mlSlotPos(player.x,player.z,m.slotA,24);
+   var left=mlDrive(m,sp.x,sp.z,dt,208,true);
+   if(left<9){mlFacePlayer(m);}
+   return;
+  }
+  if(m.mode==='gather'){
+   var gx=(m.gx!==undefined)?m.gx:player.x,gz=(m.gz!==undefined)?m.gz:player.z;
+   var gp=mlSlotPos(gx,gz,m.slotA,30);
+   var gl=mlDrive(m,gp.x,gp.z,dt,208,true);
+   if(gl<10){m.mode='hang';}
+   return;
+  }
+  if(m.mode==='hang'){
+   /* mill about the gather point; face the player; the odd bubble */
+   var hx=(m.gx!==undefined)?m.gx:player.x,hz=(m.gz!==undefined)?m.gz:player.z;
+   var hd=mlD(pos.x,pos.z,hx,hz);
+   if(hd>90){m.mode='gather';return;}
+   mlFacePlayer(m);
+   m.bubCd-=dt;
+   if(m.bubCd<=0){m.bubCd=16+Math.random()*16;
+    var b=mlBubbleFor(m);var f=mlFigOf(m);
+    if(b&&f&&mlD(pos.x,pos.z,player.x,player.z)<190){try{bubble(f,b);}catch(e){}}
+   }
+   /* a ring-summoned hang disperses when the player leaves them */
+   if(m.ringSummon&&mlD(pos.x,pos.z,player.x,player.z)>560){m.ringSummon=false;m.mode='return';}
+   return;
+  }
+ }
+ function mlDirector(dt){
+  /* link-up state: player on foot near the safe house */
+  var nearSafe=false;
+  try{nearSafe=!!(typeof footMode!=='undefined'&&footMode&&mlD(player.x,player.z,SAFE.x,SAFE.z)<260&&!mlCustody());}catch(e){}
+  ML.linkActive=nearSafe&&mlOn();
+  if(ML.linkActive){
+   ML.order.forEach(function(id){
+    var m=ML.members[id];if(!m)return;
+    if(ML.group.indexOf(id)>=0)return; /* group members follow instead */
+    if(m.mode==='free'||m.mode==='return'){
+     if(!mlAvail(m))return;
+     m.mode='gather';m.gx=SAFE.x;m.gz=SAFE.z;m.gatherKind='safe';m.ringSummon=false;
+    }
+   });
+  }else{
+   /* the link-up disperses: safe-house gatherers head home (ring
+      summons keep their own dispersal rule in the hang tick) */
+   ML.order.forEach(function(id){
+    var m=ML.members[id];if(!m)return;
+    if((m.mode==='gather'||m.mode==='hang')&&m.gatherKind==='safe'){m.mode='return';m.gatherKind=null;}
+   });
+  }
+  /* group members follow whenever the player is on foot */
+  if(typeof footMode!=='undefined'&&footMode){
+   ML.group.forEach(function(id){
+    var m=ML.members[id];if(!m)return;
+    if(m.mode==='ride')return;
+    if(mlAvail(m)){m.mode='follow';m.ringSummon=false;m.gatherKind=null;}
+   });
+  }
+ }
+ /* ---------------- phone UI (§3 group + §5 ring) ----------------
+    The mates view is re-rendered by a shipped 600 ms interval; this
+    layer appends its section on the __CR64 precedent (guarded by a
+    data attribute, re-appended each cycle). UK wording throughout:
+    the group is THE MANDEM; the call is "Ring the mandem". */
+ /* §3/§5 reachability repair (flag-gated): in the shipped game the
+    Nokia MATES view is UNREACHABLE — renderPhone() has no 'mates'
+    branch, so its fallthrough resets phoneView to 'home' before the
+    shipped mates renderer (a 600 ms interval keyed on
+    phoneView==='mates') can ever draw it. A/B-proven on the
+    untouched base: tapping MATES leaves phoneView at 'home'. This
+    wrapper restores the view while the flag is on: after the
+    shipped render, if the user had navigated to 'mates', the view
+    value is put back so the shipped mates renderer + this layer's
+    section can draw. With the flag OFF the wrapper is a pure
+    pass-through — the base behaviour (bug included) is untouched. */
+ try{
+  var mlOrigRenderPhone=renderPhone;
+  renderPhone=function(){
+   var v=(typeof phoneView!=='undefined')?phoneView:null;
+   mlOrigRenderPhone();
+   if(v==='mates'&&mlOn()&&phoneView==='home')phoneView='mates';
+  };
+ }catch(e){}
+ function mlPhoneTick(){
+  if(typeof phoneOpen==='undefined'||!phoneOpen||typeof phoneView==='undefined'||phoneView!=='mates')return;
+  var bm=document.getElementById('bigMain');if(!bm)return;
+  if(bm.querySelector('[data-ml70]'))return;
+  var html='\n<span style="font-size:12px;">THE MANDEM — your group (tap: in / out)</span>';
+  ML.order.forEach(function(id){
+   var m=ML.members[id];if(!m)return;
+   var inG=ML.group.indexOf(id)>=0;
+   html+='<span class="mi" data-ml70="'+id+'">'+m.name+(inG?' · IN YOUR GROUP ✓':' · tap: ride with me')+'</span>';
+  });
+  html+='<span class="mi" data-ml70ring="1">📞 Ring the mandem</span>';
+  bm.innerHTML+=html;
+  bm.querySelectorAll('[data-ml70]').forEach(function(el){
+   el.onclick=function(){
+    var id=el.getAttribute('data-ml70');
+    mlToggleGroup(id);
+    try{renderPhone();}catch(e){}
+   };
+  });
+  var rg=bm.querySelector('[data-ml70ring]');
+  if(rg)rg.onclick=function(){var r=mlRing();if(r&&!r.ok&&r.why==='cooldown'){try{toast('Mandem need a breather — '+r.left+'s');}catch(e){}}try{closePhone();}catch(e){}};
+ }
+ function mlToggleGroup(id){
+  var ix=ML.group.indexOf(id);
+  if(ix>=0){ML.group.splice(ix,1);var m=ML.members[id];if(m&&(m.mode==='follow'||m.mode==='hang'))m.mode='return';
+   try{toast(ML.members[id].name+' — out of your group');}catch(e){}}
+  else{ML.group.push(id);try{toast(ML.members[id].name+' — in your group');}catch(e){}}
+ }
+ /* ---------------- save section ---------------- */
+ function mlSaveSection(){return {group:ML.group.slice()};}
+ function mlReadSection(){
+  try{var raw=localStorage.getItem('dale.save.v1');if(!raw)return null;
+   var pv=JSON.parse(raw);
+   if(pv&&pv.state&&pv.state.sections&&pv.state.sections.mandem&&pv.state.sections.mandem.data)return pv.state.sections.mandem.data;
+  }catch(e){}
+  return null;
+ }
+ /* ---------------- settings row (the family idiom) ---------------- */
+ function mlSyncSettings(){
+  var st=document.getElementById('ml70SetState'),btn=document.getElementById('ml70SetBtn');
+  if(st){var want=mlOn()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=mlOn()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function mlBuildSettings(){
+  if(document.getElementById('ml70SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';row.id='ml70SetRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">The Mandem — link-up &amp; your group</div><div class="setRowNote">The mandem link up outside the safe house. Pick your group in the Nokia mates view — they follow you and ride with you; “Ring the mandem” on the phone brings them to you. Getting in your own car is tap-only (GET IN / E), carjacks drag the driver out, and motors can knock folk down (witnesses still grass through the usual channels). Off = the game exactly as before: no link-up, no Kobe, auto entry back on.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='ml70SetState';st.textContent=mlOn()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='ml70SetBtn';btn.textContent=mlOn()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){mlSetEnabled(!mlOn());});
+  row.appendChild(btn);
+  card.insertBefore(row,closeBtn);
+  return true;
+ }
+ /* ---------------- main ticks ---------------- */
+ var mlLast=performance.now();
+ function mlTick(now){
+  requestAnimationFrame(mlTick);
+  var dt=Math.min(0.05,(now-mlLast)/1000);mlLast=now;
+  if(!ML.init)return;
+  try{
+   var on=mlOn();
+   /* §6: drive the GET IN button's own-car path (checks the flag
+      itself; inert when off) */
+   mlGetInTick();
+   /* Kobe always ticks (he hides himself when off) */
+   mlKobeTick(dt);
+   if(!on){
+    if(ML.cj)ML.cj=null;
+    /* flag OFF still lands every borrowed figure home: riders are
+       ejected, the rest walk their return (leaders/CT59 figures stay
+       visible — their own layers own them again on arrival) */
+    ML.order.forEach(function(id){var m=ML.members[id];if(!m)return;
+     if(m.mode==='ride')mlEject(m);
+     else if(m.mode==='return')mlReturnTick(m,dt);
+     else if(m.mode!=='free')m.mode='return';
+    });
+    return;
+   }
+   /* custody + day-rollover ejects run BEFORE the playing gate:
+      both states pause the game (custody screen / day-complete
+      screen), so anything below the gate would never fire and
+      riders would stay hidden in 'ride' for the whole stretch */
+   if(mlCustody()){if(ML.cj)ML.cj=null;mlEjectAll();}
+   /* day rollover: everybody out, summons reset */
+   if(typeof S!=='undefined'&&S){
+    if(ML.day<0)ML.day=S.day;
+    if(ML.day!==S.day){ML.day=S.day;mlEjectAll();
+     ML.order.forEach(function(id){var m=ML.members[id];if(m&&(m.mode==='gather'||m.mode==='hang'))m.mode='return';m&&(m.ringSummon=false);});}
+   }
+   if(!mlPlaying()){mlRideTick();return;}
+   /* car entry / exit transitions (§4) */
+   var isFoot=!!(typeof footMode!=='undefined'&&footMode);
+   if(ML.wasFoot===null)ML.wasFoot=isFoot;
+   if(ML.wasFoot&&!isFoot&&!mlCustody())mlBoard();
+   if(!ML.wasFoot&&isFoot)mlEjectAll();
+   ML.wasFoot=isFoot;
+   mlRideTick();
+   mlCJTick(dt);
+   mlRunOverTick(dt);
+   mlDownsTick(dt);
+   mlDirector(dt);
+   ML.order.forEach(function(id){
+    var m=ML.members[id];if(!m)return;
+    if(m.kind==='leader'){
+     var L=null;try{L=leaderById(m.id);}catch(e){}
+     if(L&&L.state!=='active'&&m.mode!=='free'&&m.mode!=='ride'){m.mode='free';}
+    }
+    /* a CT59 member who becomes unavailable mid-borrow (Ily's tour
+       starting is the live case) is sent home: his owner layer has
+       him — invisibly, in Ily's case — and the return lands him
+       back on his spot when he resurfaces */
+    if(m.kind==='ct59'&&(m.mode==='gather'||m.mode==='hang'||m.mode==='follow')&&!mlAvail(m))m.mode='return';
+    mlMemberTick(m,dt);
+   });
+  }catch(e){ML.err='tick:'+String(e&&e.message||e);}
+ }
+ requestAnimationFrame(mlTick);
+ setInterval(function(){try{if(ML.init){mlBuildSettings();mlSyncSettings();}}catch(e){}},900);
+ /* the mates view is wiped by a shipped 600 ms re-render — the phone
+    section re-appends on a shorter cycle so the rows are there to
+    tap (the __CR64 flicker class, tightened) */
+ setInterval(function(){try{if(ML.init)mlPhoneTick();}catch(e){}},300);
+ setInterval(function(){
+  try{
+   if(ML.init)return;
+   if(typeof scene==='undefined'||typeof S==='undefined')return;
+   if(!leaderById('chico'))return;
+   var cst=window.__CT59?__CT59.state():null;
+   if(!cst||!cst.figs||!cst.figs.ily)return;
+   mlInitMembers();
+   mlScanCt59Figs();
+   mlSpawnKobe();
+   var sec=mlReadSection();
+   if(sec&&Array.isArray(sec.group)){
+    ML.group=sec.group.filter(function(id){return !!ML.members[id];});
+    ML.saveSeen=true;
+   }
+   ML.init=true;
+  }catch(e){ML.err='init:'+String(e&&e.message||e);}
+ },700);
+ /* §6 (cont.) — the GET IN button's 'own' mode is DEAD in the shipped
+    hud24: hud24 lives in its own <script> block, where its
+    typeof footMode/carPark/carDead guards can never see the game
+    scope, so its own-car mode never computes (measured on the
+    untouched base: __h24GetInMode never leaves '' by the own car).
+    On the phone, proximity entry was therefore the ONLY way back
+    into your own car. With that gated, this layer drives the button
+    from inside the game scope: the exact conditions and effects of
+    the shipped E-key entry, on a deliberate tap. hud24's 'steal'
+    mode (which works, via window.__S3) keeps precedence — this
+    handler never intercepts a steal tap. Flag OFF: no driving, no
+    interception — the shipped proximity entry returns as-is. */
+ ML.gb=null;ML.ownOk=false;
+ function mlGetInTick(){
+  ML.ownOk=false;
+  if(!mlOn())return;
+  try{
+   if(typeof footMode==='undefined'||!footMode||!S||!S.playing||S.paused)return;
+   if(typeof custody!=='undefined'&&custody)return;
+   if(S.ride)return;
+   if(typeof carPark==='undefined'||!carPark||typeof carDead==='undefined'||carDead)return;
+   var d=dist2(footMode.x,footMode.z,carPark.x,carPark.z);
+   if(!(d<30&&(footMode.reason!=='roam'||(footMode.leftCar&&footMode.exitT>.8))))return;
+   if((window.__h24GetInMode||'')==='steal')return; /* shipped steal wins */
+   ML.ownOk=true;
+   if(!ML.gb)ML.gb=document.getElementById('h24GetInBtn');
+   if(ML.gb){
+    if(!ML.gb.__ml70Wired){ML.gb.__ml70Wired=true;ML.gb.addEventListener('click',mlGetInClick,true);}
+    if(ML.gb.style.display!=='block')ML.gb.style.display='block';
+   }
+  }catch(e){}
+ }
+ function mlGetInClick(){
+  if(!mlOn()||!ML.ownOk)return;
+  if((window.__h24GetInMode||'')==='steal')return;
+  try{
+   footMode=null;carPark=null;player.fig.visible=false;
+   player.x=player.mesh.position.x;player.z=player.mesh.position.z;
+   toast('Back in the car');
+  }catch(e){}
+ }
+ /* ---------------- debug surface ---------------- */
+ function mlState(){
+  var mem={};
+  ML.order.forEach(function(id){
+   var m=ML.members[id];if(!m)return;
+   var pos=mlPosOf(m);
+   mem[id]={mode:m.mode,avail:mlAvail(m),inGroup:ML.group.indexOf(id)>=0,
+    x:pos?Math.round(pos.x):null,z:pos?Math.round(pos.z):null,
+    dPlayer:pos?Math.round(mlD(pos.x,pos.z,player.x,player.z)):null,downT:+((m.downT||0).toFixed(1))};
+  });
+  return {version:ML.version,on:mlOn(),init:ML.init,err:ML.err,group:ML.group.slice(),
+   linkActive:ML.linkActive,tapOnly:mlTapOnly(),
+   getIn:{ownOk:ML.ownOk,gbDisplay:ML.gb?ML.gb.style.display:null,hudMode:(typeof window!=='undefined'&&window.__h24GetInMode)||''},members:mem,
+   cj:ML.cj?{phase:ML.cj.phase,timer:+ML.cj.timer.toFixed(2)}:null,
+   hits:ML.hits,witnessCalls:ML.witnessCalls,
+   kobe:ML.kobe?{x:Math.round(ML.kobe.x),z:Math.round(ML.kobe.z),hx:ML.kobe.hx,hz:ML.kobe.hz,bagOk:ML.kobe.bagOk,bikeMode:ML.bikeMode}:null,
+   ringReadyIn:Math.max(0,Math.round(ML.ringReadyAt-((typeof gameT!=='undefined')?gameT:0))),
+   saveSeen:ML.saveSeen};
+ }
+ window.__ML70={version:'v30.70',on:mlOn,setEnabled:mlSetEnabled,state:mlState,
+  saveSection:mlSaveSection,ring:mlRing,setGroup:function(ids){ML.group=(ids||[]).filter(function(id){return !!ML.members[id];});return ML.group.slice();},
+  toggleGroup:mlToggleGroup,releaseAll:function(){mlReleaseAll('debug');}};
+})();}
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -26014,7 +26996,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3069={version:'v30.69'};</script>
+<script>window.__V3070={version:'v30.70'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
