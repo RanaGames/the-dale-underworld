@@ -2532,6 +2532,10 @@ ground2.rotation.x=-Math.PI/2; ground2.position.set(WORLD2.cx,0.15,WORLD2.cz); s
    old parapet line only, and small front details stay inside the existing collision pad.
    Facades are a small set of shared canvas textures (no per-window materials); all variation
    uses a private seeded stream (brnd) so the shared rnd() stream is untouched. */
+/* v30.73: graphics-pass gate for the boot-time texture generators —
+   read once here (kill key + pref); the __GX73 layer owns the toggle
+   and mirrors it to localStorage dale.graphicsPassEnabled.v1. */
+var GX73TEX=(function(){try{if(localStorage.getItem('dale.graphicsPassEnabled.v1')==='0')return false;if(typeof S!=='undefined'&&S&&S.ui&&S.ui.graphicsPass===0)return false;}catch(e){}return true;})();
 var buildings=[];
 var P5_BUILD=[]; /* Phase 5: building registry (visual only) for night window lights */
 var bMeshes=[]; /* Phase 1: mesh registry for camera-occlusion fading */
@@ -2543,9 +2547,34 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
  function bpick(a){return a[Math.floor(brnd()*a.length)];}
  /* ---- shared facade canvas textures ---- */
  function mkTex(draw){var c=document.createElement('canvas');c.width=256;c.height=256;var g=c.getContext('2d');draw(g);var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;return t;}
- function brick(g,base,plinth){g.fillStyle=base;g.fillRect(0,0,256,256);g.fillStyle='rgba(0,0,0,.055)';for(var y=4;y<256;y+=9)g.fillRect(0,y,256,1);for(var i=0;i<340;i++){g.fillStyle=(i%2?'rgba(255,232,205,':'rgba(12,6,0,')+(0.028+(i%5)*0.009)+')';g.fillRect((i*67)%250,(i*41)%250,13,5);} /* v30.16: per-brick tonal variation + baked base grime/AO on EVERY facade (was sample-only) */ for(var b2=0;b2<130;b2++){g.fillStyle=(b2%3?'rgba(20,10,4,':'rgba(255,226,196,')+(0.03+((b2*7)%5)*0.011)+')';g.fillRect((b2*97)%244,(b2*53)%238,11,4);}var ao2=g.createLinearGradient(0,182,0,256);ao2.addColorStop(0,'rgba(12,9,6,0)');ao2.addColorStop(1,'rgba(12,9,6,.34)');g.fillStyle=ao2;g.fillRect(0,182,256,74);if(plinth){g.fillStyle=plinth;g.fillRect(0,242,256,14);}}
- function win(g,x,y,w,h,lit,arch){g.fillStyle='#cfc4ae';g.fillRect(x-3,y-7,w+6,6);g.fillStyle='#f4f1e9';g.fillRect(x-2,y-2,w+4,h+5);g.fillStyle=lit?'#ffb45c':'#2e3d47';g.fillRect(x,y,w,h); /* v30.16: unlit glass muted slate (was #31465c); lit windows stay warm — night signalling unchanged */if(arch){g.beginPath();g.arc(x+w/2,y,w/2,Math.PI,0);g.fill();}g.fillStyle='rgba(255,255,255,.28)';g.fillRect(x+2,y+2,Math.max(2,w*.36),Math.max(2,h*.4));g.fillStyle='#f4f1e9';g.fillRect(x+w/2-1,y,2,h);g.fillRect(x,y+h/2-1,w,2);g.fillStyle='#cfc4ae';g.fillRect(x-3,y+h+4,w+6,4);}
- function door(g,x,y,w,h,col){g.fillStyle='#e9e3d3';g.fillRect(x-3,y-4,w+6,h+4);g.fillStyle=col;g.fillRect(x,y,w,h);g.fillStyle='rgba(255,255,255,.32)';g.fillRect(x+w*.16,y+7,w*.28,h*.32);g.fillStyle='#d9c26a';g.fillRect(x+w-8,y+h*.52,4,4);}
+ function brick(g,base,plinth){g.fillStyle=base;g.fillRect(0,0,256,256);g.fillStyle='rgba(0,0,0,.055)';for(var y=4;y<256;y+=9)g.fillRect(0,y,256,1);for(var i=0;i<340;i++){g.fillStyle=(i%2?'rgba(255,232,205,':'rgba(12,6,0,')+(0.028+(i%5)*0.009)+')';g.fillRect((i*67)%250,(i*41)%250,13,5);} /* v30.16: per-brick tonal variation + baked base grime/AO on EVERY facade (was sample-only) */ for(var b2=0;b2<130;b2++){g.fillStyle=(b2%3?'rgba(20,10,4,':'rgba(255,226,196,')+(0.03+((b2*7)%5)*0.011)+')';g.fillRect((b2*97)%244,(b2*53)%238,11,4);}if(GX73TEX){ /* v30.73: per-brick course tones on a private hash (no shared stream), a pale string course at the wall head, rain streaks */
+  for(var ry=4;ry<250;ry+=9){var roff=((ry/9)%2)*11;for(var bx2=roff;bx2<256;bx2+=22){var bh=((bx2*37+ry*91)%13)/13;g.fillStyle=bh<.5?'rgba(255,226,196,'+(0.02+bh*0.05)+')':'rgba(10,5,2,'+(0.02+(bh-.5)*0.06)+')';g.fillRect(bx2+1,ry+1,20,7);}}
+  g.fillStyle='rgba(228,220,200,.40)';g.fillRect(0,2,256,4);g.fillStyle='rgba(0,0,0,.16)';g.fillRect(0,6,256,2);
+  for(var st2=0;st2<6;st2++){var sx2=(st2*47+13)%240;g.fillStyle='rgba(18,14,10,.05)';g.fillRect(sx2,8,3+(st2%3),60+((st2*53)%80));}
+ }
+var ao2=g.createLinearGradient(0,182,0,256);ao2.addColorStop(0,'rgba(12,9,6,0)');ao2.addColorStop(1,'rgba(12,9,6,.34)');g.fillStyle=ao2;g.fillRect(0,182,256,74);if(plinth){g.fillStyle=plinth;g.fillRect(0,242,256,14);}
+ if(GX73TEX){ /* v30.73: deeper ground grime + splash band */
+  var ao3=g.createLinearGradient(0,150,0,256);ao3.addColorStop(0,'rgba(10,8,5,0)');ao3.addColorStop(1,'rgba(10,8,5,.16)');g.fillStyle=ao3;g.fillRect(0,150,256,106);
+  g.fillStyle='rgba(8,6,4,.20)';g.fillRect(0,250,256,6);}
+}
+ function win(g,x,y,w,h,lit,arch){g.fillStyle='#cfc4ae';g.fillRect(x-3,y-7,w+6,6);g.fillStyle='#f4f1e9';g.fillRect(x-2,y-2,w+4,h+5);g.fillStyle=lit?'#ffb45c':'#2e3d47';g.fillRect(x,y,w,h); /* v30.16: unlit glass muted slate (was #31465c); lit windows stay warm — night signalling unchanged */if(arch){g.beginPath();g.arc(x+w/2,y,w/2,Math.PI,0);g.fill();}g.fillStyle='rgba(255,255,255,.28)';g.fillRect(x+2,y+2,Math.max(2,w*.36),Math.max(2,h*.4));g.fillStyle='#f4f1e9';g.fillRect(x+w/2-1,y,2,h);g.fillRect(x,y+h/2-1,w,2);g.fillStyle='#cfc4ae';g.fillRect(x-3,y+h+4,w+6,4);
+ if(GX73TEX){ /* v30.73: window dressing by position hash — venetian blinds / net curtain / side curtains — a lit gradient, grime under the sill */
+  var wh=((x*31+y*17)%10+10)%10;
+  if(wh<3){g.fillStyle='rgba(232,230,222,.55)';for(var bl=0;bl<Math.floor(h*.55/5);bl++)g.fillRect(x+1,y+2+bl*5,w-2,2);g.fillStyle='rgba(60,58,52,.5)';g.fillRect(x,y+Math.floor(h*.55),w,2);}
+  else if(wh<5){g.fillStyle='rgba(240,238,230,.34)';g.fillRect(x+1,y+Math.floor(h*.34),w-2,Math.floor(h*.66)-1);g.fillStyle='rgba(240,238,230,.20)';g.fillRect(x+1,y+2,w-2,Math.floor(h*.32));}
+  else if(wh<7){g.fillStyle='rgba(74,52,44,.48)';g.fillRect(x,y,Math.max(3,w*.20),h);g.fillRect(x+w-Math.max(3,w*.20),y,Math.max(3,w*.20),h);g.fillStyle='rgba(255,255,255,.10)';g.fillRect(x+Math.max(3,w*.20),y,1,h);g.fillRect(x+w-Math.max(3,w*.20)-1,y,1,h);}
+  if(lit){var lg=g.createLinearGradient(0,y,0,y+h);lg.addColorStop(0,'rgba(255,214,140,.20)');lg.addColorStop(1,'rgba(120,50,10,.16)');g.fillStyle=lg;g.fillRect(x,y,w,h);}
+  g.fillStyle='rgba(20,16,10,.18)';g.fillRect(x-2,y+h+9,w+4,3);g.fillStyle='rgba(20,16,10,.10)';g.fillRect(x-1,y+h+12,w+2,3);
+ }
+}
+ function door(g,x,y,w,h,col){g.fillStyle='#e9e3d3';g.fillRect(x-3,y-4,w+6,h+4);g.fillStyle=col;g.fillRect(x,y,w,h);g.fillStyle='rgba(255,255,255,.32)';g.fillRect(x+w*.16,y+7,w*.28,h*.32);g.fillStyle='#d9c26a';g.fillRect(x+w-8,y+h*.52,4,4);
+ if(GX73TEX){ /* v30.73: recessed panels, letterbox, stone step */
+  g.strokeStyle='rgba(0,0,0,.30)';g.lineWidth=2;g.strokeRect(x+5,y+6,Math.max(4,w-10),Math.max(4,h*.34));g.strokeRect(x+5,y+h*.48,Math.max(4,w-10),Math.max(4,h*.40));
+  g.strokeStyle='rgba(255,255,255,.13)';g.lineWidth=1;g.strokeRect(x+6,y+7,Math.max(4,w-10),Math.max(4,h*.34));
+  g.fillStyle='#c8b26a';g.fillRect(x+w*.30,y+h*.44,w*.40,3);
+  g.fillStyle='#a09a8d';g.fillRect(x-5,y+h,w+10,4);g.fillStyle='rgba(0,0,0,.28)';g.fillRect(x-5,y+h+4,w+10,2);
+ }
+}
  function terraceTex(base,doorCol,litSeed){return mkTex(function(g){brick(g,base,'#3f3a36');
    /* MAP REBUILD §4 facade modules on the 34x40 terrace unit: door 7x14, windows 8x10, storey pitch 13, stone lintels, plinth band */
    win(g,16,14,60,58,(litSeed%3)===0);win(g,98,14,60,58,(litSeed%4)===1);win(g,180,14,60,58,(litSeed%5)===2);
@@ -2574,7 +2603,10 @@ var SAFE_KIT=null; /* filled by the building IIFE below; used by the safe house 
    g.fillStyle='#848b92';g.fillRect(72,104,112,152);g.fillStyle='rgba(0,0,0,.28)';for(var y=112;y<256;y+=11)g.fillRect(72,y,112,2);g.fillStyle='#5c6266';g.fillRect(66,98,124,8);
    door(g,206,192,30,58,'#374048');});}
  function stoneTex(){return mkTex(function(g){g.fillStyle='#bfae90';g.fillRect(0,0,256,256);g.strokeStyle='rgba(70,58,40,.28)';g.lineWidth=1;for(var y=6;y<256;y+=16){g.beginPath();g.moveTo(0,y);g.lineTo(256,y);g.stroke();}for(var r2=0;r2<16;r2++)for(var cx2=(r2%2)*24;cx2<256;cx2+=48){g.beginPath();g.moveTo(cx2,r2*16);g.lineTo(cx2,r2*16+16);g.stroke();}
-   g.fillStyle='#8f8168';g.fillRect(0,230,256,26);
+   if(GX73TEX){ /* v30.73: per-block tone noise + the base grime stoneTex never had */
+  for(var sb2=0;sb2<190;sb2++){g.fillStyle=(sb2%2?'rgba(255,246,224,':'rgba(40,32,18,')+(0.025+((sb2*7)%5)*0.009)+')';g.fillRect((sb2*89)%240,(sb2*61)%226,15,13);}
+  var sao=g.createLinearGradient(0,170,0,256);sao.addColorStop(0,'rgba(30,24,14,0)');sao.addColorStop(1,'rgba(30,24,14,.20)');g.fillStyle=sao;g.fillRect(0,170,256,86);}
+g.fillStyle='#8f8168';g.fillRect(0,230,256,26);
    var xs=[16,68,120,172,216];for(var i2=0;i2<5;i2++){win(g,xs[i2],34,30,64,i2===2,true);win(g,xs[i2],140,30,72,i2===1||i2===3,true);}});}
  function clockTex(){return mkTex(function(g){g.fillStyle='#b3a184';g.fillRect(0,0,256,256);g.strokeStyle='rgba(70,58,40,.25)';g.lineWidth=1;for(var y=8;y<256;y+=18){g.beginPath();g.moveTo(0,y);g.lineTo(256,y);g.stroke();}
    g.fillStyle='#2c2c30';g.beginPath();g.arc(128,74,47,0,7);g.fill();g.fillStyle='#f2ecd9';g.beginPath();g.arc(128,74,40,0,7);g.fill();
@@ -11396,11 +11428,26 @@ function r1HiddenBld(b){return !!R1_HIDDEN_BLD[Math.round(b.x)+','+Math.round(b.
    for(var i=0;i<2800;i++){g.fillStyle=(i%2?'rgba(255,255,255,':'rgba(0,0,0,')+(0.03+tr()*0.06)+')';g.fillRect(tr()*256,tr()*256,1.6,1.6);}
    for(var p=0;p<7;p++){g.fillStyle='rgba(0,0,0,'+(0.05+tr()*0.06)+')';g.fillRect(tr()*200,tr()*220,26+tr()*46,16+tr()*30);}
    g.strokeStyle='rgba(0,0,0,.16)';g.lineWidth=1;for(var ck=0;ck<5;ck++){g.beginPath();var cx0=tr()*256,cy0=tr()*256;g.moveTo(cx0,cy0);g.lineTo(cx0+(tr()-0.5)*70,cy0+(tr()-0.5)*70);g.stroke();}
+   if(GX73TEX){ /* v30.73: wheel-track polish (x = lateral offset on the 46u tile), extra patch repairs with tar seams, a manhole + a drain grate per tile, worn pits */
+  g.fillStyle='rgba(0,0,0,.09)';g.fillRect(50,0,34,256);g.fillRect(172,0,34,256);
+  g.fillStyle='rgba(0,0,0,.05)';g.fillRect(42,0,8,256);g.fillRect(206,0,8,256);g.fillRect(84,0,6,256);g.fillRect(166,0,6,256);
+  for(var p2=0;p2<3;p2++){var px2=tr()*190,py2=tr()*210,pw2=30+tr()*52,ph2=18+tr()*34;g.fillStyle='rgba(0,0,0,'+(0.07+tr()*0.05)+')';g.fillRect(px2,py2,pw2,ph2);g.fillStyle='rgba(200,205,210,.10)';g.fillRect(px2,py2,pw2,1.5);}
+  g.fillStyle='rgba(8,8,10,.35)';g.fillRect(tr()*256,0,3,256);
+  g.beginPath();g.arc(176,88,9,0,7);g.fillStyle='rgba(14,14,17,.88)';g.fill();g.lineWidth=2;g.strokeStyle='rgba(130,134,138,.75)';g.stroke();g.beginPath();g.arc(176,88,5.5,0,7);g.fillStyle='rgba(32,32,36,.9)';g.fill();g.fillRect(171,86.8,10,2.4);
+  g.fillStyle='rgba(10,10,12,.82)';g.fillRect(112,196,17,11);g.fillStyle='rgba(140,144,148,.55)';for(var gr2=0;gr2<4;gr2++)g.fillRect(114+gr2*4,198,2,7);
+  for(var i2=0;i2<420;i2++){g.fillStyle='rgba(0,0,0,'+(0.04+tr()*0.05)+')';g.fillRect(tr()*256,tr()*256,1.3,1.3);}
+ }
    var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
  function paveTex18(){var c=document.createElement('canvas');c.width=c.height=128;var g=c.getContext('2d');var ts=5177;function tr(){ts=(ts*48271)%2147483647;return (ts-1)/2147483646;}
    g.fillStyle='#8f9291';g.fillRect(0,0,128,128);
    for(var i=0;i<900;i++){g.fillStyle=(i%2?'rgba(255,255,255,':'rgba(0,0,0,')+(0.03+tr()*0.05)+')';g.fillRect(tr()*128,tr()*128,1.4,1.4);}
    g.strokeStyle='rgba(20,22,24,.4)';g.lineWidth=2;g.strokeRect(1,1,126,126);g.beginPath();g.moveTo(64,0);g.lineTo(64,128);g.stroke();
+   if(GX73TEX){ /* v30.73: the 2x2 slab read (cross joint), per-slab tone, bevel light */
+  var pq=[[0,0],[64,0],[0,64],[64,64]];
+  for(var q2=0;q2<4;q2++){g.fillStyle=q2%2?'rgba(255,252,240,.05)':'rgba(16,18,20,.05)';g.fillRect(pq[q2][0],pq[q2][1],64,64);}
+  g.strokeStyle='rgba(20,22,24,.4)';g.lineWidth=2;g.beginPath();g.moveTo(0,64);g.lineTo(128,64);g.stroke();
+  g.strokeStyle='rgba(255,255,255,.10)';g.lineWidth=1;g.strokeRect(3,3,122,122);g.beginPath();g.moveTo(66,2);g.lineTo(66,126);g.stroke();g.beginPath();g.moveTo(2,66);g.lineTo(126,66);g.stroke();
+ }
    var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
  function Ribbon(){this.pos=[];this.uv=[];this.idx=[];this.n=0;}
  Ribbon.prototype.add=function(pts,o0,o1,y,tile){
@@ -11449,7 +11496,7 @@ function r1HiddenBld(b){return !!R1_HIDDEN_BLD[Math.round(b.x)+','+Math.round(b.
  var matAsph=new THREE.MeshLambertMaterial({map:asphTex18(),side:THREE.DoubleSide});
  var matPave=new THREE.MeshLambertMaterial({map:paveTex18(),side:THREE.DoubleSide});
  var matKerb=new THREE.MeshLambertMaterial({color:0xa8abad,side:THREE.DoubleSide});
- var matMark=new THREE.MeshLambertMaterial({color:0xdfe0d8,side:THREE.DoubleSide});
+ var matMark=new THREE.MeshLambertMaterial({color:GX73TEX?0xc9cac0:0xdfe0d8,side:THREE.DoubleSide}); /* v30.73: weathered (faded) white paint while the graphics pass is on */
  var matYell=new THREE.MeshLambertMaterial({color:0xc9a227,side:THREE.DoubleSide});
  var matGrassD=new THREE.MeshLambertMaterial({color:0x5c6c46,side:THREE.DoubleSide});
  ASPH.mesh(matAsph);PAVE.mesh(matPave);KERB.mesh(matKerb);MARK.mesh(matMark);YELL.mesh(matYell);GRASSD.mesh(matGrassD);DASH.mesh(matMark);
@@ -11913,6 +11960,15 @@ function r1HiddenBld(b){return !!R1_HIDDEN_BLD[Math.round(b.x)+','+Math.round(b.
    g.fillStyle='#2e3134';g.fillRect(0,0,256,256);
    for(var i=0;i<2800;i++){g.fillStyle=(i%2?'rgba(255,255,255,':'rgba(0,0,0,')+(0.03+tr()*0.06)+')';g.fillRect(tr()*256,tr()*256,1.6,1.6);}
    for(var p=0;p<7;p++){g.fillStyle='rgba(0,0,0,'+(0.05+tr()*0.06)+')';g.fillRect(tr()*200,tr()*220,26+tr()*46,16+tr()*30);}
+   if(GX73TEX){ /* v30.73: wheel-track polish (x = lateral offset on the 46u tile), extra patch repairs with tar seams, a manhole + a drain grate per tile, worn pits */
+  g.fillStyle='rgba(0,0,0,.09)';g.fillRect(50,0,34,256);g.fillRect(172,0,34,256);
+  g.fillStyle='rgba(0,0,0,.05)';g.fillRect(42,0,8,256);g.fillRect(206,0,8,256);g.fillRect(84,0,6,256);g.fillRect(166,0,6,256);
+  for(var p2=0;p2<3;p2++){var px2=tr()*190,py2=tr()*210,pw2=30+tr()*52,ph2=18+tr()*34;g.fillStyle='rgba(0,0,0,'+(0.07+tr()*0.05)+')';g.fillRect(px2,py2,pw2,ph2);g.fillStyle='rgba(200,205,210,.10)';g.fillRect(px2,py2,pw2,1.5);}
+  g.fillStyle='rgba(8,8,10,.35)';g.fillRect(tr()*256,0,3,256);
+  g.beginPath();g.arc(176,88,9,0,7);g.fillStyle='rgba(14,14,17,.88)';g.fill();g.lineWidth=2;g.strokeStyle='rgba(130,134,138,.75)';g.stroke();g.beginPath();g.arc(176,88,5.5,0,7);g.fillStyle='rgba(32,32,36,.9)';g.fill();g.fillRect(171,86.8,10,2.4);
+  g.fillStyle='rgba(10,10,12,.82)';g.fillRect(112,196,17,11);g.fillStyle='rgba(140,144,148,.55)';for(var gr2=0;gr2<4;gr2++)g.fillRect(114+gr2*4,198,2,7);
+  for(var i2=0;i2<420;i2++){g.fillStyle='rgba(0,0,0,'+(0.04+tr()*0.05)+')';g.fillRect(tr()*256,tr()*256,1.3,1.3);}
+ }
    var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
  var matAsph19=new THREE.MeshLambertMaterial({map:asphTex19(),side:THREE.DoubleSide});
  var ASPH19=new Ribbon19();
@@ -12356,6 +12412,15 @@ function r1HiddenBld(b){return !!R1_HIDDEN_BLD[Math.round(b.x)+','+Math.round(b.
  function asphTex20(){var c=document.createElement('canvas');c.width=c.height=256;var g=c.getContext('2d');var ts=32020;function tr(){ts=(ts*48271)%2147483647;return (ts-1)/2147483646;}
    g.fillStyle='#2e3134';g.fillRect(0,0,256,256);
    for(var i=0;i<2800;i++){g.fillStyle=(i%2?'rgba(255,255,255,':'rgba(0,0,0,')+(0.03+tr()*0.06)+')';g.fillRect(tr()*256,tr()*256,1.6,1.6);}
+   if(GX73TEX){ /* v30.73: wheel-track polish (x = lateral offset on the 46u tile), extra patch repairs with tar seams, a manhole + a drain grate per tile, worn pits */
+  g.fillStyle='rgba(0,0,0,.09)';g.fillRect(50,0,34,256);g.fillRect(172,0,34,256);
+  g.fillStyle='rgba(0,0,0,.05)';g.fillRect(42,0,8,256);g.fillRect(206,0,8,256);g.fillRect(84,0,6,256);g.fillRect(166,0,6,256);
+  for(var p2=0;p2<3;p2++){var px2=tr()*190,py2=tr()*210,pw2=30+tr()*52,ph2=18+tr()*34;g.fillStyle='rgba(0,0,0,'+(0.07+tr()*0.05)+')';g.fillRect(px2,py2,pw2,ph2);g.fillStyle='rgba(200,205,210,.10)';g.fillRect(px2,py2,pw2,1.5);}
+  g.fillStyle='rgba(8,8,10,.35)';g.fillRect(tr()*256,0,3,256);
+  g.beginPath();g.arc(176,88,9,0,7);g.fillStyle='rgba(14,14,17,.88)';g.fill();g.lineWidth=2;g.strokeStyle='rgba(130,134,138,.75)';g.stroke();g.beginPath();g.arc(176,88,5.5,0,7);g.fillStyle='rgba(32,32,36,.9)';g.fill();g.fillRect(171,86.8,10,2.4);
+  g.fillStyle='rgba(10,10,12,.82)';g.fillRect(112,196,17,11);g.fillStyle='rgba(140,144,148,.55)';for(var gr2=0;gr2<4;gr2++)g.fillRect(114+gr2*4,198,2,7);
+  for(var i2=0;i2<420;i2++){g.fillStyle='rgba(0,0,0,'+(0.04+tr()*0.05)+')';g.fillRect(tr()*256,tr()*256,1.3,1.3);}
+ }
    var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
  var matAsph20=new THREE.MeshLambertMaterial({map:asphTex20(),side:THREE.DoubleSide});
  var geoBox20=new THREE.BoxGeometry(1,1,1);geoBox20.translate(0,0.5,0);
@@ -21963,9 +22028,13 @@ function ct59PatrolPhase(){
   var cn=roadNearOn(milk,409,1124);var cp=pathPoint(milk.pts,cn.t);var co=perp(cp.x,cp.z,cp.dx,cp.dz,-24);
   lmAdd(co.x,co.z,'#ff9f43','CHUNKY CHICKEN');
   var mn=roadNearOn(milk,da.x,da.z);var mp=pathPoint(milk.pts,mn.t);
+  var gx73Lm=false;try{gx73Lm=localStorage.getItem('dale.graphicsPassEnabled.v1')!=='0'&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.graphicsPass===0);}catch(e){gx73Lm=true;} /* v30.73 gate, read fresh at spawn */
   var cand=[{x:mp.x+95,z:mp.z},perp(mp.x,mp.z,mp.dx,mp.dz,95),perp(mp.x,mp.z,mp.dx,mp.dz,-95)],mc=null;
   for(i=0;i<cand.length;i++){if(!onRoad(cand[i].x,cand[i].z,6)&&!footBlocked(cand[i].x,cand[i].z)){mc=cand[i];break;}}
   if(!mc)mc=cand[0];
+  if(gx73Lm){ /* v30.73 §4: the shipped centre-only pick lands the mosque in Derby Street with the A671 at its east edge — substitute the solver-verified corner plot off Deeplish Street (footprint fully clear of every carriageway) */
+   var gxMc={x:1018,z:1520};if(!onRoad(gxMc.x,gxMc.z)&&!footBlocked(gxMc.x,gxMc.z))mc=gxMc;
+  }
   mosqueBuild(mc.x,mc.z);
   lmAdd(mc.x,mc.z+32,'#7ac7e8','NEELI MASJID');
   CT.mosquePos={x:mc.x,z:mc.z};
@@ -21974,7 +22043,8 @@ function ct59PatrolPhase(){
   var ln=roadNearOn(drake,26,-100);var lp=pathPoint(drake.pts,ln.t);
   var lo1=perp(lp.x,lp.z,lp.dx,lp.dz,40),lo2=perp(lp.x,lp.z,lp.dx,lp.dz,-40);
   var lo=(dist2(lo1.x,lo1.z,0,-70)<dist2(lo2.x,lo2.z,0,-70))?lo1:lo2;
-  lmAdd(lo.x,lo.z,'#c9a86a','ROCHDALE LIBRARY');
+  var libMk=(gx73Lm&&window.__GX73&&__GX73.libPlot)?__GX73.libPlot(lo):null; /* v30.73 §3: the library gets its own Riverside building; the marker follows it */
+  lmAdd(libMk?libMk.x:lo.x,libMk?libMk.z:lo.z,'#c9a86a','ROCHDALE LIBRARY');
   lmAdd(60,60,'#e86a92','REEL CINEMA');
   CT.asdaPos=asdaBuild(520,-260);
  }
@@ -27115,6 +27185,262 @@ if(!window.__RE72){ (function(){
  window.__RE72={version:'v30.72',on:reOn,setEnabled:reSetEnabled,state:reState,
   footHit:reFootHit,sites:RE_SITES};
 })();}
+/* ================= v30.73 — GRAPHICS PASS: RICHER STREETS + LIBRARY & MASJID FIXES (__GX73) =================
+   The user's ask (2026-11-14): "Can you make the houses and roads better
+   graphics" — scoped as TEXTURE work inside the shipped canvas-texture
+   pipeline (the v30.16 lineage): no heavier geometry, no per-frame work,
+   his iPhone FPS is the hard gate. Plus two placement fixes he ordered
+   2026-11-15.
+
+   §1 FACADES + §2 ROADS are boot-time texture generation, so they live
+   in count-asserted edits to the shipped generators themselves (brick /
+   win / door / stoneTex in the building IIFE; asphTex18/19/20 +
+   paveTex18 + the matMark colour in the road blocks), every addition
+   gated on GX73TEX — a game-level gate read ONCE at build from the
+   kill key dale.graphicsPassEnabled.v1 + the S.ui.graphicsPass pref.
+   Same canvas resolutions as shipped (256² facades/asphalt, 128²
+   pavement): zero texture-memory delta. Flag OFF at boot = the v30.72
+   look, byte-for-byte in behaviour. Toggling the setting rewrites the
+   pref + mirror; textures pick it up on the next load (stated on the
+   Settings row).
+
+   §3 LIBRARY (his complaint: "Why is the rochdale library just stuck
+   to town hall" — the real Rochdale Central Library is inside Number
+   One Riverside, Smith Street: a pale-stone + blue-green glass block
+   on the River Roch, NOT part of the Town Hall): the shipped game had
+   only a marker near the Town Hall. GX73 builds the library its own
+   building at (185,-310) — the far bank of the Roch, south-east of
+   the Town Hall, west of the A671 crossing, mirroring the real
+   building's riverside setting — 110x60 footprint, glass curtain
+   walls front/back (canvas texture in the reference's spirit), stone
+   ends, flat roof + parapet, entrance canopy + forecourt on the
+   river face. Collision is a mesh-backed buildings[] entry +
+   bMeshes[] entry exactly like CT59's mosque/Asda (axis-aligned, so
+   collision == visible walls). The 'ROCHDALE LIBRARY' marker moves
+   to the building's north-east forecourt (250,-300): a count-asserted
+   edit in CT59's landmarksSpawn passes its shipped plot to
+   __GX73.libPlot (primary path); if the pass is switched on only
+   after landmarks have spawned, the poll below builds the building
+   and moves the marker itself (fallback path, refs captured by
+   landmark order). Flag OFF removes the building and puts the
+   marker back where the shipped game put it (when that position is
+   known — the primary path records it from libPlot's argument).
+
+   §4 MASJID (his ask: move Neeli Masjid out of the middle of the
+   road; maps-checked real spot: 25-27 Hare Street — a side-street
+   corner off Milkstone Road, Deeplish): the shipped CT59 spawn
+   picked the mosque plot by a CENTRE-only road test and landed it at
+   (903,1554) — Derby Street runs through the building and the A671
+   clips its east edge. A gated edit in landmarksSpawn (same gate,
+   read fresh at spawn) substitutes a solver-verified corner plot at
+   (1018,1520): just south-east of Deeplish Street's east end (a side
+   street off Milkstone), in Deeplish, footprint fully clear of every
+   carriageway (tightest: A664 +10.0u and Deeplish St +15.1u beyond
+   the half-width — outside even onRoad's +6 tolerance everywhere;
+   A671 carriageway edge 56u away). If the pass is
+   switched on after spawn, the poll relocates the built mosque
+   (group + buildings[] + bMeshes[] + marker) to the same plot, and
+   back when switched off (spawn position recorded on first sight).
+   CT.mosquePos is CT59-closure state and keeps reporting the spawn
+   position after a poll relocation — debug readout only, nothing in
+   gameplay reads it (audited: 3 references, all in CT59's state()).
+
+   No new save section (the pref rides S.ui.graphicsPass; building
+   positions are baked world data). No driving physics, no foot-feel,
+   no police/FSM/custody writes anywhere.
+   Debug: window.__GX73 (state / setEnabled / libPlot).
+   ===================================================================== */
+var graphicsPassEnabled=true; /* v30.73 master "Graphics pass" flag (default ON) */
+if(!window.__GX73){ (function(){
+ 'use strict';
+ var GX={built:false,grp:null,bld:null,bm:null,refs:null,origLo:null,libPrimary:false,markerMoved:false,
+  libPos:{x:185,z:-310},markerPos:{x:250,z:-300},
+  mosqueNew:{x:1018,z:1520},mosqueCur:null,mosqueOrig:null,mosqueMoved:false,
+  snapL:-1,snapP:-1,err:null};
+ try{GX.snapL=placeLabels.length;GX.snapP=markerPins.length;}catch(e){}
+ function gxStoreOff(){try{return localStorage.getItem('dale.graphicsPassEnabled.v1')==='0';}catch(e){return false;}}
+ function gxOn(){return !!graphicsPassEnabled&&!gxStoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.graphicsPass===0);}
+ function gxSetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.graphicsPass=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.graphicsPassEnabled.v1',on?'1':'0');}catch(e){}}
+ function gxSame(a,b){return Math.abs(a.x-b.x)<2&&Math.abs(a.z-b.z)<2;}
+
+ /* ---------------- §3 the library building ---------------- */
+ function gxLibTexture(){
+  var c=document.createElement('canvas');c.width=512;c.height=256;var g=c.getContext('2d');
+  var grad=g.createLinearGradient(0,0,0,256);
+  grad.addColorStop(0,'#87a9b4');grad.addColorStop(.55,'#6d919e');grad.addColorStop(1,'#5b7e8b');
+  g.fillStyle=grad;g.fillRect(0,0,512,256);
+  /* glass pane variation */
+  var ls=73073;function lr(){ls=(ls*48271)%2147483647;return (ls-1)/2147483646;}
+  for(var i=0;i<130;i++){g.fillStyle=(i%3?'rgba(255,255,255,':'rgba(10,26,34,')+(0.03+lr()*0.05)+')';g.fillRect(10+Math.floor(lr()*24)*20,8+Math.floor(lr()*4)*52,18,48);}
+  /* pale stone frame: piers + floor bands (the reference's grid) */
+  g.fillStyle='#ccd0c6';
+  for(var px=0;px<=512;px+=64)g.fillRect(px,0,9,256);
+  g.fillStyle='rgba(0,0,0,.18)';for(var px2=9;px2<=512;px2+=64)g.fillRect(px2,0,2,256);
+  g.fillStyle='#c4c8be';for(var fy=0;fy<=256;fy+=52)g.fillRect(0,fy,512,8);
+  g.fillStyle='rgba(0,0,0,.20)';for(var fy2=8;fy2<=256;fy2+=52)g.fillRect(0,fy2,512,2);
+  /* a few warm lit panes, ground floor darker (entrance glazing) */
+  g.fillStyle='rgba(255,180,92,.5)';g.fillRect(74,60,18,48);g.fillRect(330,60,18,48);g.fillRect(458,112,18,48);
+  g.fillStyle='rgba(16,24,28,.35)';g.fillRect(0,204,512,52);
+  var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;return t;
+ }
+ function libBuild(){
+  if(GX.built)return true;
+  try{
+   var x=GX.libPos.x,z=GX.libPos.z;
+   var wallMat=new THREE.MeshLambertMaterial({map:gxLibTexture()});
+   var stoneMat=new THREE.MeshLambertMaterial({color:0xc9c9bf});
+   var roofMat=new THREE.MeshLambertMaterial({color:0x4c4f4e});
+   var grp=new THREE.Group();
+   var main=new THREE.Mesh(new THREE.BoxGeometry(110,46,60),[stoneMat,stoneMat,roofMat,roofMat,wallMat,wallMat]);
+   main.position.set(x,23,z);grp.add(main);
+   var cap=new THREE.Mesh(new THREE.BoxGeometry(114,3,64),stoneMat);cap.position.set(x,47.5,z);grp.add(cap);
+   var can=new THREE.Mesh(new THREE.BoxGeometry(44,2.5,12),stoneMat);can.position.set(x,15.5,z+36);grp.add(can);
+   [-18,18].forEach(function(off){var col=new THREE.Mesh(new THREE.BoxGeometry(2.5,15.5,2.5),stoneMat);col.position.set(x+off,7.75,z+41);grp.add(col);});
+   var ent=new THREE.Mesh(new THREE.BoxGeometry(40,13,1.5),new THREE.MeshLambertMaterial({color:0x2c3438}));ent.position.set(x,6.5,z+30.6);grp.add(ent);
+   var fc=new THREE.Mesh(new THREE.BoxGeometry(120,1,26),new THREE.MeshLambertMaterial({color:0x8f9291}));fc.position.set(x,0.5,z+43);grp.add(fc);
+   scene.add(grp);
+   var bld={x:x,z:z,hw:55,hd:30,cm:2};buildings.push(bld);
+   var bm={x:x,z:z,hw:58,hd:33,top:49,parts:[main],fade:0,occ:false};bMeshes.push(bm);
+   GX.grp=grp;GX.bld=bld;GX.bm=bm;GX.built=true;
+   return true;
+  }catch(e){GX.err='lib:'+String(e&&e.message||e);return false;}
+ }
+ function libRemove(){
+  if(!GX.built)return;
+  try{scene.remove(GX.grp);}catch(e){}
+  var ix=buildings.indexOf(GX.bld);if(ix>=0)buildings.splice(ix,1);
+  var iy=bMeshes.indexOf(GX.bm);if(iy>=0)bMeshes.splice(iy,1);
+  GX.grp=null;GX.bld=null;GX.bm=null;GX.built=false;
+ }
+ /* CT59 landmarksSpawn hook (primary path): build + hand back the
+    marker position; null when the pass is off (shipped behaviour). */
+ function libPlot(lo){
+  if(!gxOn())return null;
+  GX.origLo={x:lo.x,z:lo.z};GX.libPrimary=true;
+  libBuild();
+  return {x:GX.markerPos.x,z:GX.markerPos.z};
+ }
+
+ /* ---------------- landmark marker refs (fallback paths) ---------------- */
+ function gxLmRefs(name){
+  try{
+   var st=window.__CT59&&__CT59.state?__CT59.state():null;
+   if(!st||!st.landmarks)return null;
+   var ix=st.landmarks.indexOf(name);if(ix<0)return null;
+   var lb=placeLabels[GX.snapL+ix],pn=markerPins[GX.snapP+ix];
+   if(!lb||!pn)return null;
+   return {label:lb,pin:pn.mesh,ring:pn.ring};
+  }catch(e){return null;}
+ }
+ function gxMoveMarker(refs,x,z){
+  refs.label.position.set(x,refs.label.position.y,z);refs.label.userData.x=x;refs.label.userData.z=z;
+  refs.pin.position.set(x,refs.pin.position.y,z);
+  refs.ring.position.set(x,refs.ring.position.y,z);
+ }
+
+ /* ---------------- §4 mosque relocation (fallback path) ---------------- */
+ function gxMosqueRefs(mp){
+  var bld=null,bm=null,grp=null,i,j;
+  for(i=0;i<buildings.length;i++){var b=buildings[i];if(Math.abs(b.x-mp.x)<2&&Math.abs(b.z-mp.z)<2&&b.hw===27){bld=b;break;}}
+  for(i=0;i<bMeshes.length;i++){var m=bMeshes[i];if(Math.abs(m.x-mp.x)<2&&Math.abs(m.z-mp.z)<2&&m.hw===30){bm=m;break;}}
+  scene.traverse(function(o){
+   if(grp||!o.children)return;
+   var hasBase=false,hasDome=false;
+   for(j=0;j<o.children.length;j++){var c=o.children[j];
+    if(!c.geometry)continue;
+    /* children carry absolute spawn coords; the group itself carries
+       any relocation offset — match on WORLD positions so repeat
+       moves (on -> off -> on) keep finding the group */
+    var wx=o.position.x+c.position.x,wz=o.position.z+c.position.z;
+    if(c.geometry.type==='BoxGeometry'&&Math.abs(wx-mp.x)<2&&Math.abs(wz-mp.z)<2&&Math.abs(c.position.y-11)<2)hasBase=true;
+    if(c.geometry.type==='SphereGeometry'&&Math.abs(wx-mp.x)<2&&Math.abs(wz-mp.z)<2)hasDome=true;}
+   if(hasBase&&hasDome)grp=o;
+  });
+  if(!bld||!grp)return null;
+  return {bld:bld,bm:bm,grp:grp};
+ }
+ function gxMosqueMove(to){
+  var cur=GX.mosqueCur;if(!cur)return false;
+  if(gxSame(cur,to))return true;
+  var refs=gxMosqueRefs(cur);if(!refs)return false;
+  var dx=to.x-cur.x,dz=to.z-cur.z;
+  refs.grp.position.x+=dx;refs.grp.position.z+=dz;
+  refs.bld.x+=dx;refs.bld.z+=dz;
+  if(refs.bm){refs.bm.x+=dx;refs.bm.z+=dz;}
+  var mr=gxLmRefs('NEELI MASJID');if(mr)gxMoveMarker(mr,cur.x+dx,cur.z+32+dz);
+  GX.mosqueCur={x:to.x,z:to.z};
+  return true;
+ }
+
+ /* ---------------- settings row (the __RE72 idiom) ---------------- */
+ function gxSyncSettings(){
+  var st=document.getElementById('gx73SetState'),btn=document.getElementById('gx73SetBtn');
+  if(st){var want=gxOn()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=gxOn()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function gxBuildSettings(){
+  if(document.getElementById('gx73SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';row.id='gx73SetRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Graphics pass — richer streets</div><div class="setRowNote">Richer brick, windows and road surfaces; the library gets its own Riverside building by the river, and Neeli Masjid moves off the road onto a corner plot in Deeplish. New textures apply on reload; the buildings apply straight away.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='gx73SetState';st.textContent=gxOn()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='gx73SetBtn';btn.textContent=gxOn()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){gxSetEnabled(!gxOn());});
+  row.appendChild(btn);card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function gxSetEnabled(on){
+  graphicsPassEnabled=!!on;gxSetPref(on);gxSyncSettings();return gxOn();
+ }
+
+ /* ---------------- poll: settings + §3/§4 live application ---------------- */
+ function gxPoll(){
+  try{
+   gxBuildSettings();gxSyncSettings();
+   var st=window.__CT59&&__CT59.state?__CT59.state():null;
+   var spawned=!!(st&&st.landmarks&&st.landmarks.length);
+   if(spawned&&!GX.mosqueCur&&st.mosquePos)GX.mosqueCur={x:st.mosquePos.x,z:st.mosquePos.z};
+   if(gxOn()){
+    if(spawned&&!GX.built){
+     libBuild();
+     if(!GX.libPrimary){ /* landmarks spawned before the pass was on */
+      var r=gxLmRefs('ROCHDALE LIBRARY');
+      if(r){GX.refs=r;GX.origLo={x:r.label.position.x,z:r.label.position.z};gxMoveMarker(r,GX.markerPos.x,GX.markerPos.z);GX.markerMoved=true;}
+     }
+    }
+    if(spawned&&GX.built&&!GX.refs&&GX.libPrimary){ /* capture refs for a later switch-off */
+     var r2=gxLmRefs('ROCHDALE LIBRARY');
+     if(r2&&Math.abs(r2.label.position.x-GX.markerPos.x)<3&&Math.abs(r2.label.position.z-GX.markerPos.z)<3)GX.refs=r2;
+    }
+    if(spawned&&GX.mosqueCur&&!gxSame(GX.mosqueCur,GX.mosqueNew)){
+     if(!GX.mosqueOrig)GX.mosqueOrig={x:GX.mosqueCur.x,z:GX.mosqueCur.z};
+     if(gxMosqueMove(GX.mosqueNew))GX.mosqueMoved=true;
+    }
+   }else{
+    if(GX.built){
+     libRemove();
+     if(GX.refs&&GX.origLo)gxMoveMarker(GX.refs,GX.origLo.x,GX.origLo.z);
+     GX.refs=null;GX.markerMoved=false;GX.libPrimary=false;
+    }
+    if(spawned&&GX.mosqueCur&&GX.mosqueOrig&&gxSame(GX.mosqueCur,GX.mosqueNew)){
+     if(gxMosqueMove(GX.mosqueOrig))GX.mosqueMoved=false;
+    }
+   }
+  }catch(e){GX.err='poll:'+String(e&&e.message||e);}
+ }
+ setInterval(gxPoll,1000);
+
+ window.__GX73={version:'gx73-1',
+  on:gxOn,setEnabled:gxSetEnabled,libPlot:libPlot,
+  state:function(){return {version:'gx73-1',on:gxOn(),texGate:(typeof GX73TEX!=='undefined')?GX73TEX:null,
+   libBuilt:GX.built,libPos:GX.libPos,markerPos:GX.markerPos,libPrimary:GX.libPrimary,markerMoved:GX.markerMoved,
+   mosqueCur:GX.mosqueCur,mosqueOrig:GX.mosqueOrig,mosqueMoved:GX.mosqueMoved,mosqueNew:GX.mosqueNew,
+   snapL:GX.snapL,snapP:GX.snapP,err:GX.err};}};
+})();}
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -27531,7 +27857,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3072={version:'v30.72'};</script>
+<script>window.__V3073={version:'v30.73'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
