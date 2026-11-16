@@ -14945,6 +14945,7 @@ if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
   try{if(window.__MS66&&__MS66.saveSection){var msd66=__MS66.saveSection();if(msd66)sec.mercStarter={version:1,data:msd66};}}catch(e){}
   try{if(window.__GR67&&__GR67.saveSection){var grd67=__GR67.saveSection();if(grd67)sec.golfR67={version:1,data:grd67};}}catch(e){}
   try{if(window.__ML70&&__ML70.saveSection){var mld70=__ML70.saveSection();if(mld70)sec.mandem={version:1,data:mld70};}}catch(e){}
+  try{if(window.__R74&&__R74.saveSection){var r74d=__R74.saveSection();if(r74d)sec.localStanding={version:1,data:r74d};}}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -27441,6 +27442,529 @@ if(!window.__GX73){ (function(){
    mosqueCur:GX.mosqueCur,mosqueOrig:GX.mosqueOrig,mosqueMoved:GX.mosqueMoved,mosqueNew:GX.mosqueNew,
    snapL:GX.snapL,snapP:GX.snapP,err:GX.err};}};
 })();}
+/* ================= v30.74 — PHASE 3 · STAGE 2: NEIGHBOURHOOD REPUTATION (__R74) =================
+   Local standing: Respect / Trust / Fear (0–100) per neighbourhood
+   (the shipped AREAS set) plus a per-crew standing with each of the
+   Stage 1 crews (v30.30 __F30), summarised as a disposition —
+   Friendly / Neutral / Cautious / Rival. This stage ACTIVATES the
+   localRespect layer Stage 1 recorded as inactive-by-design inside
+   S.underworldFactions: the live store is an append-only sub-key,
+   S.underworldFactions.localStanding, owned by this layer. It is NOT
+   a parallel reputation system and it never reads or writes the
+   global Rep (S.rep) — Rep stays authoritative and untouched, and
+   old Rep is never converted into local history (defaults are
+   neutral constants: Respect 50, Trust 50, Fear 0).
+
+   EVENTS (spec S4 + the binding audit notes): grants come ONLY from
+   authoritative gameplay events, each carrying a stable event ID and
+   processed exactly once (replaying an ID is a no-op):
+     Line drop completed (completeJob) / drop failed (failJob),
+     side-job completion (jobDone), recorded hostility (s2ApplyHit),
+     witnessed crime (s2Witness — the shipped 8 s incident window is
+     mirrored in the ID), talk outcomes (doInteract kinds, read from
+     the shipped outcomes: npcMem / Rep / Tension / cash deltas),
+     leader talk outcomes (leaderInteract, read from leaderMem /
+     Tension / Rep / state), a leader put down (leaderFighterDowned),
+     arrest (arrest — the shipped S.record.arrests counter is the ID)
+     and the custody outcome tier (custGo: nfa / rui / charged),
+     CV36 conversation participation (chatting to a ped mid-
+     conversation — the shipped 'player' join).
+   Greetings, menu opens, proximity and repeat small talk grant
+   NOTHING beyond the talk rows above, which are bucketed per target
+   (30 game-seconds) or per day (leaders) against farming.
+   Hooks delegate first / observe after, in the house wrap idiom —
+   the shipped functions always run exactly as shipped.
+
+   GUARDRAILS (spec S5/S6, hard): standing is DATA + phone
+   presentation only. This layer writes nothing to NPC behaviour:
+   high Fear never makes anyone flee (the shipped S2 flee + __RP38
+   remain the only reaction authorities), high Respect never creates
+   obedience or follow orders, faction standing never triggers
+   retaliation, crew wars or combat, and mission dialogue, combat
+   aggression, arrest and existing hostility are never overridden.
+   It also writes NOTHING to S.cash / S.heat / S.tension / S.rep —
+   the grant funnel touches only its own store.
+
+   UI (spec S7): ONE compact Local Standing page on the Nokia — a
+   STANDING entry in the phone MENU (the shipped MATES/RECORD
+   precedent: MENU.push + view restore wrap + interval renderer)
+   showing the current neighbourhood's Respect/Trust/Fear and every
+   crew's disposition. No HUD meters, nothing over NPCs.
+
+   PERSISTENCE: a versioned `localStanding` section through the
+   v30.35 save system — ONE added try-line in svCollect calls
+   __R74.saveSection() (the __ML70 precedent); restore reads the
+   stored payload directly at boot (order-independent, read-only).
+   Unknown sections are carried verbatim by svCollect as shipped.
+   Old saves (no section) initialise neutral. Flag OFF: saveSection
+   returns null, so any stored section is carried over verbatim by
+   the shipped carry-over — it round-trips harmlessly, frozen.
+
+   FLAG: localStandingEnabled (default ON), pref S.ui.localStanding,
+   mirrored in localStorage dale.localStandingEnabled.v1 (the
+   __MS66/__RE72 reasoning). OFF = no hooks fire, no MENU entry, no
+   UI, no store writes — the game exactly as v30.73.
+   Failure isolation: any throw disables ONLY this module.
+   Debug: window.__R74 (state / setEnabled / grant funnel). */
+var localStandingEnabled=true; /* v30.74 master "Local standing" flag (default ON) */
+if(!window.__R74){ (function(){
+ 'use strict';
+ var R74={data:null,restored:false,dirty:false,err:null,curArea:null,curAreaName:null,
+          lastArrest:null,custSeenFor:null,crewNames:{},grants:0,lastEvent:null,tickN:0};
+ var R74_AREA_FALLBACK=['norden','bamford','spotland','heywood','centre','deeplish','newbold','castleton','kingsway','middleton','manchester'];
+ var R74_CREW_FALLBACK=['tweedale','moss','spotland','norden','heywood','exchange','castleton','longstreet'];
+ /* area -> Stage 1 faction (the shipped F30_DISTRICT_FACTION table;
+    manchester is contested ground: no crew). Refreshed from the
+    __F30 registry's district lists when the registry is available. */
+ var R74_AREA_FACTION={deeplish:'tweedale',newbold:'moss',spotland:'spotland',norden:'norden',bamford:'norden',heywood:'heywood',centre:'exchange',kingsway:'exchange',castleton:'castleton',middleton:'longstreet',manchester:null};
+ function r74StoreOff(){try{return localStorage.getItem('dale.localStandingEnabled.v1')==='0';}catch(e){return false;}}
+ function r74On(){return !!localStandingEnabled&&!r74StoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.localStanding===0);}
+ function r74SetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.localStanding=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.localStandingEnabled.v1',on?'1':'0');}catch(e){}}
+ function r74Clamp(v,d){v=(typeof v==='number'&&isFinite(v))?Math.round(v):d;return Math.max(0,Math.min(100,v));}
+ function r74Blank(){return {r:50,t:50,f:0};}
+ function r74AreaIds(){
+  var ids=[],seen={};
+  try{if(typeof AREAS!=='undefined'&&AREAS)for(var i=0;i<AREAS.length;i++){var id=AREAS[i].id;if(id&&!seen[id]){seen[id]=1;ids.push(id);}}}catch(e){}
+  if(!ids.length)ids=R74_AREA_FALLBACK.slice();
+  return ids;
+ }
+ function r74CrewIds(){
+  var ids=[],seen={};
+  try{if(window.__F30&&__F30.registry){var reg=__F30.registry();for(var k in reg){if(!seen[k]){seen[k]=1;ids.push(k);R74.crewNames[k]=reg[k].displayName||k;
+   var ds=reg[k].districts||[];for(var j=0;j<ds.length;j++)R74_AREA_FACTION[ds[j]]=k;}}}}catch(e){}
+  if(!ids.length)ids=R74_CREW_FALLBACK.slice();
+  return ids;
+ }
+ function r74NewData(){
+  var d={areas:{},crews:{},seen:{},seenList:[]},i;
+  var aids=r74AreaIds();for(i=0;i<aids.length;i++)d.areas[aids[i]]=r74Blank();
+  var cids=r74CrewIds();for(i=0;i<cids.length;i++)d.crews[cids[i]]=r74Blank();
+  return d;
+ }
+ function r74SanRow(v){if(!v||typeof v!=='object')return r74Blank();return {r:r74Clamp(v.r,50),t:r74Clamp(v.t,50),f:r74Clamp(v.f,0)};}
+ function r74Restore(){
+  if(R74.restored)return;
+  R74.restored=true;
+  var d=r74NewData();
+  try{
+   var raw=localStorage.getItem('dale.save.v1');
+   if(raw){
+    var p=JSON.parse(raw),sec=(p&&p.state&&p.state.sections)?p.state.sections.localStanding:null;
+    if(sec&&sec.version===1&&sec.data){
+     var sd=sec.data,k;
+     if(sd.areas)for(k in sd.areas)if(/^[a-z]+$/.test(k))d.areas[k]=r74SanRow(sd.areas[k]);
+     if(sd.crews)for(k in sd.crews)if(/^[a-z]+$/.test(k))d.crews[k]=r74SanRow(sd.crews[k]);
+     if(sd.seenList&&sd.seenList.length){for(var i=0;i<sd.seenList.length;i++){var id=sd.seenList[i];
+      if(typeof id==='string'&&!d.seen[id]){d.seen[id]=1;d.seenList.push(id);}}}
+    }
+   }
+  }catch(e){}
+  R74.data=d;
+  r74Mirror();
+ }
+ function r74MaybeRestore(){if(!R74.restored&&!R74.dirty)r74Restore();if(!R74.data){R74.data=r74NewData();r74Mirror();}}
+ function r74Mirror(){
+  try{if(R74.data&&typeof S!=='undefined'&&S&&S.underworldFactions)S.underworldFactions.localStanding=R74.data;}catch(e){}
+ }
+ function r74FactionOf(areaId){if(!areaId)return null;var f=R74_AREA_FACTION[areaId];return (f===undefined)?null:f;}
+ function r74Dispo(c){
+  if(!c)return 'neutral';
+  if(c.r<=25&&c.t<=30)return 'rival';
+  if(c.f>=55)return 'cautious';
+  if(c.r>=65&&c.t>=55)return 'friendly';
+  if(c.t<=32)return 'cautious';
+  return 'neutral';
+ }
+ var R74_DISPO_TXT={friendly:'Friendly — sound with you',neutral:'Neutral — no beef, no favours',cautious:'Cautious — watching you',rival:'Rival — bad blood'};
+ /* ---------------- the grant funnel: stable IDs, processed once ---- */
+ function r74Fire(id,grants){
+  if(!r74On()||!id||!grants)return 'off';
+  r74MaybeRestore();
+  if(!R74.data)return 'off';
+  if(R74.data.seen[id])return 'dup';
+  R74.data.seen[id]=1;R74.data.seenList.push(id);
+  if(R74.data.seenList.length>300){var drop=R74.data.seenList.splice(0,60);for(var i=0;i<drop.length;i++)delete R74.data.seen[drop[i]];}
+  for(var j=0;j<grants.length;j++){
+   var g=grants[j];if(!g)continue;
+   var store=(g.s==='crew')?R74.data.crews:R74.data.areas;
+   var row=store[g.k];if(!row){row=r74Blank();store[g.k]=row;}
+   row.r=r74Clamp(row.r+(g.r||0),50);row.t=r74Clamp(row.t+(g.t||0),50);row.f=r74Clamp(row.f+(g.f||0),0);
+  }
+  R74.dirty=true;R74.grants++;R74.lastEvent=id;
+  r74Mirror();
+  return 'applied';
+ }
+ function r74CrewGrant(areaId,g){
+  var f=r74FactionOf(areaId);if(!f)return null;
+  return {s:'crew',k:f,r:g.r||0,t:g.t||0,f:g.f||0};
+ }
+ /* ---------------- event hooks (delegate first / observe after) ---- */
+ function r74AreaOf(x,z){try{var a=(typeof areaOf==='function')?areaOf(x,z):null;return a?a.id:null;}catch(e){return null;}}
+ function r74PlayerArea(){try{if(typeof player!=='undefined'&&player)return r74AreaOf(player.x,player.z);}catch(e){}return null;}
+ /* Line drops: completeJob / failJob */
+ try{
+  var r74OrigComplete=completeJob;
+  completeJob=function(){
+   var snap=null;
+   try{if(r74On()&&typeof job!=='undefined'&&job&&job.area)snap={area:job.area.id,day:S.day,drops:S.drops};}catch(e){}
+   var r=r74OrigComplete();
+   try{if(snap)r74Fire('drop:d'+snap.day+'#'+(snap.drops+1),[{s:'area',k:snap.area,r:3,t:2},r74CrewGrant(snap.area,{r:1})]);}catch(e){}
+   return r;
+  };
+  var r74OrigFail=failJob;
+  failJob=function(why){
+   var snap=null;
+   try{if(r74On()&&typeof job!=='undefined'&&job&&job.area)snap={area:job.area.id,day:S.day};}catch(e){}
+   var r=r74OrigFail(why);
+   try{if(snap)r74Fire('dropfail:d'+snap.day+':'+snap.area+':'+Math.floor(gameT),[{s:'area',k:snap.area,r:-1,t:-2}]);}catch(e){}
+   return r;
+  };
+  /* side jobs: jobDone is the single completion gate */
+  var r74OrigJobDone=jobDone;
+  jobDone=function(text,pay){
+   var snap=null;
+   try{if(r74On())snap={day:S.day,done:S.sideDone,area:r74PlayerArea()};}catch(e){}
+   var r=r74OrigJobDone(text,pay);
+   try{if(snap&&snap.area&&typeof S!=='undefined'&&S.sideDone>snap.done)
+    r74Fire('side:d'+snap.day+'#'+S.sideDone,[{s:'area',k:snap.area,r:1,t:2}]);}catch(e){}
+   return r;
+  };
+ }catch(e){}
+ /* recorded hostility: s2ApplyHit (mates + police return early in the
+    shipped function and are skipped here too) */
+ try{
+  var r74OrigHit=s2ApplyHit;
+  s2ApplyHit=function(h,w,prof,ci){
+   var live=false;
+   try{live=!!(h&&(h.s2==='ped'||h.s2==='aunty'||h.s2==='leader')&&!(h.o&&h.o.down));}catch(e){}
+   var r=r74OrigHit(h,w,prof,ci);
+   try{if(live&&r74On())r74HitEvent(h);}catch(e){}
+   return r;
+  };
+ }catch(e){}
+ function r74HitEvent(h){
+  var day=S.day;
+  if(h.s2==='leader'){
+   var L=h.leaderRef;if(!L||!L.def)return;
+   var aid=L.def.area;
+   r74Fire('hit:leader_'+L.def.id+':d'+day,[{s:'area',k:aid,r:1,t:-2,f:3},r74CrewGrant(aid,{r:1,t:-3,f:4})]);
+   return;
+  }
+  if(h.s2==='aunty'){
+   var a=h.ref;if(!a)return;
+   var aa=r74AreaOf(a.x,a.z);if(!aa)return;
+   var ai=-1;try{ai=aunties.indexOf(a);}catch(e){}
+   r74Fire('hit:aun'+ai+':d'+day,[{s:'area',k:aa,r:1,t:-2,f:3}]);
+   return;
+  }
+  var p=h.o;if(!p)return;
+  var pa=r74AreaOf(p.x,p.z);if(!pa)return;
+  var key=h.s2Key||('ped'+(function(){try{return peds.indexOf(p);}catch(e){return -1;}})());
+  var grants=[{s:'area',k:pa,r:1,t:-2,f:3}];
+  try{if(typeof s2PedKind==='function'&&s2PedKind(p)==='crew')grants.push(r74CrewGrant(pa,{t:-2,f:2}));}catch(e){}
+  r74Fire('hit:'+key+':d'+day,grants);
+ }
+ /* witnessed crime: s2Witness — ID mirrors the shipped 8 s window */
+ try{
+  var r74OrigWitness=s2Witness;
+  s2Witness=function(x,z){
+   var r=r74OrigWitness(x,z);
+   try{
+    if(r74On()){
+     var wa=r74AreaOf(x,z);
+     if(wa)r74Fire('wit:'+wa+':'+Math.floor(gameT/8),[{s:'area',k:wa,t:-1,f:2}]);
+    }
+   }catch(e){}
+   return r;
+  };
+ }catch(e){}
+ /* street talk outcomes: doInteract (leaders route inside it to
+    leaderInteract, which has its own wrap below; mates excluded —
+    they are the player's own crew, not locals judging him) */
+ function r74TargetKey(n){
+  try{
+   var i;
+   if(n.fig&&typeof peds!=='undefined')for(i=0;i<peds.length;i++)if(peds[i].mesh===n.fig)return 'ped'+i;
+   if(n.fig&&typeof aunties!=='undefined')for(i=0;i<aunties.length;i++)if(aunties[i].fig===n.fig)return 'aun'+i;
+   if(n.type==='rival')return 'rival';
+  }catch(e){}
+  return 'x';
+ }
+ try{
+  var r74OrigInteract=doInteract;
+  doInteract=function(kind){
+   var snap=null;
+   try{
+    if(r74On()&&typeof interactNPC!=='undefined'&&interactNPC&&interactNPC.type!=='leader'&&interactNPC.type!=='mate'){
+     var n=interactNPC,a=areaOf(n.x||player.x,n.z||player.z),aid=a?a.id:'centre';
+     var convoId=null;
+     if(kind==='chat'&&n.fig&&typeof peds!=='undefined'){
+      for(var i=0;i<peds.length;i++)if(peds[i].mesh===n.fig){if(peds[i].__cv36&&peds[i].__cv36.convo)convoId=peds[i].__cv36.convo.id;break;}
+     }
+     snap={kind:kind,aid:aid,tgt:r74TargetKey(n),convoId:convoId,
+           mem:npcMemory(aid),rep:S.rep,ten:(S.tension&&S.tension[aid])||0,cash:S.cash};
+    }
+   }catch(e){snap=null;}
+   var r=r74OrigInteract(kind);
+   try{if(snap)r74TalkEvent(snap);}catch(e){}
+   return r;
+  };
+ }catch(e){}
+ function r74TalkEvent(snap){
+  var bucket=Math.floor(gameT/30),aid=snap.aid,id=null,grants=null;
+  if(snap.kind==='chat'&&snap.convoId!==null&&snap.convoId!==undefined){
+   /* CV36 participation: you joined their conversation */
+   r74Fire('cvjoin:'+snap.convoId,[{s:'area',k:aid,r:1,t:1}]);
+   return;
+  }
+  if(snap.kind==='chat'){id='talk:chat:'+snap.tgt+':'+bucket;grants=[{s:'area',k:aid,t:1}];}
+  else if(snap.kind==='bigup'){id='talk:bigup:'+snap.tgt+':'+bucket;grants=[{s:'area',k:aid,r:1,t:2}];}
+  else if(snap.kind==='threaten'){
+   var memNow=50;try{memNow=npcMemory(aid);}catch(e){}
+   if(memNow<snap.mem){id='talk:threaten:'+snap.tgt+':'+bucket;grants=[{s:'area',k:aid,t:-2,f:3}];}
+  }
+  else if(snap.kind==='swear'){
+   id='talk:swear:'+snap.tgt+':'+bucket;
+   grants=(typeof S!=='undefined'&&S.rep>snap.rep)?[{s:'area',k:aid,r:2,f:1}]:[{s:'area',k:aid,t:-1,f:1}];
+  }
+  else if(snap.kind==='ctx'){
+   var tenNow=snap.ten;try{tenNow=(S.tension&&S.tension[aid])||0;}catch(e){}
+   var memNow2=50;try{memNow2=npcMemory(aid);}catch(e){}
+   if(tenNow<=snap.ten-5){id='talk:ctx:'+snap.tgt+':'+bucket;grants=[{s:'area',k:aid,r:1,t:2}];}
+   else if(memNow2>snap.mem){id='talk:ctx:'+snap.tgt+':'+bucket;grants=[{s:'area',k:aid,t:1}];}
+   else if(typeof S!=='undefined'&&S.cash>snap.cash){id='talk:ctx:'+snap.tgt+':'+bucket;grants=[{s:'area',k:aid,t:1}];}
+  }
+  if(id&&grants)r74Fire(id,grants);
+ }
+ /* leader talk outcomes: leaderInteract — read from the shipped
+    outcome signals (leaderMem respect / Tension / Rep / his state) */
+ try{
+  var r74OrigLeader=leaderInteract;
+  leaderInteract=function(n,kind){
+   var snap=null;
+   try{
+    if(r74On()&&n&&n.leaderRef&&n.leaderRef.def){
+     var L=n.leaderRef;
+     snap={L:L,def:L.def,kind:kind,aid:L.def.area,mem:leaderMem(L.def.id).respect,rep:S.rep,
+           ten:(S.tension&&S.tension[L.def.area])||0,state:L.state};
+    }
+   }catch(e){snap=null;}
+   var r=r74OrigLeader(n,kind);
+   try{if(snap)r74LeaderEvent(snap);}catch(e){}
+   return r;
+  };
+ }catch(e){}
+ function r74LeaderEvent(snap){
+  var def=snap.def,aid=snap.aid,id='leader:'+def.id+':'+snap.kind+':d'+S.day;
+  var crewG=function(g){return r74CrewGrant(aid,g);};
+  if(snap.kind==='chat'){r74Fire(id,[{s:'area',k:aid,t:1},crewG({t:1})]);return;}
+  if(snap.kind==='bigup'){r74Fire(id,[{s:'area',k:aid,t:1},crewG({r:1,t:2})]);return;}
+  if(snap.kind==='threaten'){
+   var memNow=snap.mem;try{memNow=leaderMem(def.id).respect;}catch(e){}
+   if(memNow<snap.mem){r74Fire(id,[{s:'area',k:aid,f:1},crewG({r:1,f:3})]);}
+   else if(snap.L.state!==snap.state){r74Fire(id,[crewG({t:-3,f:2})]);}
+   return;
+  }
+  if(snap.kind==='swear'){
+   if(typeof S!=='undefined'&&S.rep>snap.rep){r74Fire(id,[crewG({r:2})]);}
+   else if(snap.L.state!==snap.state){r74Fire(id,[crewG({t:-2,f:1})]);}
+   return;
+  }
+  if(snap.kind==='ctx'){
+   var tenNow=snap.ten;try{tenNow=(S.tension&&S.tension[aid])||0;}catch(e){}
+   if(tenNow<=snap.ten-10){r74Fire(id,[crewG({r:1,t:2})]);}
+   else if(tenNow>snap.ten){r74Fire(id,[crewG({t:-1})]);}
+   return;
+  }
+ }
+ /* a leader put down: leaderFighterDowned */
+ try{
+  var r74OrigDowned=leaderFighterDowned;
+  leaderFighterDowned=function(f){
+   var def=null;
+   try{if(f&&f.leaderId&&typeof leaderById==='function'){var L=leaderById(f.leaderId);if(L)def=L.def;}}catch(e){}
+   var r=r74OrigDowned(f);
+   try{if(def&&r74On())r74Fire('leaderdown:'+def.id+':d'+S.day,[{s:'area',k:def.area,f:3},r74CrewGrant(def.area,{r:2,t:-4,f:5})]);}catch(e){}
+   return r;
+  };
+ }catch(e){}
+ /* arrest + custody outcome */
+ try{
+  var r74OrigArrest=arrest;
+  arrest=function(reasons){
+   var before=-1,area=null;
+   try{before=(typeof S!=='undefined'&&S&&S.record)?S.record.arrests:-1;area=r74PlayerArea();}catch(e){}
+   var r=r74OrigArrest(reasons);
+   try{
+    if(r74On()&&before>=0&&typeof S!=='undefined'&&S.record&&S.record.arrests>before){
+     R74.lastArrest={area:area||r74PlayerArea(),n:S.record.arrests};
+     r74Fire('arrest:'+S.record.arrests,[{s:'area',k:R74.lastArrest.area,r:2,f:1},r74CrewGrant(R74.lastArrest.area,{r:1})]);
+    }
+   }catch(e){}
+   return r;
+  };
+ }catch(e){}
+ function r74CustodyOutcome(){
+  try{
+   if(!r74On()||typeof custody==='undefined'||!custody||!custody.tier)return;
+   var n=(typeof S!=='undefined'&&S&&S.record)?S.record.arrests:0;
+   var area=(R74.lastArrest&&R74.lastArrest.n===n&&R74.lastArrest.area)?R74.lastArrest.area:r74PlayerArea();
+   if(!area)return;
+   var g=(custody.tier==='charged')?{r:1}:(custody.tier==='nfa')?{t:1}:{f:1};
+   r74Fire('custody:'+n+':'+custody.tier,[{s:'area',k:area,r:g.r||0,t:g.t||0,f:g.f||0}]);
+  }catch(e){}
+ }
+ try{
+  var cgEl=document.getElementById('custGo');
+  if(cgEl&&typeof cgEl.onclick==='function'){
+   var r74OrigCustGo=cgEl.onclick;
+   cgEl.onclick=function(){var r=r74OrigCustGo.apply(this,arguments);try{r74CustodyOutcome();}catch(e){}return r;};
+  }
+ }catch(e){}
+ /* ---------------- phone UI: the STANDING page (MATES/RECORD idiom) - */
+ function r74Bar(v){var f=Math.max(0,Math.min(10,Math.round(v/10))),s='',i;for(i=0;i<10;i++)s+=(i<f)?'\u2593':'\u2591';return s;}
+ function r74Word(a){
+  if(!a)return 'Just another face, for now.';
+  if(a.f>=55)return 'Lads cross the road when you come.';
+  if(a.r>=65&&a.t>=55)return 'Known face \u2014 doors open for you here.';
+  if(a.t<=30)return 'Folk don\u2019t trust you round here yet.';
+  if(a.r<=30)return 'No name here. Yet.';
+  return 'Just another face, for now.';
+ }
+ function r74CrewName(fid){
+  if(R74.crewNames[fid])return R74.crewNames[fid];
+  try{var st=window.__F30&&__F30.state?__F30.state():null;
+   if(st&&st.factions)for(var i=0;i<st.factions.length;i++)if(st.factions[i].factionId===fid){R74.crewNames[fid]=st.factions[i].displayName;return R74.crewNames[fid];}}catch(e){}
+  return fid;
+ }
+ function r74StandingHtml(){
+  r74MaybeRestore();
+  var d=R74.data,aid=R74.curArea||'centre',an=R74.curAreaName||'Town Centre';
+  var a=d?d.areas[aid]:null;
+  var h='<span style="font-size:12px;">LOCAL STANDING</span>\n';
+  h+='<span style="font-size:12px;">\uD83D\uDCCD '+an+'</span>\n';
+  if(a){
+   h+='Respect '+r74Bar(a.r)+' '+a.r+'\n';
+   h+='Trust   '+r74Bar(a.t)+' '+a.t+'\n';
+   h+='Fear    '+r74Bar(a.f)+' '+a.f+'\n';
+   h+='<span style="font-size:11px;">Word: '+r74Word(a)+'</span>\n';
+  }
+  h+='\n<span style="font-size:12px;">CREWS</span>\n';
+  if(d){
+   var cids=r74CrewIds();
+   for(var i=0;i<cids.length;i++){
+    var c=d.crews[cids[i]];if(!c)continue;
+    h+='<span style="font-size:11px;">'+r74CrewName(cids[i])+' \u2014 '+R74_DISPO_TXT[r74Dispo(c)]+'</span>\n';
+   }
+  }
+  h+='<span style="font-size:10px;">Drops, graft, lip and lifts\nmove it. Greetings don\u2019t.</span>';
+  return h;
+ }
+ try{
+  var r74OrigRenderPhone=renderPhone;
+  renderPhone=function(){
+   var v=(typeof phoneView!=='undefined')?phoneView:null;
+   r74OrigRenderPhone();
+   if(v==='standing'&&r74On()&&phoneView==='home')phoneView='standing';
+  };
+ }catch(e){}
+ setInterval(function(){
+  try{
+   if(!r74On())return;
+   if(typeof phoneOpen==='undefined'||!phoneOpen||typeof phoneView==='undefined'||phoneView!=='standing')return;
+   var bm=document.getElementById('bigMain');if(!bm)return;
+   var sc=document.getElementById('snakeCv');if(sc)sc.style.display='none';
+   bm.style.display='block';
+   var sl=document.getElementById('softL'),sr=document.getElementById('softR');
+   if(sl)sl.textContent='\u2014';if(sr)sr.textContent='Back';
+   bm.innerHTML=r74StandingHtml();
+  }catch(e){}
+ },600);
+ /* ---------------- settings row (the __RE72 idiom) ---------------- */
+ function r74SyncSettings(){
+  var st=document.getElementById('r74SetState'),btn=document.getElementById('r74SetBtn');
+  if(st){var want=r74On()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=r74On()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function r74BuildSettings(){
+  if(document.getElementById('r74SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';row.id='r74SetRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Local standing \u2014 respect, trust, fear</div><div class="setRowNote">Your name lands different on every street. Drops, graft, lip and lifts move it; greetings don\u2019t. Check the STANDING page on the Nokia.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='r74SetState';st.textContent=r74On()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='r74SetBtn';btn.textContent=r74On()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){r74SetEnabled(!r74On());});
+  row.appendChild(btn);
+  card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function r74Apply(){
+  try{
+   if(typeof MENU!=='undefined'&&MENU){
+    var ix=MENU.indexOf('STANDING');
+    if(r74On()&&ix<0)MENU.push('STANDING');
+    if(!r74On()&&ix>=0){MENU.splice(ix,1);
+     if(typeof phoneView!=='undefined'&&phoneView==='standing'){phoneView='home';try{renderPhone();}catch(e){}}}
+   }
+  }catch(e){}
+  r74Mirror();
+ }
+ function r74SetEnabled(on){
+  localStandingEnabled=!!on;r74SetPref(on);
+  if(on)r74MaybeRestore();
+  r74Apply();r74SyncSettings();
+  return r74On();
+ }
+ /* ---------------- tick: area cache + settings sync + custody poll - */
+ setInterval(function(){
+  try{
+   R74.tickN++;
+   if(r74On()){
+    r74MaybeRestore();
+    var aid=r74PlayerArea();
+    if(aid&&aid!==R74.curArea){R74.curArea=aid;
+     try{var a=areaOf(player.x,player.z);R74.curAreaName=a?a.name:aid;}catch(e){R74.curAreaName=aid;}}
+    /* custody outcome fallback (the custGo wrap is primary; this
+       covers the outcome if the click path was ever re-wired) */
+    if(typeof custody!=='undefined'&&custody&&custody.tier&&R74.custSeenFor!==custody){
+     R74.custSeenFor=custody;r74CustodyOutcome();
+    }
+    if(typeof custody==='undefined'||!custody)R74.custSeenFor=null;
+   }
+   r74BuildSettings();r74SyncSettings();
+  }catch(e){R74.err='tick:'+String(e&&e.message||e);}
+ },700);
+ /* ---------------- save section ---------------- */
+ function r74SaveSection(){
+  if(!r74On())return null; /* OFF: the shipped carry-over keeps any stored section verbatim */
+  if(!R74.data)return null;
+  try{return JSON.parse(JSON.stringify({areas:R74.data.areas,crews:R74.data.crews,seenList:R74.data.seenList.slice()}));}catch(e){return null;}
+ }
+ /* ---------------- init ---------------- */
+ try{
+  if(r74On())r74Restore();
+  r74Apply();
+ }catch(e){R74.err='init:'+String(e&&e.message||e);localStandingEnabled=false;}
+ /* ---------------- debug surface ---------------- */
+ function r74State(){
+  var d=R74.data,out={version:'v30.74',on:r74On(),restored:R74.restored,dirty:R74.dirty,err:R74.err,
+   curArea:R74.curArea,grantsApplied:R74.grants,lastEvent:R74.lastEvent,seenCount:d?d.seenList.length:0,
+   areas:{},crews:{}};
+  if(d){
+   var k;for(k in d.areas)out.areas[k]={r:d.areas[k].r,t:d.areas[k].t,f:d.areas[k].f};
+   for(k in d.crews)out.crews[k]={r:d.crews[k].r,t:d.crews[k].t,f:d.crews[k].f,disposition:r74Dispo(d.crews[k])};
+  }
+  return out;
+ }
+ window.__R74={version:'v30.74',on:r74On,setEnabled:r74SetEnabled,state:r74State,
+  saveSection:r74SaveSection,
+  dispo:function(c){return r74Dispo(c);},
+  grant:function(id,grants){return r74Fire(id,grants);}};
+})();}
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -27857,7 +28381,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3073={version:'v30.73'};</script>
+<script>window.__V3074={version:'v30.74'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
