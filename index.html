@@ -14946,6 +14946,7 @@ if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
   try{if(window.__GR67&&__GR67.saveSection){var grd67=__GR67.saveSection();if(grd67)sec.golfR67={version:1,data:grd67};}}catch(e){}
   try{if(window.__ML70&&__ML70.saveSection){var mld70=__ML70.saveSection();if(mld70)sec.mandem={version:1,data:mld70};}}catch(e){}
   try{if(window.__R74&&__R74.saveSection){var r74d=__R74.saveSection();if(r74d)sec.localStanding={version:1,data:r74d};}}catch(e){}
+  try{if(window.__T75&&__T75.saveSection){var t75d=__T75.saveSection();if(t75d)sec.territory={version:1,data:t75d};}}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -27965,6 +27966,533 @@ if(!window.__R74){ (function(){
   dispo:function(c){return r74Dispo(c);},
   grant:function(id,grants){return r74Fire(id,grants);}};
 })();}
+/* ================= v30.75 — PHASE 3 · STAGE 3: TERRITORY & CREW INFLUENCE (__T75) =================
+   Territory control, contested areas and crew influence over the
+   shipped AREAS districts, built on the Stage 1 registry (v30.30
+   __F30). Stage 1 recorded `influence` (0) and `territoryAffiliations`
+   (each crew's home districts) inside its registry as INACTIVE-by-
+   design; this stage ACTIVATES them. The live store is an append-only
+   sub-key of the same state object, S.underworldFactions.territory,
+   owned by this layer — NOT a parallel territory model (the __F30
+   registry() surface returns a deep copy, so, exactly as Stage 2 did
+   for localStanding, the live data lives in the module and is
+   mirrored into S.underworldFactions; affiliations are derived live
+   from control, below). District IDs are the shipped AREAS ids;
+   crews are the eight F30 factions.
+
+   THE FOUR STORES (spec S8, hard rule — kept separate):
+     1. Global Rep      — S.rep (shipped). Never read, never written.
+     2. Local standing  — __R74's store (Stage 2). Never read/written.
+     3. Crew influence  — per district, per crew, 0–100 (this layer).
+     4. Territory control — per district: the controlling crew (or
+        none) + lastChange time; derived status Dominant / Shared /
+        Contested / Neutral. Control is a LABEL over influence,
+        stabilised by hysteresis — it is not a fifth score.
+
+   INITIAL STATE (spec S3 + audit note 4): derived ONLY from the F30
+   registry's home-area definitions — each crew dominant at home
+   (70), its rivals with a foothold (15), crews it is cautious with
+   a toehold (10), everyone else 0. Manchester has no home crew:
+   all zeros, no controller — contested ground by geography, not by
+   an invented war. NO conquest history is invented for old saves:
+   a save with no territory section gets exactly these defaults.
+
+   CHANGES (spec S4): ONLY through the funnel — authoritative events
+   with stable IDs, processed exactly once (replay = no-op):
+     Line drop completed (completeJob): the area's home crew firms
+       its grip +2 on its own patch; downtown (no home crew) a
+       finished run is Tweedale product moving through, +1 Tweedale.
+     Line drop failed (failJob): home crew −1 in the job's area.
+     A leader put down (leaderFighterDowned): his crew −4 in the
+       area he fell — leadership downed at home, grip slips.
+     Named character race finished (CR64 lastResult, polled): a
+       WIN over Jam or Sunny dents Moss Street −2 in Newbold; a
+       LOSS (incl. quit-forfeit) firms them +1. Kat is Tweedale's
+       own — an internal run-out, no inter-crew signal, excluded.
+       VOID races (arrest / day rollover) move nothing.
+   Standing in a location awards NOTHING. Greetings, talk, proximity
+   award NOTHING. High Rep never grants territory; local standing
+   never grants influence (separate funnels, separate stores).
+   Sources the spec names that do not exist yet — Stage 5's dynamic
+   faction events — are NOT invented here; the funnel is the single
+   door they will use when that stage lands.
+
+   OSCILLATION CAPS (spec S4): every single event moves a crew by
+   at most 4 in a district; per (district, crew) pair the total
+   movement is capped at ±6 per game day; the control LABEL flips
+   only when a challenger leads the incumbent by 10+ (and holds
+   30+), so ownership cannot ping-pong on small swings.
+
+   AMBIENT CONSEQUENCES (spec S5/S6): NONE wired into behaviour.
+   Territory never triggers combat, wars, retaliation or NPC
+   movement; gathering/encounters keep their shipped + F30/EN37
+   drivers (crew presence already reflects the registry this
+   stage's initial influence derives from). Contested status is
+   presentation: the map layer marks it, nothing acts on it. The
+   read surface (window.__T75.state) is the door later stages use.
+
+   DISPLAY (spec S7): a toggleable TERRITORY layer on the EXISTING
+   full-map screen — drawFullMap is wrapped (delegate first, paint
+   after): district polygons recoloured by the HOLDING crew
+   (subtle crew-colour fills, dashed second-crew outline when
+   contested), one backed label per district (name · holding crew
+   · grip · status), a Territory toggle button beside Zoom, and a
+   legend line. Default OFF; the shipped map is pixel-untouched
+   when the layer is off or the flag is off. No world recolour.
+
+   PERSISTENCE (spec S10): a versioned `territory` section through
+   the v30.35 save system — ONE added try-line in svCollect calls
+   __T75.saveSection(); restore reads the stored payload directly
+   at boot (order-independent, read-only; the R74 pattern). Unknown
+   sections are carried verbatim by svCollect as shipped. Flag OFF:
+   saveSection returns null, so a stored section round-trips
+   verbatim via the shipped carry-over, frozen.
+
+   PERFORMANCE (spec S9): event-driven only. No per-frame work;
+   the 1 s tick polls the CR64 result surface, syncs two buttons
+   and mirrors a reference. The map overlay paints only while the
+   shipped map redraws (4 Hz while open) over 11 districts.
+
+   FLAG: territoryEnabled (default ON), pref S.ui.territory,
+   mirrored in localStorage dale.territoryEnabled.v1. OFF = no
+   hooks fire, no map chrome, no store writes — the game exactly
+   as v30.74. Failure isolation: any throw disables ONLY this
+   module. Debug: window.__T75. */
+var territoryEnabled=true; /* v30.75 master "Territory" flag (default ON) */
+if(!window.__T75){ (function(){
+ 'use strict';
+ var T75={data:null,restored:false,dirty:false,err:null,grants:0,lastEvent:null,
+          lastRace:null,raceSync:false,mapOn:false,crewNames:{},crewColors:{}};
+ var T75_AREA_FALLBACK=['norden','bamford','spotland','heywood','centre','deeplish','newbold','castleton','kingsway','middleton','manchester'];
+ var T75_CREW_FALLBACK=['tweedale','moss','spotland','norden','heywood','exchange','castleton','longstreet'];
+ var T75_AREA_FACTION_FALLBACK={deeplish:'tweedale',newbold:'moss',spotland:'spotland',norden:'norden',bamford:'norden',heywood:'heywood',centre:'exchange',kingsway:'exchange',castleton:'castleton',middleton:'longstreet',manchester:null};
+ var T75_REL_FALLBACK={tweedale:{moss:'rival',spotland:'cautious'},moss:{tweedale:'rival',spotland:'cautious'},spotland:{norden:'cautious',tweedale:'cautious',moss:'cautious'},norden:{spotland:'cautious'},heywood:{},exchange:{longstreet:'cautious'},castleton:{},longstreet:{exchange:'cautious'}};
+ var T75_HOME_INF=70,T75_RIVAL_INF=15,T75_CAUTIOUS_INF=10; /* initial derivation */
+ var T75_EVENT_CAP=4,T75_DAY_CAP=6;                        /* oscillation caps */
+ var T75_CONTROL_MIN=30,T75_CONTROL_MARGIN=10;             /* hysteresis */
+ var T75_AREA_FACTION={};for(var _k in T75_AREA_FACTION_FALLBACK)T75_AREA_FACTION[_k]=T75_AREA_FACTION_FALLBACK[_k];
+ function t75StoreOff(){try{return localStorage.getItem('dale.territoryEnabled.v1')==='0';}catch(e){return false;}}
+ function t75On(){return !!territoryEnabled&&!t75StoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.territory===0);}
+ function t75SetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.territory=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.territoryEnabled.v1',on?'1':'0');}catch(e){}}
+ function t75ClampInf(v){v=(typeof v==='number'&&isFinite(v))?Math.round(v):0;return Math.max(0,Math.min(100,v));}
+ function t75Day(){return (typeof S!=='undefined'&&S&&typeof S.day==='number'&&isFinite(S.day))?S.day:1;}
+ function t75Now(){return (typeof gameT==='number'&&isFinite(gameT))?Math.round(gameT*10)/10:0;}
+ function t75AreaIds(){
+  var ids=[],seen={};
+  try{if(typeof AREAS!=='undefined'&&AREAS)for(var i=0;i<AREAS.length;i++){var id=AREAS[i].id;if(id&&!seen[id]){seen[id]=1;ids.push(id);}}}catch(e){}
+  if(!ids.length)ids=T75_AREA_FALLBACK.slice();
+  return ids;
+ }
+ function t75AreaRow(id){try{if(typeof AREAS!=='undefined'&&AREAS)for(var i=0;i<AREAS.length;i++)if(AREAS[i].id===id)return AREAS[i];}catch(e){}return null;}
+ /* registry access: __F30.registry() when available; a fallback with
+    the same shape for the fields used, from F30_DEFS as shipped */
+ function t75Registry(){
+  try{if(window.__F30&&__F30.registry){var reg=__F30.registry();if(reg&&Object.keys(reg).length)return reg;}}catch(e){}
+  var reg={},i,row;
+  for(i=0;i<T75_CREW_FALLBACK.length;i++){
+   var fid=T75_CREW_FALLBACK[i],ds=[];
+   for(var d in T75_AREA_FACTION_FALLBACK)if(T75_AREA_FACTION_FALLBACK[d]===fid)ds.push(d);
+   row=ds.length?t75AreaRow(ds[0]):null;
+   reg[fid]={factionId:fid,displayName:fid,districts:ds,relationshipDefinitions:T75_REL_FALLBACK[fid]||{},
+             visualTheme:{color:row?row.color:'#888888'}};
+  }
+  return reg;
+ }
+ function t75CrewIds(reg){
+  var ids=reg?Object.keys(reg):[];
+  return ids.length?ids:T75_CREW_FALLBACK.slice();
+ }
+ function t75CrewMeta(){
+  var reg=t75Registry(),ids=t75CrewIds(reg);
+  for(var i=0;i<ids.length;i++){
+   var d=reg[ids[i]];if(!d)continue;
+   T75.crewNames[ids[i]]=d.displayName||ids[i];
+   if(d.visualTheme&&d.visualTheme.color)T75.crewColors[ids[i]]=d.visualTheme.color;
+   var ds=d.districts||[];for(var j=0;j<ds.length;j++)T75_AREA_FACTION[ds[j]]=ids[i];
+  }
+  return reg;
+ }
+ function t75Resolve(reg,a,b){
+  if(!a||!b)return 'neutral';
+  if(a===b)return 'friendly';
+  if(reg&&reg[a]&&reg[a].relationshipDefinitions&&reg[a].relationshipDefinitions[b])return reg[a].relationshipDefinitions[b];
+  if(reg&&reg[b]&&reg[b].relationshipDefinitions&&reg[b].relationshipDefinitions[a])return reg[b].relationshipDefinitions[a];
+  return 'neutral';
+ }
+ function t75FactionOf(areaId){if(!areaId)return null;var f=T75_AREA_FACTION[areaId];return (f===undefined)?null:f;}
+ /* ------- initial state: F30 home-area derivation ONLY ---------- */
+ function t75InitialDistricts(){
+  var reg=t75CrewMeta(),crews=t75CrewIds(reg),out={};
+  var aids=t75AreaIds();
+  for(var i=0;i<aids.length;i++){
+   var d=aids[i],H=t75FactionOf(d),inf={};
+   if(H){
+    inf[H]=T75_HOME_INF;
+    for(var j=0;j<crews.length;j++){
+     var c=crews[j];if(c===H)continue;
+     var rel=t75Resolve(reg,c,H);
+     if(rel==='rival')inf[c]=T75_RIVAL_INF;
+     else if(rel==='cautious')inf[c]=T75_CAUTIOUS_INF;
+    }
+   }
+   out[d]={inf:inf,controller:H||null,lastChange:0};
+  }
+  return out;
+ }
+ function t75NewData(){return {districts:t75InitialDistricts(),seen:{},seenList:[],caps:{day:-1,map:{}}};}
+ /* ------- derived reads: top crews, status, control ------------- */
+ function t75Sorted(d,rowOpt){
+  var row=rowOpt||(T75.data?T75.data.districts[d]:null);if(!row)return [];
+  var reg=t75Registry(),order=t75CrewIds(reg),arr=[];
+  for(var f in row.inf)if(row.inf[f]>0)arr.push({faction:f,val:row.inf[f]});
+  arr.sort(function(a,b){if(b.val!==a.val)return b.val-a.val;
+   var ia=order.indexOf(a.faction),ib=order.indexOf(b.faction);
+   if(row.controller){if(a.faction===row.controller)return -1;if(b.faction===row.controller)return 1;}
+   return ia-ib;});
+  return arr;
+ }
+ function t75Status(d,rowOpt){
+  var arr=t75Sorted(d,rowOpt),v1=arr.length?arr[0].val:0,v2=arr.length>1?arr[1].val:0;
+  if(v1<25)return 'neutral';
+  if(v2>=30&&(v1-v2)<=12)return 'contested';
+  if(v1>=55&&(v1-v2)>=20)return 'dominant';
+  return 'shared';
+ }
+ function t75Recontrol(d){
+  var row=T75.data?T75.data.districts[d]:null;if(!row)return;
+  var arr=t75Sorted(d),top=arr.length?arr[0]:{faction:null,val:0};
+  var cur=row.controller,curVal=cur?(row.inf[cur]||0):0;
+  if(top.faction===cur)return;
+  if(cur===null){if(top.faction&&top.val>=T75_CONTROL_MIN){row.controller=top.faction;row.lastChange=t75Now();}return;}
+  if(top.faction&&top.val>=curVal+T75_CONTROL_MARGIN&&top.val>=T75_CONTROL_MIN){row.controller=top.faction;row.lastChange=t75Now();return;}
+  if(curVal<20&&top.val<T75_CONTROL_MIN){row.controller=null;row.lastChange=t75Now();}
+ }
+ /* ------- persistence: restore / mirror / save section --------- */
+ function t75SanInf(v,crews){
+  var out={};if(!v||typeof v!=='object')return out;
+  for(var f in v){if(!/^[a-z]+$/.test(f)||crews.indexOf(f)<0)continue;var n=t75ClampInf(v[f]);if(n>0)out[f]=n;}
+  return out;
+ }
+ function t75Restore(){
+  if(T75.restored)return;
+  T75.restored=true;
+  var d=t75NewData();
+  try{
+   var raw=localStorage.getItem('dale.save.v1');
+   if(raw){
+    var p=JSON.parse(raw),sec=(p&&p.state&&p.state.sections)?p.state.sections.territory:null;
+    if(sec&&sec.version===1&&sec.data&&sec.data.districts){
+     var reg=t75Registry(),crews=t75CrewIds(reg),sd=sec.data,k;
+     for(k in sd.districts){
+      if(!/^[a-z]+$/.test(k)||!d.districts[k])continue;
+      var sr=sd.districts[k];if(!sr||typeof sr!=='object')continue;
+      d.districts[k].inf=t75SanInf(sr.inf,crews);
+      if(sr.controller===null||crews.indexOf(sr.controller)>=0)d.districts[k].controller=sr.controller;
+      if(typeof sr.lastChange==='number'&&isFinite(sr.lastChange)&&sr.lastChange>=0)d.districts[k].lastChange=Math.round(sr.lastChange*10)/10;
+     }
+     if(sd.seenList&&sd.seenList.length){for(var i=0;i<sd.seenList.length;i++){var id=sd.seenList[i];
+      if(typeof id==='string'&&!d.seen[id]){d.seen[id]=1;d.seenList.push(id);}}}
+     if(sd.caps&&typeof sd.caps.day==='number'&&sd.caps.map&&typeof sd.caps.map==='object'){
+      d.caps={day:sd.caps.day,map:{}};
+      for(var ck in sd.caps.map){var cv=sd.caps.map[ck];
+       if(typeof cv==='number'&&isFinite(cv))d.caps.map[ck]=Math.max(-T75_DAY_CAP,Math.min(T75_DAY_CAP,Math.round(cv)));}
+     }
+    }
+   }
+  }catch(e){}
+  T75.data=d;
+  t75Mirror();
+ }
+ function t75MaybeRestore(){if(!T75.restored&&!T75.dirty)t75Restore();if(!T75.data){T75.data=t75NewData();t75Mirror();}}
+ function t75Mirror(){
+  try{if(T75.data&&typeof S!=='undefined'&&S&&S.underworldFactions)S.underworldFactions.territory=T75.data;}catch(e){}
+ }
+ function t75SaveSection(){
+  if(!t75On())return null; /* OFF: the shipped carry-over keeps any stored section verbatim */
+  if(!T75.data)return null;
+  try{return JSON.parse(JSON.stringify({districts:T75.data.districts,seenList:T75.data.seenList.slice(),
+        caps:{day:T75.data.caps.day,map:T75.data.caps.map}}));}catch(e){return null;}
+ }
+ /* ------- the funnel: stable IDs, processed once, capped ------- */
+ function t75Fire(id,changes){
+  if(!t75On()||!id||!changes||!changes.length)return 'off';
+  t75MaybeRestore();
+  if(!T75.data)return 'off';
+  if(T75.data.seen[id])return 'dup';
+  T75.data.seen[id]=1;T75.data.seenList.push(id);
+  if(T75.data.seenList.length>300){var drop=T75.data.seenList.splice(0,60);for(var i=0;i<drop.length;i++)delete T75.data.seen[drop[i]];}
+  var day=t75Day();
+  if(T75.data.caps.day!==day)T75.data.caps={day:day,map:{}};
+  var touched={},applied=0,j;
+  for(j=0;j<changes.length;j++){
+   var g=changes[j];if(!g||!g.d||!g.f)continue;
+   var row=T75.data.districts[g.d];if(!row)continue;
+   var want=Math.max(-T75_EVENT_CAP,Math.min(T75_EVENT_CAP,Math.round(g.v||0)));
+   if(!want)continue;
+   var key=g.d+'|'+g.f,acc=T75.data.caps.map[key]||0;
+   var nacc=Math.max(-T75_DAY_CAP,Math.min(T75_DAY_CAP,acc+want));
+   var dv=nacc-acc;T75.data.caps.map[key]=nacc;
+   if(!dv)continue;
+   var nv=t75ClampInf((row.inf[g.f]||0)+dv);
+   if(nv>0)row.inf[g.f]=nv;else delete row.inf[g.f];
+   touched[g.d]=1;applied++;
+  }
+  for(var d in touched)t75Recontrol(d);
+  T75.dirty=true;T75.grants++;T75.lastEvent=id;
+  t75Mirror();
+  return applied?'applied':'capped';
+ }
+ /* ------- event hooks (delegate first / observe after) --------- */
+ function t75AreaOfJob(){try{if(typeof job!=='undefined'&&job&&job.area)return job.area.id;}catch(e){}return null;}
+ try{
+  var t75OrigComplete=completeJob;
+  completeJob=function(){
+   var snap=null;
+   try{if(t75On()){var a=t75AreaOfJob();if(a)snap={area:a,day:t75Day(),drops:(typeof S!=='undefined'&&S)?S.drops:0};}}catch(e){}
+   var r=t75OrigComplete();
+   try{
+    if(snap){
+     var id='drop:d'+snap.day+'#'+(snap.drops+1);
+     if(snap.area==='manchester')t75Fire(id,[{d:'manchester',f:'tweedale',v:1}]);
+     else{var H=t75FactionOf(snap.area);if(H)t75Fire(id,[{d:snap.area,f:H,v:2}]);}
+    }
+   }catch(e){}
+   return r;
+  };
+  var t75OrigFail=failJob;
+  failJob=function(why){
+   var snap=null;
+   try{if(t75On()){var a2=t75AreaOfJob();if(a2)snap={area:a2,day:t75Day()};}}catch(e){}
+   var r=t75OrigFail(why);
+   try{if(snap&&snap.area!=='manchester'){var H2=t75FactionOf(snap.area);
+    if(H2)t75Fire('dropfail:d'+snap.day+':'+snap.area+':'+Math.floor(t75Now()),[{d:snap.area,f:H2,v:-1}]);}}catch(e){}
+   return r;
+  };
+ }catch(e){}
+ /* a leader put down: his crew's grip slips where he fell. The wrap
+    chains over whichever binding is current (shipped, or NM39's). */
+ try{
+  if(typeof leaderFighterDowned==='function'&&!leaderFighterDowned.__t75Wrapped){
+   var t75OrigDown=leaderFighterDowned;
+   var t75DownWrap=function(f){
+    var r=t75OrigDown.apply(this,arguments);
+    try{
+     if(t75On()&&f&&f.leaderId&&typeof leaderById==='function'){
+      var L=leaderById(f.leaderId);
+      if(L&&L.def){var H=t75FactionOf(L.def.area);
+       if(H)t75Fire('leaderdown:'+L.def.id+':d'+t75Day(),[{d:L.def.area,f:H,v:-4}]);}
+     }
+    }catch(e){}
+    return r;
+   };
+   t75DownWrap.__t75Wrapped=true;
+   leaderFighterDowned=t75DownWrap;
+  }
+ }catch(e){}
+ /* named races: CR64 exposes results on its state surface; the tick
+    polls it (no CR64 internals touched). The watcher SYNCs to the
+    current result at init and on re-enable, so a result that
+    predates the watcher never fires late — and every result that
+    lands while watching fires exactly once. */
+ function t75RaceSyncNow(){
+  try{var st=(window.__CR64&&__CR64.state)?__CR64.state():null;
+   T75.lastRace=st?st.lastResult:null;T75.raceSync=true;}
+  catch(e){T75.lastRace=null;T75.raceSync=true;}
+ }
+ function t75RacePoll(){
+  try{
+   var st=(window.__CR64&&__CR64.state)?__CR64.state():null;
+   var lr=st?st.lastResult:null;
+   if(!lr)return;
+   if(!T75.raceSync){T75.lastRace=lr;T75.raceSync=true;return;}
+   if(lr===T75.lastRace)return;
+   T75.lastRace=lr;
+   if(lr.won===undefined||lr.reason==='void')return;
+   if(lr.opp!=='jam'&&lr.opp!=='sunny')return; /* Kat = Tweedale's own */
+   t75MaybeRestore();if(!T75.data)return;
+   var n=0;for(var i=0;i<T75.data.seenList.length;i++)if(T75.data.seenList[i].indexOf('race:'+lr.opp+':')===0)n++;
+   t75Fire('race:'+lr.opp+':'+(lr.won?'w':'l')+':d'+t75Day()+'#'+(n+1),
+           [{d:'newbold',f:'moss',v:lr.won?-2:1}]);
+  }catch(e){}
+ }
+ /* ------- map layer: wrap drawFullMap, paint after ------------- */
+ function t75Transform(){
+  var W=1000,H=620,s=Math.min(W/18600,H/22600),ox=(W-18600*s)/2,oy=0;
+  var zm=(typeof window!=='undefined'&&window.__mapZoom)||1;
+  if(zm>1){s*=zm;
+   try{if(typeof player!=='undefined'&&player){ox=W/2-(player.x+9800)*s;oy=H/2-(player.z+6800)*s;}}catch(e){}}
+  return {W:W,H:H,s:s,
+   X:function(x){return ox+(x+9800)*s;},Y:function(z){return oy+(z+6800)*s;}};
+ }
+ function t75DrawTerritory(){
+  if(!T75.data)return;
+  var cv=document.getElementById('fullMap');if(!cv)return;
+  var g=cv.getContext('2d');if(!g)return;
+  var T=t75Transform();
+  if(typeof AREA_POLY==='undefined'||!AREA_POLY)return;
+  var i,j,ap,row,st,arr;
+  var cents={};
+  for(i=0;i<AREA_POLY.length;i++){
+   ap=AREA_POLY[i];row=T75.data.districts[ap.id];if(!row)continue;
+   st=t75Status(ap.id);arr=t75Sorted(ap.id);
+   var top=arr.length?arr[0]:null,second=arr.length>1?arr[1]:null;
+   var col=(top&&T75.crewColors[top.faction])||'#888888';
+   g.beginPath();
+   ap.pts.forEach(function(p,ix){ix?g.lineTo(T.X(p[0]),T.Y(p[1])):g.moveTo(T.X(p[0]),T.Y(p[1]));});
+   g.closePath();
+   var cxp=0,czp=0;ap.pts.forEach(function(p){cxp+=p[0];czp+=p[1];});
+   if(!cents[ap.id])cents[ap.id]={x:0,z:0,n:0};
+   cents[ap.id].x+=cxp/ap.pts.length;cents[ap.id].z+=czp/ap.pts.length;cents[ap.id].n++;
+   if(st==='neutral'){g.save();g.globalAlpha=.05;g.fillStyle='#e8e3d9';g.fill();g.restore();
+    g.save();g.globalAlpha=.35;g.strokeStyle='#e8e3d9';g.lineWidth=1;g.stroke();g.restore();}
+   else if(st==='contested'){
+    g.save();g.globalAlpha=.16;g.fillStyle=col;g.fill();g.restore();
+    g.save();g.strokeStyle=(second&&T75.crewColors[second.faction])||col;g.lineWidth=1.6;g.setLineDash([5,4]);g.stroke();g.restore();
+   }else{
+    g.save();g.globalAlpha=(st==='dominant')?.34:.26;g.fillStyle=col;g.fill();g.restore();
+    g.save();g.globalAlpha=.8;g.strokeStyle=col;g.lineWidth=1.6;g.stroke();g.restore();
+   }
+  }
+  /* one backed label per district at its polygon centroid */
+  g.textAlign='center';
+  for(var d in cents){
+   row=T75.data.districts[d];if(!row)continue;
+   var a=t75AreaRow(d);st=t75Status(d);arr=t75Sorted(d);
+   var tp=arr.length?arr[0]:null,sc=arr.length>1?arr[1]:null;
+   var cx=T.X(cents[d].x/cents[d].n),cy=T.Y(cents[d].z/cents[d].n);
+   if(cx<-80||cx>T.W+80||cy<-40||cy>T.H+40)continue;
+   var L1=((a&&a.short)||d).toUpperCase();
+   var L2=row.controller?((T75.crewNames[row.controller]||row.controller)+' · '+(tp?tp.val:0))
+                        :(tp?('Strongest: '+(T75.crewNames[tp.faction]||tp.faction)+' · '+tp.val):'No crew holds it');
+   var L3=st==='dominant'?'DOMINANT':(st==='contested'?'⚔ CONTESTED':(st==='shared'?('SHARED'+(sc?' — '+(T75.crewNames[sc.faction]||sc.faction)+' '+sc.val:'')):'NEUTRAL'));
+   if(st==='neutral'&&a&&a.contested)L3='CONTESTED GROUND';
+   g.font='700 11px Barlow, sans-serif';
+   var w=Math.max(g.measureText(L1).width,g.measureText(L2).width);
+   g.font='8.5px Barlow, sans-serif';w=Math.max(w,g.measureText(L3).width)+14;
+   g.fillStyle='rgba(8,12,16,.74)';
+   g.fillRect(cx-w/2,cy-15,w,40);
+   g.strokeStyle=(tp&&T75.crewColors[tp.faction])||'rgba(255,255,255,.35)';g.lineWidth=1;
+   g.strokeRect(cx-w/2,cy-15,w,40);
+   g.font='700 11px Barlow, sans-serif';g.fillStyle='#eef1f4';g.fillText(L1,cx,cy-3);
+   g.font='8.5px Barlow, sans-serif';g.fillStyle='#cfd6dd';g.fillText(L2,cx,cy+9);
+   g.fillStyle=st==='contested'?'#ffd23f':'#9fb4c0';g.fillText(L3,cx,cy+20);
+  }
+ }
+ try{
+  var t75OrigDraw=drawFullMap;
+  drawFullMap=function(){
+   var r=t75OrigDraw.apply(this,arguments);
+   try{if(t75On()&&T75.mapOn)t75DrawTerritory();}catch(e){}
+   return r;
+  };
+ }catch(e){}
+ /* ------- map chrome: toggle button + legend line -------------- */
+ function t75SyncMapChrome(){
+  var b=document.getElementById('t75MapBtn');
+  if(b){var show=t75On();b.style.display=show?'':'none';
+   var want='Territory: '+(T75.mapOn?'On':'Off');if(b.textContent!==want)b.textContent=want;}
+  var lg=document.getElementById('t75MapLegend');
+  if(lg)lg.style.display=(t75On()&&T75.mapOn)?'':'none';
+ }
+ function t75BuildMapChrome(){
+  var zb=document.getElementById('mapZoomBtn');
+  if(zb&&zb.parentNode&&!document.getElementById('t75MapBtn')){
+   var b=document.createElement('button');b.type='button';b.className='btn ghost';b.id='t75MapBtn';b.style.flex='1';
+   b.textContent='Territory: Off';
+   b.addEventListener('click',function(){
+    T75.mapOn=!T75.mapOn;
+    try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.territoryMap=T75.mapOn?1:0;}catch(e){}
+    t75SyncMapChrome();
+    try{drawFullMap();}catch(e){}
+   });
+   zb.parentNode.insertBefore(b,zb.nextSibling);
+  }
+  var lb=document.getElementById('mapLegendBody');
+  if(lb&&!document.getElementById('t75MapLegend')){
+   var sp=document.createElement('span');sp.id='t75MapLegend';sp.style.display='none';
+   sp.textContent=' · 🗺 TERRITORY: fill = holding crew · number = their grip (0–100) · ⚔ = contested · dashed = the other crew pushing in';
+   lb.appendChild(sp);
+  }
+  t75SyncMapChrome();
+ }
+ /* ------- settings row (the __R74 idiom) ----------------------- */
+ function t75SyncSettings(){
+  var st=document.getElementById('t75SetState'),btn=document.getElementById('t75SetBtn');
+  if(st){var want=t75On()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=t75On()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function t75BuildSettings(){
+  if(document.getElementById('t75SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';row.id='t75SetRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Territory \u2014 crew influence &amp; control</div><div class="setRowNote">Who holds which streets, and how hard. Finished drops, put-downs and race results shift a crew\u2019s grip \u2014 slowly, capped daily, never just for standing there. See it on the big map\u2019s Territory toggle.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='t75SetState';st.textContent=t75On()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='t75SetBtn';btn.textContent=t75On()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){t75SetEnabled(!t75On());});
+  row.appendChild(btn);
+  card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function t75SetEnabled(on){
+  territoryEnabled=!!on;t75SetPref(on);
+  if(on){t75MaybeRestore();t75RaceSyncNow();}
+  t75Mirror();t75SyncSettings();t75SyncMapChrome();
+  try{var ms=document.getElementById('mapScreen');if(ms&&ms.classList.contains('on'))drawFullMap();}catch(e){}
+  return t75On();
+ }
+ /* ------- tick: chrome sync + race poll + mirror ---------------- */
+ setInterval(function(){
+  try{
+   if(t75On()){
+    t75MaybeRestore();
+    t75RacePoll();
+   }
+   t75BuildSettings();t75SyncSettings();
+   t75BuildMapChrome();
+   t75Mirror();
+  }catch(e){T75.err='tick:'+String(e&&e.message||e);}
+ },1000);
+ /* ------- init --------------------------------------------------- */
+ try{
+  t75CrewMeta();
+  try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.territoryMap===1)T75.mapOn=true;}catch(e){}
+  if(t75On())t75Restore();
+  t75RaceSyncNow();
+  t75Mirror();
+ }catch(e){T75.err='init:'+String(e&&e.message||e);territoryEnabled=false;}
+ /* ------- debug surface ------------------------------------------ */
+ function t75State(){
+  var out={version:'v30.75',on:t75On(),mapOn:T75.mapOn,restored:T75.restored,dirty:T75.dirty,err:T75.err,
+   grantsApplied:T75.grants,lastEvent:T75.lastEvent,seenCount:T75.data?T75.data.seenList.length:0,
+   caps:T75.data?{day:T75.data.caps.day,map:T75.data.caps.map}:null,
+   districts:{},affiliations:{},initial:{}};
+  var init=t75InitialDistricts(),aids=t75AreaIds(),i;
+  for(i=0;i<aids.length;i++)out.initial[aids[i]]=init[aids[i]].inf;
+  /* districts are reported from live data when it exists; with the
+     layer OFF from boot there is no live data — report the derived
+     initial rows instead (read-only: nothing is created or saved) */
+  for(i=0;i<aids.length;i++){
+   var d=aids[i],row=T75.data?T75.data.districts[d]:init[d];if(!row)continue;
+   var arr=t75Sorted(d,row);
+   out.districts[d]={controller:row.controller,controllerName:row.controller?(T75.crewNames[row.controller]||row.controller):null,
+    status:t75Status(d,row),top:arr.length?{faction:arr[0].faction,val:arr[0].val}:null,
+    second:arr.length>1?{faction:arr[1].faction,val:arr[1].val}:null,
+    inf:JSON.parse(JSON.stringify(row.inf)),lastChange:row.lastChange};
+   if(row.controller){if(!out.affiliations[row.controller])out.affiliations[row.controller]=[];out.affiliations[row.controller].push(d);}
+  }
+  return out;
+ }
+ window.__T75={version:'v30.75',on:t75On,setEnabled:t75SetEnabled,state:t75State,
+  saveSection:t75SaveSection,
+  grant:function(id,changes){return t75Fire(id,changes);},
+  statusOf:function(d){t75MaybeRestore();return t75Status(d);},
+  controllerOf:function(d){t75MaybeRestore();var r=T75.data?T75.data.districts[d]:null;return r?r.controller:null;},
+  influenceOf:function(d,f){t75MaybeRestore();var r=T75.data?T75.data.districts[d]:null;return r?(r.inf[f]||0):0;}};
+})();}
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -28381,7 +28909,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3074={version:'v30.74'};</script>
+<script>window.__V3075={version:'v30.75'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
