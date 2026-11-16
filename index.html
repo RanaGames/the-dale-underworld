@@ -19222,6 +19222,27 @@ catch(e){
    you can drive through your mate's car. Reported, not hidden.
    Out of scope entirely: Line/economy/police/tram/combat-vs-NPC
    sync; ambient traffic stays local per client (parked design).
+
+   v30.71 — MULTIPLAYER TEST FIX. His first real two-phone test
+   (2026-11-15) failed: a typo'd join silently landed in a fresh
+   empty room that looked joined (fixed server-side: bad joins now
+   get dale:error ROOM_NOT_FOUND + close 4404), two Creates minted
+   different codes with nothing making the difference obvious, and
+   even in one room the 8-site spawn picker could start mates
+   kilometres apart with no way to find each other. This pass:
+   · ROOM_NOT_FOUND is terminal — toast + failed status + NO
+     reconnect (the shipped loop would re-join with MP.room null
+     and silently CREATE a room). ROOM_FULL is untouched.
+   · Peer locator: peer dots on the shipped minimap (drawMinimap
+     wrapped, its exact follow-window transform reused, off-window
+     peers clamped to the rim) + a chip readout naming the nearest
+     peer, their district (shipped areaOf) and the distance.
+   · Join / in-district / leave toasts, once per event.
+   · Spawn-together: dale:spawn notes ride the relay verbatim; the
+     shipped HOME47 picker highlights a mate's site with a note —
+     preselect only, the picker itself is not forked.
+   · Create answers with the code big: tell your mates to tap
+     JOIN and enter this code (not Create).
    ================================================================ */
 (function(){
 'use strict';
@@ -19232,6 +19253,7 @@ var MP={
  on:false,ws:null,id:null,room:null,status:'off',name:'',url:MP_URL_DEFAULT,
  peers:{},pending:{},intentional:false,reconnectT:null,
  lastHp:-1,lastDown:null,sent:{},recv:{},
+ attempt:null,joinMode:null,dead:false,lastErr:null,mateSpawn:null,wasPlaying:false,spawnSite:null,
 };
 var MP_COLORS=[0x3f7fbf,0xbf3f3f,0x3fbf5f,0xbfa03f];
 var MP_SKINS=[0x8a5a3b,0xc9a189,0xa06a42,0x6e4530];
@@ -19277,6 +19299,7 @@ function mpAddPeer(id,name,state,hpMsg){
  var label=makeLabel(name||'Player','rgba(140,200,255,1)','\uD83D\uDC64');
  label.scale.set(72,18,1);label.visible=false;scene.add(label);
  var p={peerId:id,mpRemote:true,name:name||'Player',
+  hasState:!!state,announced:false,
   x:state?state.x:0,z:state?state.z:0,tx:state?state.x:0,tz:state?state.z:0,
   figRot:state?state.fr:0,carRot:state?state.cr:0,rotCur:state?state.fr:0,
   mode:state?state.mode:'foot',hp:hpMsg?hpMsg.hp:100,maxHp:100,down:false,blocking:false,
@@ -19350,6 +19373,7 @@ function mpSetStatus(txt){MP.status=txt;mpSyncUi();}
 function mpConnect(roomCode){
  if(MP.ws){try{MP.ws.close();}catch(e){}MP.ws=null;}
  MP.intentional=false;MP.on=true;multiplayerTestEnabled=true;
+ MP.attempt=roomCode||null;MP.joinMode=roomCode?'join':'create';MP.dead=false;MP.lastErr=null;MP.spawnSite=null;
  var url=MP.url+'/dale?name='+encodeURIComponent(MP.name)+(roomCode?'&room='+encodeURIComponent(roomCode):'');
  mpSetStatus(roomCode?'joining '+roomCode:'creating room');
  var ws;
@@ -19365,25 +19389,39 @@ function mpConnect(roomCode){
    mpClearPeers();
    (msg.peers||[]).forEach(function(pr){mpAddPeer(pr.id,pr.name,pr.state,pr.hp);});
    mpSetStatus('in room '+msg.room);
+   if(MP.joinMode==='create')toast('Room '+msg.room+' — tell your mates to tap JOIN and enter this code (not Create)');
+   if(typeof S!=='undefined'&&S&&S.playing)mpSendSpawn();
    MP.lastHp=-1;MP.lastDown=null;mpBroadcastHp();
   }
-  else if(msg.type==='dale:peer-joined'){mpAddPeer(msg.id,msg.name,null,null);mpSetStatus('in room '+MP.room);}
-  else if(msg.type==='dale:peer-left'){mpRemovePeer(msg.id);}
+  else if(msg.type==='dale:peer-joined'){mpAddPeer(msg.id,msg.name,null,null);mpSetStatus('in room '+MP.room);toast((msg.name||'Player')+' joined the room');}
+  else if(msg.type==='dale:peer-left'){var lp=MP.peers[msg.id];if(lp||msg.name)toast(((lp&&lp.name)||msg.name||'Player')+' left');mpRemovePeer(msg.id);mpSyncUi();}
   else if(msg.type==='dale:state'){
-   var p=MP.peers[msg.from];if(!p){mpAddPeer(msg.from,msg.name,null,null);p=MP.peers[msg.from];}
+   var p=MP.peers[msg.from];if(!p){mpAddPeer(msg.from,msg.name,null,null);p=MP.peers[msg.from];mpSyncUi();}
    if(p){p.tx=msg.x;p.tz=msg.z;p.mode=msg.mode;p.figRot=msg.fr;p.carRot=msg.cr;
-    p.hp=msg.hp;p.down=!!msg.downed;p.blocking=!!msg.blk;p.seen=Date.now();}
+    p.hp=msg.hp;p.down=!!msg.downed;p.blocking=!!msg.blk;p.seen=Date.now();p.hasState=true;}
   }
   else if(msg.type==='dale:hp'){
    var q=MP.peers[msg.from];if(q){q.hp=msg.hp;q.maxHp=msg.maxHp||100;q.down=!!msg.downed;}
   }
   else if(msg.type==='dale:attack'){mpOnAttack(msg);}
   else if(msg.type==='dale:hit'){mpOnHit(msg);}
-  else if(msg.type==='dale:error'){mpSetStatus('server: '+(msg.code||'error'));}
+  else if(msg.type==='dale:spawn'){
+   if(msg.site&&typeof msg.site==='string')MP.mateSpawn={site:msg.site,from:msg.from||null,name:msg.name||'Player'};
+  }
+  else if(msg.type==='dale:error'){
+   if(msg.code==='ROOM_NOT_FOUND'){
+    /* terminal for this attempt: the server closes the socket next,
+       and onclose must NOT reconnect — the shipped logic would
+       re-join with MP.room still null and silently CREATE a room */
+    MP.dead=true;MP.lastErr='Room '+(MP.attempt||'')+' not found';
+    toast('Room '+(MP.attempt||'')+' not found — check the code, or Create a room');
+   }else mpSetStatus('server: '+(msg.code||'error'));
+  }
  };
  ws.onclose=function(){
   MP.ws=null;
   if(MP.intentional){MP.on=false;multiplayerTestEnabled=false;mpClearPeers();mpSetStatus('off');}
+  else if(MP.dead){MP.dead=false;MP.on=false;multiplayerTestEnabled=false;mpClearPeers();MP.room=null;mpSetStatus(MP.lastErr||'room not found');}
   else if(MP.on){mpSetStatus('reconnecting');mpScheduleReconnect(MP.room);}
  };
  ws.onerror=function(){try{ws.close();}catch(e){}};
@@ -19393,7 +19431,7 @@ function mpScheduleReconnect(roomCode){
  MP.reconnectT=setTimeout(function(){MP.reconnectT=null;if(MP.on&&!MP.ws)mpConnect(roomCode);},3000);
 }
 function mpDisconnect(){
- MP.intentional=true;MP.on=false;multiplayerTestEnabled=false;
+ MP.intentional=true;MP.on=false;multiplayerTestEnabled=false;MP.dead=false;MP.lastErr=null;MP.mateSpawn=null;MP.spawnSite=null;
  if(MP.reconnectT){clearTimeout(MP.reconnectT);MP.reconnectT=null;}
  if(MP.ws){try{MP.ws.send(JSON.stringify({type:'dale:leave'}));}catch(e){}try{MP.ws.close();}catch(e){}MP.ws=null;}
  mpClearPeers();MP.room=null;MP.id=null;mpSetStatus('off');mpSyncUi();
@@ -19450,7 +19488,11 @@ combatMateStrikeOK=function(t){if(t&&t.mpRemote)return false;return mpOrigMateOK
 setInterval(function(){
  if(!MP.on)return;
  try{mpSendState();}catch(e){}
- if(!S||!S.playing)return;
+ if(!S||!S.playing){MP.wasPlaying=false;return;}
+ if(!MP.wasPlaying){MP.wasPlaying=true;mpSendSpawn();}
+ for(var aid in MP.peers){var ap=MP.peers[aid];
+  if(ap&&ap.hasState&&!ap.announced){ap.announced=true;toast(ap.name+' is in '+mpDistrict(ap.tx,ap.tz));}}
+ mpLocUi();
  var now=Date.now();
  for(var pid in MP.pending){if(now-MP.pending[pid].t>2500)delete MP.pending[pid];}
  for(var id in MP.peers){
@@ -19480,12 +19522,13 @@ setInterval(function(){
 function mpPeerCount(){var n=0;for(var k in MP.peers)n++;return n;}
 function mpSyncUi(){
  var st=document.getElementById('mpSetState');
- if(st)st.textContent=MP.on?(MP.room?('Room '+MP.room+' · '+(mpPeerCount()+1)+' in'):MP.status):'Off';
+ if(st)st.textContent=MP.on?(MP.room?('Room '+MP.room+' · '+(mpPeerCount()+1)+' in'):MP.status):(MP.status&&MP.status!=='off'?MP.status:'Off');
  var chip=document.getElementById('mpChip');
  if(chip){
   chip.style.display=MP.on?'flex':'none';
   var t=document.getElementById('mpChipText');
-  if(t)t.textContent='MP TEST · '+(MP.room?('Room '+MP.room):MP.status)+' · '+(mpPeerCount()+1)+' player'+(mpPeerCount()?'s':'');
+  if(t){var rd=mpLocReadout();
+   t.textContent='MP TEST · '+(MP.room?('Room '+MP.room):MP.status)+' · '+(mpPeerCount()+1)+' player'+(mpPeerCount()?'s':'')+(rd?'\n'+rd:'');}
  }
 }
 function mpBuildUi(){
@@ -19493,7 +19536,7 @@ function mpBuildUi(){
   if(!document.getElementById('mpChip')){
    var chip=document.createElement('div');chip.id='mpChip';
    chip.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);left:50%;transform:translateX(-50%);z-index:9990;display:none;align-items:center;gap:10px;background:rgba(8,12,16,.88);border:1px solid #c9a227;border-radius:999px;padding:6px 8px 6px 14px;font:600 13px "Barlow Condensed",sans-serif;color:#eef1f4;letter-spacing:.04em;';
-   var span=document.createElement('span');span.id='mpChipText';span.textContent='MP TEST';
+   var span=document.createElement('span');span.id='mpChipText';span.textContent='MP TEST';span.style.whiteSpace='pre-line';
    var lv=document.createElement('button');lv.id='mpChipLeave';lv.textContent='Leave';
    lv.style.cssText='background:#7a1f1f;color:#fff;border:0;border-radius:999px;padding:5px 12px;font:700 12px "Barlow Condensed",sans-serif;cursor:pointer;';
    lv.addEventListener('click',function(){mpDisconnect();});
@@ -19526,12 +19569,90 @@ function mpBuildUi(){
 var mpUiTries=0;
 var mpUiTimer=setInterval(function(){mpBuildUi();if(document.getElementById('mpCreateBtn')||++mpUiTries>40)clearInterval(mpUiTimer);},500);
 setInterval(mpSyncUi,1000);
+/* ---------- v30.71: peer locator + spawn-together ---------- */
+function mpDistrict(x,z){
+ try{var a=(typeof areaOf==='function')?areaOf(x,z):null;if(a)return a.short||a.name;}catch(e){}
+ return 'Between areas';
+}
+function mpFmtDist(d){return String(Math.round(d)).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+function mpNearestPeer(){
+ var me=mpMyPos(),best=null,bd=1e18;
+ for(var id in MP.peers){var p=MP.peers[id];if(!p||!p.hasState)continue;
+  var d=Math.hypot(p.tx-me.x,p.tz-me.z);if(d<bd){bd=d;best=p;}}
+ return best?{p:best,d:bd}:null;
+}
+function mpLocReadout(){
+ var n=mpNearestPeer();if(!n)return '';
+ var s=n.p.name+' · '+mpDistrict(n.p.tx,n.p.tz)+' · '+mpFmtDist(n.d);
+ var c=mpPeerCount();if(c>1)s+=' · +'+(c-1)+' more';
+ return s;
+}
+var mpLocCache='';
+function mpLocUi(){
+ var rd=mpLocReadout();
+ if(rd!==mpLocCache){mpLocCache=rd;mpSyncUi();}
+}
+/* minimap peer dots: the shipped drawMinimap is wrapped and the dots
+   are painted straight after it, reusing its exact follow-window
+   transform (1150x880 window on the player, clamped at R1_BOUNDS,
+   172x132 canvas); off-window peers clamp to the rim, clear of the
+   street-name strip, the way the shipped objective pin clamps */
+function mpPeerCss(id){return '#'+('000000'+mpPeerColor(id).toString(16)).slice(-6);}
+function mpDrawPeerDots(){
+ var cv=document.getElementById('minimap');if(!cv||cv.offsetParent===null)return;
+ var g;try{g=cv.getContext('2d');}catch(e){return;}if(!g)return;
+ var WW=1150,WH=880;
+ var mcx=clamp(player.x,-9800+WW/2,8800-WW/2),mcz=clamp(player.z,-6800+WH/2,15800-WH/2);
+ var mx0=mcx-WW/2,mz0=mcz-WH/2;
+ for(var id in MP.peers){var p=MP.peers[id];if(!p||!p.hasState)continue;
+  var px=(p.x-mx0)/WW*172,py=(p.z-mz0)/WH*132;
+  var inside=px>=4&&px<=168&&py>=4&&py<=115;
+  var dx=clamp(px,8,164),dy=clamp(py,8,111);
+  g.beginPath();g.arc(dx,dy,inside?4:3.5,0,7);
+  g.fillStyle=mpPeerCss(id);g.fill();
+  g.lineWidth=1.6;g.strokeStyle='#ffffff';g.stroke();
+ }
+}
+var mpOrigDrawMinimap=drawMinimap;
+drawMinimap=function(){mpOrigDrawMinimap();if(MP.on){try{mpDrawPeerDots();}catch(e){}}};
+/* spawn-together: my site rides a dale:spawn note when I start
+   playing in a room (and on welcome if I am already playing); a
+   mate's note makes the shipped picker highlight their site —
+   preselect only, the picker itself is untouched */
+function mpMySite(){
+ try{var H=window.__HOME47;if(H&&H.siteId)return H.siteId;}catch(e){}
+ return null;
+}
+function mpSendSpawn(){
+ if(!MP.on||!MP.ws||MP.ws.readyState!==1)return;
+ var site=mpMySite();if(!site)return;
+ if(MP.spawnSite===site)return;MP.spawnSite=site;
+ mpSend({type:'dale:spawn',site:site,name:MP.name});
+}
+function mpSiteLabel(site){
+ try{var H=window.__HOME47;if(H&&H.siteById){var s=H.siteById(site);
+  if(s){for(var i=0;i<AREAS.length;i++)if(AREAS[i].id===s.area)return AREAS[i].name;return s.area;}}}catch(e){}
+ return site;
+}
+setInterval(function(){
+ if(!MP.on||!MP.mateSpawn)return;
+ try{
+  var pk=document.getElementById('homePicker');if(!pk||pk.style.display==='none')return;
+  var b=document.getElementById('homePick_'+MP.mateSpawn.site);if(!b)return;
+  b.style.outline='2px solid #4ea8de';b.style.outlineOffset='2px';
+  if(b.innerHTML.indexOf('\uD83D\uDC65')<0)b.innerHTML+=' · \uD83D\uDC65 MATE';
+  var n=document.getElementById('mpMateNote');
+  if(!n){n=document.createElement('p');n.className='small';n.id='mpMateNote';n.style.cssText='margin-top:6px;color:#4ea8de;';pk.appendChild(n);}
+  n.textContent='Your mate started at '+mpSiteLabel(MP.mateSpawn.site)+' — tap it to start together';
+ }catch(e){}
+},500);
 window.__MP={
- version:'mp-test-1',
+ version:'mp-test-2',
  enabled:function(){return MP.on;},
  flag:function(){return multiplayerTestEnabled;},
  state:function(){return {on:MP.on,id:MP.id,room:MP.room,status:MP.status,name:MP.name,
-  peers:mpPeerCount(),sent:MP.sent,recv:MP.recv};},
+  peers:mpPeerCount(),sent:MP.sent,recv:MP.recv,
+  mateSpawn:MP.mateSpawn,lastErr:MP.lastErr,locator:mpLocReadout()};},
  peers:function(){var out=[];for(var id in MP.peers){var p=MP.peers[id];
   out.push({id:id,name:p.name,x:Math.round(p.x),z:Math.round(p.z),tx:Math.round(p.tx),tz:Math.round(p.tz),
    mode:p.mode,hp:p.hp,down:p.down});}return out;},
@@ -26996,7 +27117,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3070={version:'v30.70'};</script>
+<script>window.__V3071={version:'v30.71'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
