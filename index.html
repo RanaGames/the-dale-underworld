@@ -16050,6 +16050,11 @@ if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
    if(EN.recentCats.indexOf(cat)>=0)continue;
    if(EN.catCd[cat]&&gameT<EN.catCd[cat])continue;
    pool.push(EN_W[i]);tot+=EN_W[i][1];}
+  try{var xw=(window.__EV77&&window.__EV77.weights)?window.__EV77.weights():null;
+   if(xw)for(var xi=0;xi<xw.length;xi++){var xc=xw[xi][0];
+    if(EN.recentCats.indexOf(xc)>=0)continue;
+    if(EN.catCd[xc]&&gameT<EN.catCd[xc])continue;
+    pool.push(xw[xi]);tot+=xw[xi][1];}}catch(e){}
   if(!pool.length)return null;
   var r=Math.random()*tot;
   for(i=0;i<pool.length;i++){r-=pool[i][1];if(r<=0)return pool[i][0];}
@@ -16059,7 +16064,7 @@ if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
   if(cat==='argument'||cat==='friends'||cat==='dispute')return enVerbalPlan(cat);
   if(cat==='gathering'||cat==='shopfront')return enGatherPlan(cat);
   if(cat==='breakdown')return enBreakdownPlan();
-  return null;
+  return (window.__EV77&&window.__EV77.planFor)?window.__EV77.planFor(cat):null;
  }
  function enTick(){
   var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
@@ -16218,7 +16223,7 @@ if(typeof SEATS!=='undefined'&&SEATS.golfb==null){SEATS.golfb=3;}
    if(!streetEncountersEnabled)return null;
    if(!EN)enInit();
    if(EN.list.length>=EN_MAX_ACTIVE)return null;
-   var valid=['argument','friends','dispute','gathering','shopfront','breakdown','bystanders'];
+   var valid=['argument','friends','dispute','gathering','shopfront','breakdown','bystanders','crewmeet','rivalmeet','turfdispute','loyalty','contact','tensionmeet'];
    if(valid.indexOf(cat)<0)return null;
    if(cat==='bystanders'&&!EN.disturb){var f=enFocus();EN.disturb={x:f.x,z:f.z,why:'debug'};EN.disturbUntil=gameT+30;}
    var e=enCreate(cat,true);
@@ -17324,7 +17329,8 @@ var npcMemoryEnabled=true; /* spec S3 feature flag (default ON) */
   },
   on:function(fn){if(!NM)nmInit();if(typeof fn==='function')NM.listeners.push(fn);return NM.listeners.length;},
   events:function(){return NM?NM.events.slice():[];},
-  record:function(npcId,o){return nmRecord(npcId,o);}, /* the real record path (dedupe/cap apply) — verification + future systems */
+  record:function(npcId,o){return nmRecord(npcId,o);},
+  recordAmb:function(p,o){return nmRecordAmb(p,o);}, /* v30.77: NM39's own ambient path, exposed for Stage 5 typed records */ /* the real record path (dedupe/cap apply) — verification + future systems */
   memories:function(npcId){
    if(!NM)nmInit();
    return (NM.store[npcId]||[]).map(function(r){return {npcId:r.npcId,memoryId:r.memoryId,eventId:r.eventId,
@@ -28994,6 +29000,376 @@ if(!window.__R76){ (function(){
   registerTrigger:function(id,def){if(typeof id==='string'&&id)R76.triggers[id]=def||{};return Object.keys(R76.triggers);},
   unregisterTrigger:function(id){delete R76.triggers[id];return Object.keys(R76.triggers);}};
 })();}
+/* ================= v30.77 — PHASE 3 · STAGE 5: DYNAMIC UNDERWORLD EVENTS (__EV77) =================
+   Six underworld event types added to the EXISTING encounter
+   director (__EN37, Living Streets Stage 3) as new weighted
+   categories — crewmeet, rivalmeet, turfdispute, loyalty, contact,
+   tensionmeet. There is NO second director and NO parallel
+   scheduler: EN37's own pick cycle, lifecycle (Candidate ->
+   Validating -> Starting -> Active -> Resolving -> Finished /
+   Cancelled), reservation discipline, per-category cooldowns,
+   last-2 exclusion, max-2-concurrent cap, anchor spacing and
+   police preemption all apply to these categories unchanged, via
+   three small hooks EN37 delegates to (see the build's edit list):
+   the pick pool consults __EV77.weights(), the plan dispatch
+   falls through to __EV77.planFor(cat), and the debug forceStart
+   validity list names the six. With this flag OFF (or the module
+   absent) both hooks return null and EN37 is byte-for-byte the
+   shipped director.
+
+   EVERY event is a VERBAL encounter in EN37's sense — the exchange
+   IS a __CV36 conversation, started by EN37 through CV36's own
+   forceStart, bound by conversation id and ended by CV36's own
+   lifecycle, exactly like EN37's argument / friends / dispute.
+   This module writes NO dialogue lines: CV36's context threads
+   already carry the right registers (rival pairs draw its 'cool'
+   thread, friendly pairs 'warm', high-Tension areas 'tension').
+   Escalation guardrail (spec S7 + the v30.30 ruling): these
+   events are verbal/social ONLY. Nothing here can start a fight —
+   no combat trigger exists in a CV36 conversation — and rivalry
+   still never auto-triggers combat. Witnesses / Heat / police
+   respond through shipped systems only; this layer writes NO
+   Cash / Rep / Heat / Tension, ever (grep-verifiable).
+
+   WHAT MAKES EACH TYPE ITSELF is its eligibility gate, read from
+   authoritative state at plan time (spec S3), plus its completion
+   consequence (below). Gates (a mutually-close pair of CV36-
+   eligible parked peds within 620u of the player, mirroring
+   EN37's own verbal validator, PLUS):
+     crewmeet    — the pair share one F30 faction (crew members
+                   meeting on their own streets).
+     rivalmeet   — the pair's factions resolve 'rival' through
+                   __F30.resolve (Tweedale <-> Moss Street).
+     turfdispute — the pair stand in a district __T75 reports as
+                   CONTESTED, and belong to two different factions.
+     loyalty     — at least one of the pair carries established
+                   ambient history in __NM39 (2+ run-scoped
+                   records, or one of importance 2+): an NPC with
+                   a past referencing what has happened.
+     contact     — one of the pair is an existing eligible
+                   contact: a faction member whose crew's Stage 2
+                   disposition toward the player is Friendly AND
+                   who already has ambient history with the
+                   player (1+ __NM39 ambient record).
+     tensionmeet — shipped area Tension at the pair is >= 35
+                   (CV36's own tension-thread threshold), with a
+                   grumpy participant or Tension >= 55.
+   If a foundation stage is off (F30 / T75 / R74 / NM39), the
+   gates that read it simply never validate — the event type
+   goes quiet, nothing errors.
+
+   CONSEQUENCES (spec S6/S10): routed ONCE, only when the
+   encounter COMPLETES (EN37 'ended', outcome finished, reason
+   'conversation-natural' — an interrupted, preempted or
+   abandoned event routes nothing), keyed by the stable ID
+   'ev77:<cat>:<encounterId>:d<day>' through the authoritative
+   funnels — never a direct store write:
+     - NPC memory: a typed ambient record per participant via
+       __NM39.recordAmb (NM39's own run-scoped path, exposed by
+       this build — same dedupe/cap as its internal EN37
+       participation records, which ALSO fire for these events
+       unchanged). Ambient class: run-scoped, never persisted,
+       exactly as LS Stage 5 designed.
+     - turfdispute: when the completed pair are exactly the
+       district's two contesting factions (one is __T75's
+       controller, the other is not), the pressing crew gains
+       +1 influence in that district via __T75.grant — inside
+       T75's own per-event/day caps and control hysteresis, so
+       a single row can never flip a district. Any other
+       pairing moves nothing (spec test 9: territory
+       consequences only when justified).
+     - loyalty: the area's Stage 2 standing Trust +1 via
+       __R74.grant (word about the player travels).
+     - contact: the contact's crew Stage 2 standing Trust +1
+       via __R74.grant.
+     - crewmeet / rivalmeet / tensionmeet: memory records only —
+       NPC business and ambient colour change no player-facing
+       store. No free Cash, no territory for showing up.
+   Player participation stays EN37's shipped rule: talking to a
+   participant ends the scene (reason 'player') and the shipped
+   interaction runs — optional, never forced (spec S5).
+
+   POPULATION (spec S9): the shipped 22 peds only, through
+   EN37's reservations; no spawns, no crowds. This module's own
+   work is one listener + a settings sync on a 1 s interval;
+   planning runs only inside EN37's candidate step.
+
+   SAVES (spec S10): NOTHING new is persisted. Ambient event
+   state is transient (EN37's own rule); completed outcomes
+   persist only inside R74 / T75 / NM39's own sections, written
+   by those systems. Old saves load unchanged.
+
+   FLAG: underworldEventsEnabled (default ON), pref
+   S.ui.underworldEvents, kill key dale.underworldEventsEnabled.v1.
+   OFF = weights()/planFor() return null (EN37 runs its shipped
+   six categories only), no consequences route, game exactly as
+   v30.76. Failure isolation: any throw disables ONLY this
+   module. Debug: window.__EV77. */
+var underworldEventsEnabled=true; /* v30.77 master "Underworld events" flag (default ON) */
+if(!window.__EV77){ (function(){
+ 'use strict';
+ var EV={err:null,listening:false,pending:{},routed:0,lastRoute:null,
+         counts:{planned:{},routed:{},skipped:{}}};
+ var EV_CATS=['crewmeet','rivalmeet','turfdispute','loyalty','contact','tensionmeet'];
+ var EV_W=[['crewmeet',2],['rivalmeet',2],['turfdispute',2],['loyalty',1],['contact',1],['tensionmeet',2]];
+ var EV_NEAR=620, EV_PAIR=170; /* EN37's own verbal ranges, mirrored */
+ var EV_REC={
+  crewmeet:{eventType:'crew-meeting',category:'Familiarity',importance:2,effect:0.5,policy:'long'},
+  rivalmeet:{eventType:'rival-encounter',category:'Familiarity',importance:2,effect:0,policy:'long'},
+  turfdispute:{eventType:'turf-dispute',category:'Negative',importance:2,effect:-0.5,policy:'long'},
+  loyalty:{eventType:'loyalty-reference',category:'Positive',importance:2,effect:1,policy:'long'},
+  contact:{eventType:'underworld-contact',category:'Positive',importance:2,effect:1,policy:'long'},
+  tensionmeet:{eventType:'neighbourhood-tension',category:'Negative',importance:1,effect:-0.5,policy:'day'}};
+ function evStoreOff(){try{return localStorage.getItem('dale.underworldEventsEnabled.v1')==='0';}catch(e){return false;}}
+ function evOn(){return !!underworldEventsEnabled&&!evStoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.underworldEvents===0);}
+ function evSetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.underworldEvents=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.underworldEventsEnabled.v1',on?'1':'0');}catch(e){}}
+ function evDay(){return (typeof S!=='undefined'&&S&&typeof S.day==='number'&&isFinite(S.day))?S.day:1;}
+ function evFocus(){return (typeof footMode!=='undefined'&&footMode)?footMode:player;}
+ /* ---------- ped predicates: EN37's verbal rules, mirrored ----------
+    (the same reads EN37's enVerbalFree/enParked perform — ped records
+    and shipped state only; nothing here writes to a ped) */
+ function evSuspendedP(p){return !!(p.down||(p.s2DownT&&p.s2DownT>0)||(p.s2FleeT&&p.s2FleeT>0)||(p.diveT&&p.diveT>0));}
+ function evFightersHas(p){
+  if(typeof fighters==='undefined'||!fighters)return false;
+  for(var i=0;i<fighters.length;i++)if(fighters[i].mesh===p.mesh)return true;
+  return false;
+ }
+ function evVerbalFree(p){
+  if(!p||evSuspendedP(p))return false;
+  var lr=p.__ls27;if(!lr||lr.suspended)return false;
+  if(lr.state!=='WAITING'&&lr.state!=='SOCIALISING')return false;
+  if(p.__cv36&&p.__cv36.convo)return false;
+  if(evFightersHas(p))return false;
+  return true;
+ }
+ function evFaction(p){return (p&&p.__f30&&p.__f30.factionId)?p.__f30.factionId:null;}
+ function evResolve(a,b){
+  if(!a||!b)return 'neutral';
+  if(a===b)return 'friendly';
+  try{if(window.__F30&&window.__F30.resolve)return window.__F30.resolve(a,b);}catch(e){}
+  return 'neutral';
+ }
+ function evAreaId(x,z){try{if(typeof areaOf==='function'){var a=areaOf(x,z);return a?a.id:null;}}catch(e){}return null;}
+ function evTension(areaId){try{if(areaId&&typeof S!=='undefined'&&S&&S.tension)return S.tension[areaId]||0;}catch(e){}return 0;}
+ function evAmbRecs(p){
+  try{if(window.__NM39&&window.__NM39.ambient&&p&&p.__cv36)return window.__NM39.ambient(p.__cv36.ix);}catch(e){}
+  return [];
+ }
+ function evEstablished(p){ /* loyalty: a past worth referencing */
+  var recs=evAmbRecs(p);
+  if(recs.length>=2)return true;
+  for(var i=0;i<recs.length;i++)if((recs[i].importance||0)>=2)return true;
+  return false;
+ }
+ function evContactFaction(p){ /* contact: Friendly crew + already met */
+  var fid=evFaction(p);if(!fid)return null;
+  if(evAmbRecs(p).length<1)return null;
+  try{
+   if(window.__R74&&window.__R74.state){
+    var crews=window.__R74.state().crews||{};
+    if(crews[fid]&&crews[fid].disposition==='friendly')return fid;
+   }
+  }catch(e){}
+  return null;
+ }
+ /* ---------- the gates (spec S3: authoritative state only) ---------- */
+ function evGate(cat,a,b,mx,mz){
+  var fa=evFaction(a),fb=evFaction(b);
+  if(cat==='crewmeet')return !!fa&&fa===fb;
+  if(cat==='rivalmeet')return !!fa&&!!fb&&fa!==fb&&evResolve(fa,fb)==='rival';
+  if(cat==='turfdispute'){
+   if(!fa||!fb||fa===fb)return false;
+   var d=evAreaId(mx,mz);if(!d)return false;
+   try{if(window.__T75&&window.__T75.statusOf)return window.__T75.statusOf(d)==='contested';}catch(e){}
+   return false;
+  }
+  if(cat==='loyalty')return evEstablished(a)||evEstablished(b);
+  if(cat==='contact')return !!(evContactFaction(a)||evContactFaction(b));
+  if(cat==='tensionmeet'){
+   var ten=evTension(evAreaId(mx,mz));
+   if(ten<35)return false;
+   var grumpy=(a.__cv36&&a.__cv36.pers==='grumpy')||(b.__cv36&&b.__cv36.pers==='grumpy');
+   return grumpy||ten>=55;
+  }
+  return false;
+ }
+ /* ---------- planFor: EN37's verbal plan shape, gated ----------
+    Mirrors enVerbalPlan: scan every mutually-close eligible pair in
+    range, take the qualifying one nearest the player; refuse when
+    CV36 is full or when forceStart would steal a scene ped. */
+ function evPlanFor(cat){
+  if(!evOn())return null;
+  if(EV_CATS.indexOf(cat)<0)return null;
+  try{
+   if(typeof peds==='undefined'||!peds||!peds.length)return null;
+   var f=evFocus();if(!f)return null;
+   if(window.__CV36&&window.__CV36.state){var cs=window.__CV36.state();if(cs.active&&cs.active.length>=2)return null;}
+   var cands=[],i,j,p;
+   for(i=0;i<peds.length;i++){p=peds[i];
+    if(!evVerbalFree(p))continue;
+    if(dist2(f.x,f.z,p.x,p.z)>EV_NEAR)continue;
+    cands.push(p);}
+   var pair=null,pairD=1e18;
+   for(i=0;i<cands.length;i++)for(j=i+1;j<cands.length;j++){
+    if(dist2(cands[i].x,cands[i].z,cands[j].x,cands[j].z)>=EV_PAIR)continue;
+    var mx=(cands[i].x+cands[j].x)/2,mz=(cands[i].z+cands[j].z)/2;
+    if(!evGate(cat,cands[i],cands[j],mx,mz))continue;
+    var md=dist2(f.x,f.z,mx,mz);
+    if(md<pairD){pairD=md;pair=[cands[i],cands[j]];}
+   }
+   if(!pair)return null;
+   var near=null,nd=1e18;
+   for(i=0;i<peds.length;i++){p=peds[i];if(!evVerbalFree(p))continue;
+    var d=dist2(f.x,f.z,p.x,p.z);if(d<nd){nd=d;near=p;}}
+   if(near&&near.__en37)return null;
+   EV.counts.planned[cat]=(EV.counts.planned[cat]||0)+1;
+   return {kind:'verbal',x:(pair[0].x+pair[1].x)/2,z:(pair[0].z+pair[1].z)/2};
+  }catch(e){EV.err='plan:'+String(e&&e.message||e);return null;}
+ }
+ function evWeights(){
+  if(!evOn())return null;
+  return EV_W;
+ }
+ /* ---------- consequence routing (spec S6: once, via the funnels) --- */
+ function evPedByNpcId(npcId){
+  try{
+   if(typeof peds==='undefined'||!peds)return null;
+   for(var i=0;i<peds.length;i++)if(peds[i].__cv36&&peds[i].__cv36.npcId===npcId)return peds[i];
+  }catch(e){}
+  return null;
+ }
+ function evOnEncEvent(ev){
+  if(!ev||!ev.cat||EV_CATS.indexOf(ev.cat)<0)return;
+  if(ev.type==='participation'){
+   var anchor=null,district=null;
+   try{
+    if(window.__EN37&&window.__EN37.state){
+     var act=window.__EN37.state().active||[];
+     for(var i=0;i<act.length;i++)if(act[i].id===ev.id&&act[i].anchor){anchor=act[i].anchor;break;}
+    }
+   }catch(e){}
+   if(anchor)district=evAreaId(anchor.x,anchor.z);
+   var contactNpc=null,contactFaction=null;
+   if(ev.cat==='contact'){
+    for(var j=0;j<(ev.members||[]).length;j++){
+     var cp=evPedByNpcId(ev.members[j]);if(!cp)continue;
+     var cf=evContactFaction(cp);if(cf){contactNpc=ev.members[j];contactFaction=cf;break;}
+    }
+   }
+   EV.pending[ev.id]={cat:ev.cat,members:(ev.members||[]).slice(),district:district,
+                      contactNpc:contactNpc,contactFaction:contactFaction};
+   return;
+  }
+  if(ev.type==='ended'){
+   var pend=EV.pending[ev.id];delete EV.pending[ev.id];
+   if(!pend)return;
+   if(ev.outcome!=='finished'||ev.reason!=='conversation-natural'){
+    EV.counts.skipped[pend.cat]=(EV.counts.skipped[pend.cat]||0)+1;return;
+   }
+   if(!evOn())return;
+   evRoute(ev.id,pend);
+  }
+ }
+ function evRoute(encId,pend){
+  var cat=pend.cat,day=evDay();
+  var baseId='ev77:'+cat+':'+encId+':d'+day;
+  var rec=EV_REC[cat],i,p;
+  /* NPC memory: one typed ambient record per participant, through
+     NM39's own ambient path (deduped by eventId inside NM39) */
+  try{
+   if(window.__NM39&&window.__NM39.recordAmb&&rec){
+    for(i=0;i<pend.members.length;i++){
+     p=evPedByNpcId(pend.members[i]);if(!p)continue;
+     window.__NM39.recordAmb(p,{eventId:baseId+':'+pend.members[i],eventType:rec.eventType,
+      category:rec.category,importance:rec.importance,effect:rec.effect,policy:rec.policy,
+      ctx:pend.district||''});
+    }
+   }
+  }catch(e){EV.err='nm:'+String(e&&e.message||e);}
+  /* territory: only the justified pairing moves influence */
+  if(cat==='turfdispute'&&pend.district){
+   try{
+    if(window.__T75&&window.__T75.grant&&window.__T75.controllerOf){
+     var facs=[];
+     for(i=0;i<pend.members.length;i++){p=evPedByNpcId(pend.members[i]);var fv=p?evFaction(p):null;
+      if(fv&&facs.indexOf(fv)<0)facs.push(fv);}
+     if(facs.length===2){
+      var ctrl=window.__T75.controllerOf(pend.district);
+      var challenger=(ctrl===facs[0])?facs[1]:((ctrl===facs[1])?facs[0]:null);
+      if(challenger)window.__T75.grant(baseId,[{d:pend.district,f:challenger,v:1}]);
+     }
+    }
+   }catch(e){EV.err='t75:'+String(e&&e.message||e);}
+  }
+  /* local standing: word travels (loyalty) / the contact firms up */
+  if(cat==='loyalty'&&pend.district){
+   try{if(window.__R74&&window.__R74.grant)
+    window.__R74.grant(baseId,[{s:'area',k:pend.district,t:1}]);}catch(e){EV.err='r74:'+String(e&&e.message||e);}
+  }
+  if(cat==='contact'&&pend.contactFaction){
+   try{if(window.__R74&&window.__R74.grant)
+    window.__R74.grant(baseId,[{s:'crew',k:pend.contactFaction,t:1}]);}catch(e){EV.err='r74:'+String(e&&e.message||e);}
+  }
+  EV.routed++;EV.lastRoute=baseId;
+  EV.counts.routed[cat]=(EV.counts.routed[cat]||0)+1;
+ }
+ function evListen(){
+  if(EV.listening)return;
+  try{
+   if(window.__EN37&&window.__EN37.on){window.__EN37.on(evOnEncEvent);EV.listening=true;}
+  }catch(e){EV.err='listen:'+String(e&&e.message||e);}
+ }
+ /* ---------- settings row (the __T75 idiom) ----------------------- */
+ function evSyncSettings(){
+  var st=document.getElementById('ev77SetState'),btn=document.getElementById('ev77SetBtn');
+  if(st){var want=evOn()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=evOn()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function evBuildSettings(){
+  if(document.getElementById('ev77SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';row.id='ev77SetRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Underworld events \u2014 crew meets &amp; disputes</div><div class="setRowNote">The underworld gets on with itself: crews meet, rivals clock each other, turf gets argued over in contested streets and word travels. All through the same encounter director as the street scenes \u2014 talk only, rows never turn into fights by themselves, and only finished business leaves a mark.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='ev77SetState';st.textContent=evOn()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='ev77SetBtn';btn.textContent=evOn()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){evSetEnabled(!evOn());});
+  row.appendChild(btn);
+  card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function evSetEnabled(on){
+  underworldEventsEnabled=!!on;evSetPref(on);
+  evSyncSettings();
+  return evOn();
+ }
+ /* ---------- tick: listener registration + settings sync ---------- */
+ setInterval(function(){
+  try{
+   evListen();
+   evBuildSettings();evSyncSettings();
+  }catch(e){EV.err='tick:'+String(e&&e.message||e);}
+ },1000);
+ try{evListen();}catch(e){}
+ /* ---------- debug surface ---------------------------------------- */
+ function evState(){
+  return {version:'v30.77',on:evOn(),listening:EV.listening,err:EV.err,
+   cats:EV_CATS.slice(),weights:evOn()?EV_W:null,
+   counts:{planned:Object.assign({},EV.counts.planned),routed:Object.assign({},EV.counts.routed),
+           skipped:Object.assign({},EV.counts.skipped)},
+   routedTotal:EV.routed,lastRoute:EV.lastRoute,
+   pending:Object.keys(EV.pending).length};
+ }
+ window.__EV77={version:'v30.77',on:evOn,setEnabled:evSetEnabled,state:evState,
+  weights:evWeights,planFor:evPlanFor,
+  gate:function(cat,a,b){ /* debug: evaluate a gate on two ped objects at their midpoint */
+   if(!a||!b)return false;
+   return evGate(cat,a,b,(a.x+b.x)/2,(a.z+b.z)/2);}};
+})();}
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -29410,7 +29786,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3076={version:'v30.76'};</script>
+<script>window.__V3077={version:'v30.77'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
