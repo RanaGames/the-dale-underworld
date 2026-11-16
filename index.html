@@ -29370,6 +29370,253 @@ if(!window.__EV77){ (function(){
    return evGate(cat,a,b,(a.x+b.x)/2,(a.z+b.z)/2);}};
 })();}
 
+/* ================= v30.78 — PHASE 3 · STAGE 6: UNDERWORLD INTEGRATION & BALANCING (__U78) =================
+   The final Phase 3 stage, per PHASE3-STAGE6-INTEGRATION-SPEC.md and
+   its binding NEO AUDIT NOTES. This layer builds NO new gameplay
+   system, NO new store, NO new save section and NO new event type.
+   It does exactly three integration jobs over the Phase 3 stages
+   that exist (all five are in the game — see the audit):
+
+   §1 AUDIT (spec vs shipped source, graded honestly):
+   - Stage 1 (__F30, v30.30): PRESENT — faction registry, membership
+     records, crew social behaviour (grouping/suspend tick).
+   - Stage 2 (__R74, v30.74): PRESENT — Respect/Trust/Fear per area
+     and per crew, derived dispositions, one dedupe funnel.
+   - Stage 3 (__T75, v30.75): PRESENT — per-district influence,
+     control with hysteresis, contested status, map display.
+     ABSENT (by its own stage's guardrails, flagged then): §5
+     ambient effects — presence/dialogue do not follow influence.
+   - Stage 4 (__R76, v30.76): PRESENT — persistent relationships as
+     a derived view over npcMemory/mateState/leaderMem, loyalty
+     where a store owns it. ABSENT (do not exist in the shipped
+     game, not invented): betrayal EVENTS (the framework ships
+     dormant — empty trigger table, zero callers) and the get-well
+     £60 (no payment mechanic exists to observe).
+   - Stage 5 (__EV77, v30.77): PRESENT — six event types inside the
+     ONE director __EN37, consequences routed once via the Stage 2/3
+     funnels. ABSENT (guardrail call, flagged then): a contact Line
+     job type — the contact's supported interaction is delivered
+     through the dialogue system instead.
+   §3 DEDUPE AUDIT (this stage's spine — traced, then proven live by
+   the build battery): every authoritative incident reaches each
+   Phase 3 store EXACTLY ONCE, through that store's own funnel:
+   completeJob -> R74 'drop:' grant + T75 'drop:' grant (two stores,
+   two specced consequences, one firing each); leaderFighterDowned
+   -> NM39 record + R74 downed grant + T75 -4 (one each);
+   s2ApplyHit -> NM39 record + R74 hit grant (T75 does not hook
+   hits); arrest/custody -> R74 arrest grant + custody-tier grant
+   (distinct events, distinct IDs); CR64 result -> T75 poll (R74
+   does not hook races); dailyRollovers fee -> R76's one NM39
+   record; EV77 completion -> the funnels under 'ev77:' IDs. No
+   handler was found writing a second store, and no incident is
+   counted twice inside one store. NO CODE FIX WAS NEEDED — the
+   audit's outcome is this verification, not a patch.
+   §9 BALANCING AUDIT: the spec names no target values, so no knob
+   is retuned on spec authority. Inventory, all at their own
+   stages' specced values: R74 grants ±1..5 with per-target daily
+   caps on talk/hits; T75 event clamp ±4, per-pair day cap ±6,
+   control hysteresis >=30 and >=incumbent+10, drop-to-null <20;
+   EV77 weights 2/2/2/1/1/2 inside EN37's shipped cadence/cooldowns/
+   cap; R76 factors are a read-only split of NM39's own math.
+   Measured progression is slow and capped by construction
+   (a home district at 70 cannot be flipped by drops alone), so
+   §9's "avoid excessive progression speed" is already satisfied.
+
+   THE THREE JOBS:
+   (a) §8 OVERVIEW COMPLETION — the underworld overview is ONE
+       phone surface (audit note 2): Stage 2's STANDING page already
+       carries Local Standing + Crews (dispositions) and Stage 4
+       appended Contacts (RELATIONSHIPS). The missing section was
+       Territory, which lived only on the map. This layer appends
+       a TERRITORY block inside the same STANDING page (the R76
+       MutationObserver pattern), rendered from __T75.state() —
+       the same data the map paints, so phone and map can never
+       disagree (§4). The block appears ONLY while its backing
+       system is live (territoryEnabled on) and this layer is on;
+       if Stage 2 is off the page does not exist and the block has
+       no home — the same one-surface rule Stage 4 documented.
+   (b) §12 DEBUG — an 'underworld' section registered into the ONE
+       consolidated debug panel via __DBG53.register (the door
+       Phase 2 Stage 6 left open for exactly this): active crews +
+       membership counts (F30), current neighbourhood + local
+       standing (R74), faction standing, territory influence (T75),
+       active encounters + event routing (EN37/EV77), relationship
+       memory records (NM39/R76, betrayal shown dormant), event
+       processing (F30 tick ms, EV77 route counters) and save
+       schema versions (SAVE35 + the stored section versions).
+       Read-only over the surfaces; a missing/off surface renders
+       'absent'/'off', never throws. Registered ONLY when this
+       layer is on at boot — with the kill key set, the panel is
+       exactly v30.77's. The panel itself stays default-OFF.
+   (c) §10/§11 VERIFICATION — no code: the build battery profiles
+       boot/heap/save size A/B and resumes saves written by
+       v30.73 (pre-Phase 3) through v30.77 in this build.
+
+   Flag: underworldIntegrationEnabled, default ON, pref
+   S.ui.underworldIntegration, kill key
+   dale.underworldIntegrationEnabled.v1, Settings row "Underworld
+   overview — territory & debug section". Flag OFF = the game
+   exactly as v30.77: no TERRITORY block, no debug section, no
+   Settings row (kill-key boot), nothing else touched — this layer
+   has no hooks, no store and no save footprint beyond the pref.
+   Failure isolation: any throw disables only this module.
+   Debug surface: window.__U78. */
+var underworldIntegrationEnabled=true; /* v30.78 master "Underworld integration" flag (default ON) */
+if(!window.__U78){ (function(){
+ 'use strict';
+ var U78={err:null,obsOn:false,dbgReg:false};
+ function u78StoreOff(){try{return localStorage.getItem('dale.underworldIntegrationEnabled.v1')==='0';}catch(e){return false;}}
+ function u78On(){return !!underworldIntegrationEnabled&&!u78StoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.underworldIntegration===0);}
+ function u78SetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.underworldIntegration=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.underworldIntegrationEnabled.v1',on?'1':'0');}catch(e){}}
+ function u78Rd(fn,dflt){try{var v=fn();return (v===undefined||v===null)?dflt:v;}catch(e){return dflt;}}
+ function u78Esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+ function u78AreaName(id){
+  try{if(typeof AREAS!=='undefined'&&AREAS)for(var i=0;i<AREAS.length;i++)if(AREAS[i].id===id)return AREAS[i].name;}catch(e){}
+  return id;
+ }
+ function u78T75On(){try{return !!(window.__T75&&__T75.on());}catch(e){return false;}}
+ /* ---------------- (a) phone: TERRITORY block in the STANDING page -- */
+ function u78TerrHtml(){
+  var st=null;try{st=window.__T75.state();}catch(e){}
+  var h='<span style="font-size:12px;">TERRITORY</span>\n';
+  if(!st||!st.districts){
+   h+='<span style="font-size:11px;">No word yet.</span>\n';
+  }else{
+   var ids=[],i,seen={};
+   /* AREAS carries two 'manchester' rows (the shipped twin centres)
+      — dedupe, as __T75's own id list does, so each district in
+      state gets exactly one line */
+   try{if(typeof AREAS!=='undefined'&&AREAS)for(i=0;i<AREAS.length;i++){var aid=AREAS[i].id;if(st.districts[aid]&&!seen[aid]){seen[aid]=1;ids.push(aid);}}}catch(e){}
+   if(!ids.length)ids=Object.keys(st.districts);
+   for(i=0;i<ids.length;i++){
+    var row=st.districts[ids[i]];if(!row)continue;
+    if(row.controller)h+='<span style="font-size:11px;">'+u78Esc(u78AreaName(ids[i]))+' \u2014 '+u78Esc(row.controllerName||row.controller)+' \u00B7 grip '+(row.top?row.top.val:0)+' \u00B7 '+u78Esc(row.status)+'</span>\n';
+    else h+='<span style="font-size:11px;">'+u78Esc(u78AreaName(ids[i]))+' \u2014 no crew holds it \u00B7 '+u78Esc(row.status)+'</span>\n';
+   }
+  }
+  h+='<span style="font-size:10px;">Won by graft, takedowns and\nstreet disputes. Same word\nas the map\u2019s Territory layer.</span>';
+  return h;
+ }
+ function u78TryAppend(){
+  try{
+   var bm=document.getElementById('bigMain');if(!bm)return;
+   if(!u78On()||!u78T75On()){
+    var old=document.getElementById('u78Terr');if(old&&old.parentNode)old.parentNode.removeChild(old);
+    return;
+   }
+   if(typeof phoneOpen==='undefined'||!phoneOpen||typeof phoneView==='undefined'||phoneView!=='standing')return;
+   if(bm.textContent.indexOf('LOCAL STANDING')<0)return; /* Stage 2's page owns this view */
+   if(document.getElementById('u78Terr'))return;
+   var d=document.createElement('div');d.id='u78Terr';d.innerHTML=u78TerrHtml();
+   bm.appendChild(d);
+  }catch(e){}
+ }
+ function u78InstallObserver(){
+  if(U78.obsOn)return;
+  try{
+   var bm=document.getElementById('bigMain');if(!bm||typeof MutationObserver==='undefined')return;
+   var mo=new MutationObserver(function(){u78TryAppend();});
+   mo.observe(bm,{childList:true});
+   U78.obsOn=true;
+  }catch(e){}
+ }
+ /* ---------------- (b) debug: the underworld section for __DBG53 ---- */
+ function u78SaveSchema(){
+  try{
+   var raw=localStorage.getItem('dale.save.v1');if(!raw)return null;
+   var sv=JSON.parse(raw);if(!sv||!sv.state)return null;
+   var secs=sv.state.sections||{};
+   var list=Object.keys(secs).sort().map(function(k){var s=secs[k];return k+' v'+(s&&s.version!==undefined?s.version:'?');}).join(', ');
+   return {version:sv.version,list:list};
+  }catch(e){return null;}
+ }
+ function u78DbgRender(){
+  if(!u78On())return 'Underworld integration layer: OFF \u2014 game as v30.77.';
+  var L=[],k;
+  var f=u78Rd(function(){return window.__F30.state();},null);
+  if(f&&f.counts){
+   L.push('crews (F30): enabled '+(f.enabled?'YES':'no')+' \u00B7 members '+f.counts.total+' (leaders '+f.counts.leaders+' \u00B7 seniors '+f.counts.seniors+' \u00B7 members '+f.counts.members+' \u00B7 assoc '+f.counts.associates+' \u00B7 susp '+f.counts.suspended+' \u00B7 indep '+f.counts.independent+') \u00B7 tick '+f.avgTickMs+'ms');
+   var pf=[];if(f.counts.perFaction)for(k in f.counts.perFaction)pf.push(k+' '+f.counts.perFaction[k]);
+   if(pf.length)L.push('membership: '+pf.join(' \u00B7 '));
+  }else L.push('crews (F30): absent');
+  var r=u78Rd(function(){return window.__R74.state();},null);
+  if(r){
+   var ca=(r.curArea&&r.areas)?r.areas[r.curArea]:null;
+   L.push('standing (S2): on '+(r.on?'YES':'no')+' \u00B7 area '+(r.curArea||'\u2014')+(ca?(' R'+ca.r+' T'+ca.t+' F'+ca.f):'')+' \u00B7 grants '+r.grantsApplied+' \u00B7 seen '+r.seenCount+' \u00B7 last '+(r.lastEvent||'\u2014'));
+   var cd=[];if(r.crews)for(k in r.crews)cd.push(k+':'+r.crews[k].disposition);
+   if(cd.length)L.push('faction standing: '+cd.join(' \u00B7 '));
+  }else L.push('standing (S2): absent');
+  var t=u78Rd(function(){return window.__T75.state();},null);
+  if(t){
+   var dl=[];for(k in t.districts){var row=t.districts[k];dl.push(k+':'+(row.controller||'none')+'/'+row.status+'/'+(row.top?row.top.val:0));}
+   L.push('territory (S3): on '+(t.on?'YES':'no')+' \u00B7 grants '+t.grantsApplied+' \u00B7 seen '+t.seenCount+' \u00B7 map '+(t.mapOn?'ON':'off'));
+   L.push('districts: '+dl.join(' \u00B7 '));
+  }else L.push('territory (S3): absent');
+  var e=u78Rd(function(){return window.__EN37.state();},null);
+  var v=u78Rd(function(){return window.__EV77.state();},null);
+  L.push('encounters: EN37 '+(e&&e.counts?('started '+e.counts.started+' \u00B7 finished '+e.counts.finished+' \u00B7 cancelled '+e.counts.cancelled):'absent')+' \u00B7 EV77 '+(v?('on '+(v.on?'YES':'no')+' \u00B7 routed '+v.routedTotal+' \u00B7 pending '+v.pending+' \u00B7 last '+(v.lastRoute||'\u2014')):'absent'));
+  if(v&&v.counts&&v.counts.routed)L.push('event routes: '+Object.keys(v.counts.routed).map(function(k2){return k2+' '+v.counts.routed[k2];}).join(' \u00B7 '));
+  var n=u78Rd(function(){return window.__NM39.state();},null);
+  var r6=u78Rd(function(){return window.__R76.state();},null);
+  L.push('relationships: NM39 '+(n&&n.counts?('recorded '+n.counts.recorded+' \u00B7 deduped '+n.counts.deduped+' \u00B7 npcs '+Object.keys(n.npcs||{}).length+' \u00B7 section '+n.sectionBytes+'B'):'absent')+' \u00B7 R76 '+(r6?('on '+(r6.on?'YES':'no')+' \u00B7 known '+r6.known.length+' \u00B7 betrayal triggers '+r6.betrayal.triggers.length+' \u00B7 records '+Object.keys(r6.betrayal.records).length+' (dormant)'):'absent'));
+  var sv=u78Rd(function(){return window.__SAVE35.status();},null);
+  var schema=u78SaveSchema();
+  L.push('save: '+(sv?('hasSave '+(sv.hasSave?'YES':'no')+' \u00B7 stored '+sv.storedBytes+'B \u00B7 last '+(sv.lastReason||'\u2014')):'absent')+(schema?(' \u00B7 schema v'+schema.version+' \u00B7 sections: '+schema.list):''));
+  return L.join('\n');
+ }
+ /* ---------------- settings row (the __R74 idiom) ------------------- */
+ function u78SyncSettings(){
+  var st=document.getElementById('u78SetState'),btn=document.getElementById('u78SetBtn');
+  if(st){var want=u78On()?'On':'Off';if(st.textContent!==want)st.textContent=want;}
+  if(btn){var wb=u78On()?'Turn off':'Turn on';if(btn.textContent!==wb)btn.textContent=wb;}
+ }
+ function u78BuildSettings(){
+  if(document.getElementById('u78SetState'))return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  var closeBtn=card.querySelector('[data-close]');
+  if(!closeBtn)return false;
+  var row=document.createElement('div');row.className='setRow';row.id='u78SetRow';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Underworld overview \u2014 territory &amp; debug section</div><div class="setRowNote">Completes the Nokia STANDING page: a TERRITORY block under your standing and relationships, same numbers as the map, plus the Phase 3 section in the developer debug panel. Data only \u2014 it changes nothing in the game.</div></div>';
+  var st=document.createElement('span');st.className='setState';st.id='u78SetState';st.textContent=u78On()?'On':'Off';row.appendChild(st);
+  var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='u78SetBtn';btn.textContent=u78On()?'Turn off':'Turn on';
+  btn.addEventListener('click',function(){u78SetEnabled(!u78On());});
+  row.appendChild(btn);
+  card.insertBefore(row,closeBtn);
+  return true;
+ }
+ function u78SetEnabled(on){
+  underworldIntegrationEnabled=!!on;u78SetPref(on);
+  u78SyncSettings();u78TryAppend();
+  return u78On();
+ }
+ /* ---------------- tick: UI backstop ------------------------------- */
+ setInterval(function(){
+  try{
+   if(u78StoreOff()){var old=document.getElementById('u78Terr');if(old&&old.parentNode)old.parentNode.removeChild(old);return;}
+   u78InstallObserver();
+   u78TryAppend();
+   u78BuildSettings();u78SyncSettings();
+  }catch(e){U78.err='tick:'+String(e&&e.message||e);}
+ },1000);
+ /* ---------------- init: register the debug section ---------------- */
+ try{
+  if(u78On()&&window.__DBG53&&typeof __DBG53.register==='function'){
+   U78.dbgReg=!!__DBG53.register({id:'underworld',title:'Underworld (Phase 3 \u00B7 integration)',render:u78DbgRender});
+  }
+ }catch(e){U78.err='init:'+String(e&&e.message||e);}
+ /* ---------------- debug surface ----------------------------------- */
+ function u78State(){
+  return {version:'v30.78',on:u78On(),err:U78.err,dbgRegistered:U78.dbgReg,
+   blockInDom:!!document.getElementById('u78Terr'),
+   surfaces:{f30:!!window.__F30,r74:!!window.__R74,t75:!!window.__T75,r76:!!window.__R76,ev77:!!window.__EV77,dbg53:!!window.__DBG53}};
+ }
+ window.__U78={version:'v30.78',on:u78On,setEnabled:u78SetEnabled,state:u78State,
+  territoryHtml:u78TerrHtml,dbgRender:u78DbgRender};
+})();}
+/* ================= /v30.78 — PHASE 3 · STAGE 6 (__U78) ================= */
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -29786,7 +30033,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3077={version:'v30.77'};</script>
+<script>window.__V3078={version:'v30.78'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
