@@ -25166,6 +25166,45 @@ if(!window.__GR67){
 
    Debug: window.__IL68 (state / setEnabled / debugStartTour /
    debugStep for deterministic probe stepping / debugAbort / setConv).
+   v30.79 — PURSUER CONTROLLER REPLACED (the user's verdict on
+   v30.78: "The police chases with ily look very unrealistic"). The
+   shipped controller station-kept on a point glued behind Ily's
+   CURRENT heading (gaps 62u/108u, speed = Ily's + (anchorDist-30)
+   x1.6 capped 660): through a bend the anchor swung across the
+   inside and both cars homed straight at it — corner-cutting lines,
+   rigid gaps, no drift — and its respawn (anchorDist > 950 ->
+   teleport to the route point 470u back) had no player-distance or
+   view check, so it could pop back into sight. NOW the pursuers
+   TRAIL-FOLLOW: Ily's driven path is recorded as a breadcrumb trail
+   (position + heading + his speed, every >=10u of travel); each
+   pursuer projects onto the trail and steers at a point ahead of
+   its own trail position with a lateral offset (P1 -12u, P2 +14u),
+   so the two take visibly different lines. Target gaps are trail
+   distances (P1 70u, P2 135u). Speed = proportional gap control on
+   Ily's current speed, CAPPED where the trail bends by the higher
+   of his recorded pace there and the trail-curvature cap (his own
+   corner formula), scaled per pursuer (P1 x0.97, P2 x0.90) — the
+   blend is driven by curvature only, so his traffic stops never
+   cap a pursuer on a clear straight — through a first-order
+   lag (tau 0.35s / 0.60s) and per-pursuer accel/brake (360/640,
+   320/560) — gaps BREATHE: open braking into corners, close on
+   straights. Catch-up without teleports: gap > 320u latches a 730
+   top speed until the gap is < 200u. The teleport survives ONLY as
+   a backstop — gap > 950u AND > 800u from the PLAYER AND outside
+   the camera view cone — and every firing is counted
+   (state().respawns) and logged with gap + player distance
+   (state().respawnLog). Pursuer yaw gains a small lagged drift
+   (rate x speed x 0.002, clamp +-0.30 rad — under half of Ily's
+   0.0038 / +-0.62). A separation controller makes the rear pursuer
+   queue ~30u behind the front one rather than pull alongside.
+   Still pure presentation: no heat / FSM / custody /
+   booking reads or writes, non-solid, lightbar pattern unchanged;
+   route, pace, drift, schedule, restore, the icon rider and the
+   take-out hotfix are untouched. Debug additions: state() carries
+   respawns/respawnLog/trailD/trailN and per-pursuer gap/pd/cu/
+   driftDeg; debugTrail() returns the recorded trail;
+   debugPursuer(i,{back:N}) knocks pursuer i back N units along the
+   trail (probe staging only).
    ===================================================================== */
 var ilyToursEnabled=true; /* v30.68 master "Ily's F1 tours" flag (default ON) */
 if(!window.__IL68){
@@ -25176,7 +25215,8 @@ var IL_DISTRICTS=[['deeplish','Deeplish',808,1549],['newbold','Newbold',2638,408
 var IL_CRUISE=620,IL_ACCEL=300,IL_BRAKE=640;
 var IL={phase:'idle',s:0,spd:0,hx:0,hz:1,drift:0,maxDrift:0,markT:0,stuckT:0,recoveries:0,hitCd:0,crashT:0,
  toursDone:0,toursPlanned:2,nextAt:-1,daySeen:-1,hideFig:false,marker:null,fig:null,label:null,parkedH:0.713,
- visited:{},crossLog:[],pursuers:[],tpl:null,tplErr:null,CONV:Math.PI,err:null,log:[]};
+ visited:{},crossLog:[],pursuers:[],tpl:null,tplErr:null,CONV:Math.PI,err:null,log:[],
+ trail:[],trailD:0,lastCx:0,lastCz:0,respawns:0,respawnLog:[]};
 function ilLog(m){IL.log.push(m);if(IL.log.length>24)IL.log.shift();}
 function ilClamp(v,a,b){return v<a?a:(v>b?b:v);}
 /* ---------- route ---------- */
@@ -25342,50 +25382,231 @@ function ilBuildTpl(){
   IL.tpl=f.wrap;
  }catch(e){IL.tplErr=String(e&&e.message||e);}
 }
+/* ---------- v30.79: breadcrumb trail of Ily's driven path ----------
+   Sampled from his ACTUAL position every >=10u of travel; each crumb
+   keeps his heading and his speed there, so a pursuer can be capped
+   by the pace Ily himself set at that point of the road. Capped to
+   the last ~1500u — far beyond the largest gap + lookahead. */
+function ilTrailReset(){
+ IL.trail=[];IL.trailD=0;IL.respawns=0;IL.respawnLog=[];
+ var x=IL_ROUTE[0][0],z=IL_ROUTE[0][1];
+ IL.lastCx=x;IL.lastCz=z;
+ IL.trail.push({x:x,z:z,hx:IL.hx,hz:IL.hz,spd:0,d:0});
+}
+function ilTrailRecord(np){
+ var dx=np.x-IL.lastCx,dz=np.z-IL.lastCz,dd=Math.hypot(dx,dz);
+ if(dd<10)return;
+ IL.trailD+=dd;IL.lastCx=np.x;IL.lastCz=np.z;
+ IL.trail.push({x:np.x,z:np.z,hx:IL.hx,hz:IL.hz,spd:IL.spd,d:IL.trailD});
+ while(IL.trail.length>2&&IL.trail[1].d<IL.trailD-1500)IL.trail.shift();
+}
+function ilTrailPoint(d){
+ var T=IL.trail,n=T.length;
+ if(!n)return {x:IL_PARK.x,z:IL_PARK.z,hx:IL.hx,hz:IL.hz,spd:IL.spd};
+ var c0=T[0];
+ if(d<=c0.d){var k=d-c0.d;return {x:c0.x+c0.hx*k,z:c0.z+c0.hz*k,hx:c0.hx,hz:c0.hz,spd:c0.spd};}
+ var cl=T[n-1];
+ if(d>=cl.d){var k2=d-cl.d;return {x:cl.x+cl.hx*k2,z:cl.z+cl.hz*k2,hx:cl.hx,hz:cl.hz,spd:IL.spd};}
+ var lo=0,hi=n-1;
+ while(lo<hi-1){var mid=(lo+hi)>>1;if(T[mid].d<=d)lo=mid;else hi=mid;}
+ var a=T[lo],b=T[lo+1],seg=(b.d-a.d)||1,f=(d-a.d)/seg;
+ var hx=a.hx+(b.hx-a.hx)*f,hz=a.hz+(b.hz-a.hz)*f,hl=Math.hypot(hx,hz)||1;
+ return {x:a.x+(b.x-a.x)*f,z:a.z+(b.z-a.z)*f,hx:hx/hl,hz:hz/hl,spd:a.spd+(b.spd-a.spd)*f};
+}
+/* Projection is CONTINUITY- and HEADING-CONSTRAINED: only crumbs
+   within [pd-70, pd+240] of the pursuer's last trail distance are
+   eligible, and segments running AGAINST the pursuer's current
+   heading are heavily penalised. The route retraces itself on the
+   out-and-back legs (Kingsway, Norden Ave, the Heywood spur) — a
+   plain closest-point search snaps to the wrong pass at the fold,
+   the steering target flips between passes, and the car yoyos at
+   the apex going nowhere (measured in testing). A global fallback
+   fires only if the windowed search finds nothing within 120u. */
+function ilTrailProject(x,z,pdPrev,hx,hz){
+ var T=IL.trail,n=T.length;
+ if(!n)return {d:0,dist:1e9};
+ if(n===1){var c=T[0],rx=x-c.x,rz=z-c.z;return {d:rx*c.hx+rz*c.hz,dist:Math.abs(rx*(-c.hz)+rz*c.hx)};}
+ var loD=(pdPrev||0)-70,hiD=(pdPrev||0)+240;
+ var best=1e18,bd=(pdPrev||0);
+ for(var i=0;i<n-1;i++){
+  var a=T[i],b=T[i+1];
+  if(b.d<loD||a.d>hiD)continue;
+  var ex=b.x-a.x,ez=b.z-a.z,el2=(ex*ex+ez*ez)||1;
+  var t=((x-a.x)*ex+(z-a.z)*ez)/el2;if(t<0)t=0;if(t>1)t=1;
+  var qx=a.x+ex*t-x,qz=a.z+ez*t-z,q=qx*qx+qz*qz;
+  if(hx!==undefined&&(ex*hx+ez*hz)<0)q+=250000;
+  if(q<best){best=q;bd=a.d+(b.d-a.d)*t;}
+ }
+ if(best>14400){
+  best=1e18;bd=T[0].d;
+  for(var j=0;j<n-1;j++){
+   var a2=T[j],b2=T[j+1],ex2=b2.x-a2.x,ez2=b2.z-a2.z,el22=(ex2*ex2+ez2*ez2)||1;
+   var t2=((x-a2.x)*ex2+(z-a2.z)*ez2)/el22;if(t2<0)t2=0;if(t2>1)t2=1;
+   var qx2=a2.x+ex2*t2-x,qz2=a2.z+ez2*t2-z,q2=qx2*qx2+qz2*qz2;
+   if(hx!==undefined&&(ex2*hx+ez2*hz)<0)q2+=250000;
+   if(q2<best){best=q2;bd=a2.d+(b2.d-a2.d)*t2;}
+  }
+ }
+ return {d:bd,dist:Math.sqrt(best)};
+}
+/* ---------- v30.79: pursuer view test + backstop respawn ----------
+   The teleport survives ONLY as a backstop: gap > 950u AND the car
+   is > 800u from the PLAYER AND outside the camera's view cone. Any
+   doubt (no camera, degenerate vector) reads as VISIBLE = no pop. */
+function ilPursuerInView(p){
+ try{
+  if(typeof camera==='undefined'||!camera||!camera.position)return true;
+  var v=new THREE.Vector3();camera.getWorldDirection(v);
+  var vx=p.x-camera.position.x,vz=p.z-camera.position.z,vd=Math.hypot(vx,vz);
+  if(vd<60)return true;
+  var dot=(vx*v.x+vz*v.z)/(vd||1);
+  return dot>0.30;
+ }catch(e){return true;}
+}
+function ilRespawnPursuer(p,gapNow,pDist){
+ var nd=IL.trailD-470;
+ var tp=ilTrailPoint(nd);
+ var rx=-tp.hz,rz=tp.hx;
+ p.pd=nd;p.x=tp.x+rx*p.lat;p.z=tp.z+rz*p.lat;
+ p.dx=tp.hx;p.dz=tp.hz;p.spd=IL.spd*0.8;p.wantF=p.spd;p.drift=0;p.catchup=false;
+ IL.respawns++;
+ var rec={gap:Math.round(gapNow),playerDist:Math.round(pDist)};
+ IL.respawnLog.push(rec);if(IL.respawnLog.length>12)IL.respawnLog.shift();
+ ilLog('pursuer respawn gap '+rec.gap+' playerDist '+rec.playerDist);
+}
+/* ---------- v30.79: trail-following pursuers ---------- */
 function ilSpawnPursuers(){
  ilBuildTpl();ilDespawnPursuers();
  if(!IL.tpl)return;
  for(var i=0;i<2;i++){
   var g=IL.tpl.clone(true);
-  var gap=(i===0)?62:108,lat=(i===0)?0:15;
+  var gap=(i===0)?70:135,lat=(i===0)?-12:14;
   var rx=-IL.hz,rz=IL.hx;
   var px=IL_PARK.x-IL.hx*gap+rx*lat,pz=IL_PARK.z-IL.hz*gap+rz*lat;
   g.position.set(px,0,pz);
   g.rotation.y=Math.atan2(IL.hx,IL.hz)+Math.PI;
   scene.add(g);
-  IL.pursuers.push({mesh:g,x:px,z:pz,dx:IL.hx,dz:IL.hz,spd:0,gap:gap,lat:lat,
+  IL.pursuers.push({mesh:g,x:px,z:pz,dx:IL.hx,dz:IL.hz,spd:0,gapT:gap,lat:lat,
+   pd:-gap,wantF:0,wantRaw:0,drift:0,catchup:false,tx:px,tz:pz,gapNow:gap,
+   factor:(i===0)?0.97:0.90,tau:(i===0)?0.35:0.50,acc:(i===0)?430:420,brk:(i===0)?640:560,
    blue:g.getObjectByName('il68blue'),red:g.getObjectByName('il68red')});
  }
 }
 function ilDespawnPursuers(){IL.pursuers.forEach(function(p){try{scene.remove(p.mesh);}catch(e){}});IL.pursuers=[];}
 function ilPursuerTick(dt,pos){
- IL.pursuers.forEach(function(p,idx){
-  var rx=-IL.hz,rz=IL.hx;
-  var ax=pos.x-IL.hx*p.gap+rx*p.lat,az=pos.z-IL.hz*p.gap+rz*p.lat;
-  var tdx=ax-p.x,tdz=az-p.z,d=Math.hypot(tdx,tdz);
-  if(d>950){ /* hopelessly behind: respawn on the route 470u back */
-   var rp=ilRoutePoint(Math.max(0,IL.s-470));
-   p.x=rp.x;p.z=rp.z;p.dx=IL.hx;p.dz=IL.hz;p.spd=IL.spd*0.8;
-   tdx=ax-p.x;tdz=az-p.z;d=Math.hypot(tdx,tdz);
+ var P=IL.pursuers;
+ if(!P.length)return;
+ var i,p,tp,pr;
+ /* pass 1: project onto the trail, plan speed + steering target */
+ for(i=0;i<P.length;i++){p=P[i];
+  pr=ilTrailProject(p.x,p.z,p.pd,p.dx,p.dz);
+  if(pr.d<p.pd-25)pr.d=p.pd-25; /* pd never runs backwards */
+  p.pd=pr.d;
+  p.gapNow=IL.trailD-p.pd;
+  var pdx=player.x-p.x,pdz=player.z-p.z,pDist=Math.hypot(pdx,pdz);
+  if(p.gapNow>950&&pDist>800&&!ilPursuerInView(p)){
+   ilRespawnPursuer(p,p.gapNow,pDist);
+   pr=ilTrailProject(p.x,p.z,p.pd,p.dx,p.dz);p.pd=pr.d;p.gapNow=IL.trailD-p.pd;
   }
-  if(d>1){tdx/=d;tdz/=d;
-   var cur=Math.atan2(p.dx,p.dz),tgt=Math.atan2(tdx,tdz);
-   var diff=tgt-cur;while(diff>Math.PI)diff-=2*Math.PI;while(diff<-Math.PI)diff+=2*Math.PI;
-   var turn=Math.max(-3.4*dt,Math.min(3.4*dt,diff));
-   var na=cur+turn;p.dx=Math.sin(na);p.dz=Math.cos(na);}
-  var want=IL.spd+(d-30)*1.6;if(want<0)want=0;if(want>660)want=660;
+  if(!p.catchup&&p.gapNow>320)p.catchup=true;
+  else if(p.catchup&&p.gapNow<200)p.catchup=false;
+  var vmax=p.catchup?730:660;
+  /* trail curvature ahead of this pursuer (Ily's own corner formula,
+     near + far window) — drives the corner cap AND the steering */
+  var look=ilClamp(p.spd*0.9+30,40,170);
+  var ahead=ilTrailPoint(p.pd+look),here=ilTrailPoint(p.pd);
+  var cdot=here.hx*ahead.hx+here.hz*ahead.hz;if(cdot>1)cdot=1;if(cdot<-1)cdot=-1;
+  var ang=Math.acos(cdot);
+  var far=ilTrailPoint(p.pd+look*1.7);
+  var fdot=here.hx*far.hx+here.hz*far.hz;if(fdot>1)fdot=1;if(fdot<-1)fdot=-1;
+  var ang2=Math.acos(fdot)*0.85;if(ang2>ang)ang=ang2;
+  var vCurve=IL_CRUISE*Math.max(0.42,Math.min(1,1-ang*1.15));
+  /* steering target: the trail point one lookahead ahead of the
+     pursuer's own trail position, offset laterally. On tight ground
+     the lookahead shortens (track around the apex, don't aim across
+     it) and the lateral offsets widen (the two cars pass each other
+     on the out-and-back legs — give them road room). */
+  var tight=(vCurve<400);
+  var la=ilClamp(p.spd*0.42,24,75);if(tight)la*=0.55;
+  var latE=p.lat*(tight?1.45:1);
+  tp=ilTrailPoint(p.pd+la);
+  var rx=-tp.hz,rz=tp.hx;
+  p.tx=tp.x+rx*latE;p.tz=tp.z+rz*latE;
+  /* corner cap: where the trail bends, the pursuer's speed is
+     capped at the HIGHER of (a) Ily's recorded pace at the
+     lookahead point and (b) 75% of the curvature cap — each scaled
+     by this pursuer's bravery factor, so it brakes a touch MORE
+     than Ily did and the gap opens into corners, then closes on
+     straights. The blend weight comes from curvature ONLY (full
+     bite at vCurve <= 425, none at >= 605): on a straight the cap
+     is vmax no matter what the crumbs say, so Ily's traffic stops
+     (zero-speed crumbs on straights) can never strand a pursuer
+     on a clear road — while in real bends his recorded pace is
+     the honest measure of the corner, because his own speed there
+     comes from a much longer lookahead than any local curvature
+     window. (Both single-source caps were measured failing in
+     testing: pure curvature bled speed on gentle bends Ily takes
+     flat out; pure recorded pace stranded pursuers behind his
+     traffic stops.) A pursuer that is LOSING the chase (gap > 500)
+     gets cap relief on top — it brakes later and carries more
+     speed through the bends, like a driver losing his man. */
+  var cw=ilClamp((605-vCurve)/180,0,1);
+  var cSpeed=Math.max(ahead.spd*p.factor,vCurve*p.factor*0.75);
+  var cap=vmax-(vmax-cSpeed)*cw;
+  if(p.gapNow>500){
+   var rc=vCurve*p.factor+(p.gapNow-500)*0.35;if(rc>vmax)rc=vmax;
+   if(rc>cap)cap=rc;
+  }
+  var want=IL.spd+(p.gapNow-p.gapT)*1.25;
+  if(want<0)want=0;if(want>vmax)want=vmax;
+  if(want>cap)want=cap;
   var fx=player.x-p.x,fz=player.z-p.z;
   var f=fx*p.dx+fz*p.dz,l=fx*(-p.dz)+fz*p.dx;
   if(f>0&&f<42&&Math.abs(l)<15)want=0; /* never run the player down */
-  if(p.spd<want)p.spd=Math.min(want,p.spd+330*dt);else p.spd=Math.max(want,p.spd-700*dt);
+  p.wantRaw=want;
+ }
+ /* separation: inside 120u the rear pursuer's speed target becomes
+    the front car's speed plus a term proportional to the clearance
+    above 30u — closing speed decays as the gap closes, so it queues
+    behind the front car (e.g. both stacked up behind a stopped Ily)
+    instead of pulling alongside or overlapping it */
+ if(P.length===2){
+  var a=P[0],b=P[1],dd=Math.hypot(a.x-b.x,a.z-b.z);
+  if(dd<120){var rear=(a.pd<b.pd)?a:b,front=(rear===a)?b:a;
+   var rw=front.spd+(dd-30)*2.6;if(rw<0)rw=0;
+   if(rear.wantRaw>rw)rear.wantRaw=rw;}
+ }
+ /* pass 2: first-order lag (ASYMMETRIC — the filter answers much
+    faster when the target speed DROPS: brake lights get an immediate
+    reaction, which is what stops the rear car piling into a queue),
+    per-pursuer accel/brake, steer, pose */
+ for(i=0;i<P.length;i++){p=P[i];
+  var tauE=(p.wantRaw<p.wantF)?p.tau*0.4:p.tau;
+  var k=1-Math.exp(-dt/tauE);
+  p.wantF+=(p.wantRaw-p.wantF)*k;
+  var w=p.wantF;
+  if(p.spd<w)p.spd=Math.min(w,p.spd+p.acc*dt);
+  else p.spd=Math.max(w,p.spd-p.brk*dt);
+  var tdx=p.tx-p.x,tdz=p.tz-p.z,td=Math.hypot(tdx,tdz);
+  var rate=0;
+  if(td>1){tdx/=td;tdz/=td;
+   var cur=Math.atan2(p.dx,p.dz),tgt=Math.atan2(tdx,tdz);
+   var diff=tgt-cur;while(diff>Math.PI)diff-=2*Math.PI;while(diff<-Math.PI)diff+=2*Math.PI;
+   var turn=Math.max(-3.2*dt,Math.min(3.2*dt,diff));
+   rate=dt>0?turn/dt:0;
+   var na=cur+turn;p.dx=Math.sin(na);p.dz=Math.cos(na);}
+  var dTgt=ilClamp(rate*p.spd*0.002,-0.30,0.30);
+  var dk=dt*(Math.abs(dTgt)>Math.abs(p.drift)?5:2.6);
+  p.drift+=(dTgt-p.drift)*Math.min(1,dk);
   p.x+=p.dx*p.spd*dt;p.z+=p.dz*p.spd*dt;
   p.mesh.position.set(p.x,0,p.z);
-  p.mesh.rotation.y=Math.atan2(p.dx,p.dz)+Math.PI;
-  var ph=((gameT*2.6)+(idx*0.5))%1;
+  p.mesh.rotation.y=Math.atan2(p.dx,p.dz)+Math.PI+p.drift;
+  var ph=((gameT*2.6)+(i*0.5))%1;
   if(p.blue)p.blue.visible=ph<0.5;
   if(p.red)p.red.visible=ph>=0.5;
- });
+ }
 }
+
 /* ---------- tour lifecycle ---------- */
 function ilStartTour(){
  if(!ilOn()||IL.phase==='tour')return false;
@@ -25395,6 +25616,7 @@ function ilStartTour(){
  IL.phase='tour';IL.s=0;IL.spd=0;IL.drift=0;IL.maxDrift=0;IL.markT=0;IL.stuckT=0;IL.recoveries=0;IL.hitCd=0;IL.crashT=0;
  var p0=ilRoutePoint(2),p1=ilRoutePoint(60);
  IL.hx=p1.x-p0.x;IL.hz=p1.z-p0.z;var hl=Math.hypot(IL.hx,IL.hz)||1;IL.hx/=hl;IL.hz/=hl;
+ ilTrailReset();
  IL.visited={deeplish:0};IL.crossLog=['deeplish'];
  ilRemoveSolids();
  IL.hideFig=true;
@@ -25477,6 +25699,7 @@ function ilTick(dt){
  IL.drift+=(dTgt-IL.drift)*Math.min(1,k);
  if(Math.abs(IL.drift)>IL.maxDrift)IL.maxDrift=Math.abs(IL.drift);
  IL.marker.position.set(np.x,0,np.z);
+ ilTrailRecord(np);
  IL.marker.rotation.y=Math.atan2(IL.hx,IL.hz)+IL.drift+IL.CONV;
  /* drift tyre marks — the shipped global pool, the player's own system */
  if(Math.abs(IL.drift)>0.227&&IL.spd>85){IL.markT+=dt;
@@ -25562,7 +25785,7 @@ function ilState(){return {version:'v30.68',on:ilOn(),phase:IL.phase,
  toursDone:IL.toursDone,toursPlanned:IL.toursPlanned,nextIn:IL.nextAt>0?Math.round(IL.nextAt-gameT):-1,
  clock:(typeof S!=='undefined'&&S)?Math.round(S.clock):-1,day:(typeof S!=='undefined'&&S)?S.day:-1,
  visited:Object.keys(IL.visited),crossLog:IL.crossLog.slice(),
- recoveries:IL.recoveries,pursuers:IL.pursuers.map(function(p){return {x:Math.round(p.x),z:Math.round(p.z),spd:Math.round(p.spd)};}),
+ recoveries:IL.recoveries,respawns:IL.respawns,respawnLog:IL.respawnLog.slice(),trailD:Math.round(IL.trailD),trailN:IL.trail.length,pursuers:IL.pursuers.map(function(p){return {x:Math.round(p.x),z:Math.round(p.z),spd:Math.round(p.spd),gap:Math.round(IL.trailD-p.pd),pd:Math.round(p.pd),cu:p.catchup?1:0,driftDeg:+(p.drift*57.2958).toFixed(1)};}),
  figHidden:IL.hideFig,figVis:IL.fig?IL.fig.visible:null,labelVis:IL.label?IL.label.visible:null,
  markerPos:IL.marker?{x:Math.round(IL.marker.position.x),z:Math.round(IL.marker.position.z),rotY:+IL.marker.rotation.y.toFixed(3)}:null,
  solidsAtSpot:ilSolidsAtSpot().length,
@@ -25575,7 +25798,11 @@ window.__IL68={
  debugStartTour:ilStartTour,
  debugAbort:function(){ilAbort('debug');},
  debugStep:function(sec){if(IL.phase!=='tour')return -1;var n=Math.ceil(sec/0.05);for(var i=0;i<n;i++){ilTick(0.05);if(IL.phase!=='tour')break;}return Math.round(IL.s);},
- setConv:function(v){IL.CONV=v;return IL.CONV;}
+ setConv:function(v){IL.CONV=v;return IL.CONV;},
+ debugTrail:function(){return IL.trail.map(function(c){return {x:Math.round(c.x),z:Math.round(c.z),d:Math.round(c.d),spd:Math.round(c.spd)};});},
+ debugPursuer:function(i,set){var p=IL.pursuers[i];if(!p)return null;
+  if(set&&typeof set.back==='number'){var nd=p.pd-set.back;var tp=ilTrailPoint(nd);var rx=-tp.hz,rz=tp.hx;p.pd=nd;p.x=tp.x+rx*p.lat;p.z=tp.z+rz*p.lat;p.dx=tp.hx;p.dz=tp.hz;p.wantF=p.spd;}
+  return {x:Math.round(p.x),z:Math.round(p.z),spd:Math.round(p.spd),pd:Math.round(p.pd),gap:Math.round(IL.trailD-p.pd),cu:p.catchup?1:0};}
 };
 })();
 }
@@ -30033,7 +30260,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3078={version:'v30.78'};</script>
+<script>window.__V3079={version:'v30.79'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
