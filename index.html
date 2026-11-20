@@ -22571,7 +22571,7 @@ window.__daleMenu={
       elements holding their own pointer captures, so a gesture
       pointer can never be a control pointer and vice versa — the
       v30.44 three-finger discipline holds by construction.
-      LIMITS: orbit ±2.6 rad; drive distance clamped 65–330u
+      LIMITS: orbit ±2.6 rad; v30.88 adds ON-FOOT pitch (drag up/down on the view, clamps -0.20/+0.60 rad, settles back level at the orbit rate; the stick reads azimuth only, so pitch cannot steer); drive distance clamped 65–330u
       (multiplier 0.45–1.9 over the shipped 140–185); foot distance
       clamped 28–175u (multiplier 0.4–2.2 over the shipped 70);
       free-camera distance 25–500u.
@@ -22621,13 +22621,14 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
  'use strict';
  function $(id){return document.getElementById(id);}
  var IF={version:'if60-1',err:null,calls:0,lastMs:0,
-  orbD:0,orbF:0,zoomD:1,zoomF:1,
+  orbD:0,orbF:0,zoomD:1,zoomF:1,pitF:0,
   ptrs:{},dragMode:null,pinchD:0,lastMode:null,lastAdj:null,gBound:false,
   free:false,freeAz:0,freeEl:.5,freeR:120,freeAx:0,freeAy:14,freeAz2:0,
   freeIn:0,freePos:null,freeLook:null,freeFromPos:null,freeFromLook:null,
   exitBlend:0,exitPos:null,exitLook:null,exitFromPos:null,exitFromLook:null,
   hidden:[],ghosts:{},applied:{},editing:false,chipEls:[],ghostEls:[]};
  var ORB_MAX=2.6,ORB_RATE=2.4,ORB_SENS=0.008;
+ var PIT_MIN=-0.20,PIT_MAX=0.60; /* v30.88: on-foot chase pitch clamps (rad) — depression limited so the camera stays off the floor (a hard y>=5 guard in applyAdj backs it at max zoom-out); the rise stops short of flipping over the top */
  var ZD_MIN=65,ZD_MAX=330,ZD_KMIN=0.45,ZD_KMAX=1.9;
  var ZF_MIN=28,ZF_MAX=175,ZF_KMIN=0.4,ZF_KMAX=2.2;
  var FR_MIN=25,FR_MAX=500;
@@ -22649,6 +22650,8 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
  function setOrb(mode,v){v=Math.max(-ORB_MAX,Math.min(ORB_MAX,v));if(mode==='foot')IF.orbF=v;else IF.orbD=v;}
  function zoom(mode){return mode==='foot'?IF.zoomF:IF.zoomD;}
  function setZoom(mode,v){if(mode==='foot')IF.zoomF=Math.max(ZF_KMIN,Math.min(ZF_KMAX,v));else IF.zoomD=Math.max(ZD_KMIN,Math.min(ZD_KMAX,v));}
+ function pit(){return IF.pitF;}
+ function setPit(v){IF.pitF=Math.max(PIT_MIN,Math.min(PIT_MAX,v));}
  /* ---- the chase gate: the __CC54 activity gates, replicated from
     its own reads (playing, unpaused, no arrest/custody, CHASE index) ---- */
  function chaseGate(){
@@ -22742,9 +22745,25 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
    return {x:subj.x+rx,y:lookY+(p.y-lookY)*k,z:subj.z+rz};
   }
   var P2=T(P),L2=T(lookCur);
+  if(mode==='foot'&&IF.pitF!==0){
+   /* v30.88 PITCH (on foot only): swing the camera around the look
+      point in the view's own vertical plane (Rodrigues around the
+      horizontal axis perpendicular to the view). The look point never
+      moves and the azimuth is untouched, so the v30.58 stick maths —
+      which reads azimuth (smHF + orbF) only — cannot feel it. */
+   var vx=P2.x-L2.x,vy=P2.y-L2.y,vz=P2.z-L2.z;
+   var fx=L2.x-P2.x,fz=L2.z-P2.z,fl=Math.sqrt(fx*fx+fz*fz);
+   if(fl>0.001){
+    fx/=fl;fz/=fl;
+    var ax=fz,az2=-fx,cxp=-az2*vy,cyp=az2*vx-ax*vz,czp=ax*vy,adv=ax*vx+az2*vz;
+    var cpp=Math.cos(IF.pitF),spp=Math.sin(IF.pitF);
+    P2={x:L2.x+vx*cpp+cxp*spp+ax*adv*(1-cpp),y:L2.y+vy*cpp+cyp*spp,z:L2.z+vz*cpp+czp*spp+az2*adv*(1-cpp)};
+    if(P2.y<5)P2.y=5; /* never below the floor */
+   }
+  }
   camera.position.set(P2.x,P2.y,P2.z);
   camera.lookAt(L2.x,L2.y,L2.z);
-  IF.lastAdj={mode:mode,th:Math.round(th*1000)/1000,k:Math.round(k*1000)/1000,dh:Math.round(dh*10)/10};
+  IF.lastAdj={mode:mode,th:Math.round(th*1000)/1000,k:Math.round(k*1000)/1000,dh:Math.round(dh*10)/10,pit:(mode==='foot'?Math.round(IF.pitF*1000)/1000:0)};
  }
  function freezeInputs(){
   try{if(typeof stickVec!=='undefined'){stickVec.x=0;stickVec.y=0;}}catch(e){}
@@ -22856,7 +22875,7 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
    if(gate)IF.lastMode=gate.mode;
    var mode=gate?gate.mode:IF.lastMode;
    if(!mode)return camPlacePrev(cx,cz,h,tilt,hMin,hMax);
-   if(!gate&&orb(mode)===0&&zoom(mode)===1){IF.lastMode=null;return camPlacePrev(cx,cz,h,tilt,hMin,hMax);}
+   if(!gate&&orb(mode)===0&&zoom(mode)===1&&IF.pitF===0){IF.lastMode=null;return camPlacePrev(cx,cz,h,tilt,hMin,hMax);}
    var r=camPlacePrev(cx,cz,h,tilt,hMin,hMax);
    if(!gate){
     /* released (arrest, view change, mode handover): decay the offsets
@@ -22864,14 +22883,16 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
        exactly on the shipped placement; once the inner layer stops
        owning, reset for a clean next entry */
     var owning=false;try{owning=!!__CC54.state().owning;}catch(e){}
-    if(!owning){setOrb(mode,0);setZoom(mode,1);IF.lastMode=null;return r;}
+    if(!owning){setOrb(mode,0);setZoom(mode,1);setPit(0);IF.lastMode=null;return r;}
     var kd=Math.exp(-5*dt);
     setOrb(mode,orb(mode)*kd);if(Math.abs(orb(mode))<0.002)setOrb(mode,0);
     setZoom(mode,1+(zoom(mode)-1)*kd);if(Math.abs(zoom(mode)-1)<0.002)setZoom(mode,1);
-    if(orb(mode)===0&&zoom(mode)===1){IF.lastMode=null;return r;}
+    setPit(pit()*kd);if(Math.abs(pit())<0.002)setPit(0);
+    if(orb(mode)===0&&zoom(mode)===1&&pit()===0){IF.lastMode=null;return r;}
    }else if(IF.dragMode!==mode&&!IF.pinchD){
     var od=orb(mode); /* settle-back behind the car / character */
     if(od!==0){var nd=od*Math.exp(-ORB_RATE*dt);if(Math.abs(nd)<0.0015)nd=0;setOrb(mode,nd);}
+    if(mode==='foot'){var pf=pit();if(pf!==0){var nf=pf*Math.exp(-ORB_RATE*dt);if(Math.abs(nf)<0.0015)nf=0;setPit(nf);}} /* v30.88: pitch settles back to the v30.57 neutral at the orbit's own rate */
    }
    applyAdj(mode);
    return r;
@@ -22924,6 +22945,7 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
     if(ids.length!==1)return;
     if(IF.free){IF.freeAz+=dx*ORB_SENS;IF.freeEl=Math.max(0.06,Math.min(1.35,IF.freeEl-dy*ORB_SENS));return;}
     if(IF.dragMode&&p.mode===IF.dragMode)setOrb(IF.dragMode,orb(IF.dragMode)+dx*ORB_SENS);
+    if(IF.dragMode==='foot')setPit(pit()-dy*ORB_SENS); /* v30.88: a vertical drag pitches the ON-FOOT chase camera (drag up = camera up, the free-cam convention); driving never reads pit */
    }catch(err){IF.err='pm: '+String(err&&err.message||err);}
   });
   function endPtr(e){
@@ -23095,7 +23117,7 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
      row.innerHTML='<span>Interface extras</span><b id="if60SetState">On</b>';
      var btn=document.createElement('button');btn.className='btn ghost';btn.id='if60SetBtn';btn.type='button';btn.textContent='Turn Off';
      var note=document.createElement('p');note.className='small';
-     note.textContent='Driving is chase-only while the chase camera is on. On the chase view, drag sideways on the view itself to orbit the camera (it settles back behind you) and pinch to zoom — on foot the stick follows the view, orbit included. Pause → Edit Layout can hide pieces with the ✕ chips (the bar, stick and pedals can never be hidden) and Reset UI restores everything. Pause → Free Camera freezes you, clears the whole screen and lets you look around while the world carries on. Off = the previous build\u2019s behaviour everywhere.';
+     note.textContent='Driving is chase-only while the chase camera is on. On the chase view, drag sideways on the view itself to orbit the camera (it settles back behind you), on foot drag up or down to raise or lower it (it settles back level too), and pinch to zoom — on foot the stick follows the view, orbit included. Pause → Edit Layout can hide pieces with the ✕ chips (the bar, stick and pedals can never be hidden) and Reset UI restores everything. Pause → Free Camera freezes you, clears the whole screen and lets you look around while the world carries on. Off = the previous build\u2019s behaviour everywhere.';
      if(anchor){card.insertBefore(row,anchor);card.insertBefore(btn,anchor);card.insertBefore(note,anchor);}
      else{card.appendChild(row);card.appendChild(btn);card.appendChild(note);}
      btn.addEventListener('click',function(){
@@ -23153,11 +23175,12 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
    return ifOn();
   },
   footOrbit:function(){return ifOn()?IF.orbF:0;},
+  footPitch:function(){return ifOn()?IF.pitF:0;},
   state:function(){
    var g=null;try{g=chaseGate();}catch(e){}
    return {err:IF.err,calls:IF.calls,free:IF.free,
     orbD:Math.round(IF.orbD*1000)/1000,orbF:Math.round(IF.orbF*1000)/1000,
-    zoomD:Math.round(IF.zoomD*1000)/1000,zoomF:Math.round(IF.zoomF*1000)/1000,
+    zoomD:Math.round(IF.zoomD*1000)/1000,zoomF:Math.round(IF.zoomF*1000)/1000,pitF:Math.round(IF.pitF*1000)/1000,
     hidden:IF.hidden.slice(),editing:IF.editing,lastMode:IF.lastMode,
     lastAdj:IF.lastAdj,ptrs:Object.keys(IF.ptrs).length,gate:g?g.mode:null,
     freeR:Math.round(IF.freeR*10)/10,freeAz:Math.round(IF.freeAz*1000)/1000,freeEl:Math.round(IF.freeEl*1000)/1000};
@@ -23168,6 +23191,7 @@ var interface60Enabled=true; /* v30.60 master flag (default ON) */
   restoreUnit:restoreUnit,
   resetUi:resetUi,
   setOrbit:function(m,v){setOrb(m,v);return orb(m);},
+  setPitch:function(v){setPit(v);return pit();},
   setZoom:function(m,v){setZoom(m,v);return zoom(m);}
  };
 })();
@@ -24193,7 +24217,7 @@ var charRacesEnabled=true; /* v30.64 master character-races flag (default ON) */
  function saveSection(){try{var r=recSan(CR.rec);if(r.jam.w+r.jam.l+r.kat.w+r.kat.l+r.sunny.w+r.sunny.l===0)return undefined;return r;}catch(e){return undefined;}}
  function loadSection(d){CR.rec=recSan(d);CR.recDirty=false;}
  /* ---------- DOM: chip / panel / race HUD ---------- */
- var CSS='#cr64Chip{position:fixed;left:50%;transform:translateX(-50%);bottom:196px;z-index:92;display:none;background:rgba(12,14,18,.92);color:#f3e9d2;border:1px solid #c9a227;border-radius:999px;padding:10px 18px;font:600 15px "Barlow Condensed",sans-serif;letter-spacing:.4px;cursor:pointer;}'
+ var CSS='#cr64Chip{position:fixed;left:50%;transform:translateX(-50%);top:64px;z-index:92;display:none;background:rgba(12,14,18,.92);color:#f3e9d2;border:1px solid #c9a227;border-radius:999px;padding:10px 18px;font:600 15px "Barlow Condensed",sans-serif;letter-spacing:.4px;cursor:pointer;}'
  +'#cr64Panel{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:96;display:none;width:min(460px,94vw);max-height:calc(100vh - 16px);overflow:auto;background:rgba(10,12,16,.97);color:#eee;border:1px solid #c9a227;border-radius:14px;padding:12px 14px;font-family:"Barlow Condensed",sans-serif;box-shadow:0 18px 50px rgba(0,0,0,.6);}'
  +'#cr64Panel h3{margin:0 0 2px;font-size:20px;letter-spacing:.6px;color:#f3e9d2;}#cr64Panel .sub{font-size:13.5px;color:#b9bec9;margin-bottom:6px;line-height:1.3;}'
  +'#cr64Panel .lbl{font-size:11.5px;letter-spacing:1.2px;color:#c9a227;margin:7px 0 4px;}'
@@ -24207,6 +24231,7 @@ var charRacesEnabled=true; /* v30.64 master character-races flag (default ON) */
  +'#cr64Hud{position:fixed;left:50%;transform:translateX(-50%);top:64px;z-index:91;display:none;background:rgba(12,14,18,.88);color:#f3e9d2;border:1px solid #3a4150;border-radius:999px;padding:7px 8px 7px 16px;font:600 14px "Barlow Condensed",sans-serif;align-items:center;gap:10px;}'
  +'#cr64Hud button{background:#3a1518;color:#f0b9b9;border:1px solid #7a2e2e;border-radius:999px;padding:5px 12px;font:600 13px "Barlow Condensed",sans-serif;cursor:pointer;}';
  function buildDom(){
+  /* v30.88: the challenge chip moved from bottom:196px (over the play area) to top:64px — the exact top-centre slot #cr64Hud uses during a race; the tick never shows both, so the prompt and the race HUD read as one UI */
   if($('cr64Style'))return;
   var st=document.createElement('style');st.id='cr64Style';st.textContent=CSS;document.head.appendChild(st);
   var chip=document.createElement('div');chip.id='cr64Chip';chip.textContent='';document.body.appendChild(chip);
@@ -30875,7 +30900,7 @@ if(!window.__PN83){
        shipped drop range plus a 25u margin, so brushing the edge does
        not flicker the lock), on entering a car, on custody/arrest, at
        day end, when the cycle walks off the end of the list, or when
-       the flag is turned off. An S2 pedestrian PROMOTED mid-lock (the
+       the flag is turned off. (v30.88 adds the RETREAT break: a sustained walk backwards — away-dominant stick held 0.25 game-s at a stable bearing to the target — also releases, reason 'retreat', and the pace cap lifts the same frame.) An S2 pedestrian PROMOTED mid-lock (the
        s2Promote path swaps the ped object for a fighter) is followed
        across the swap by mesh identity.
      - C-1 (the user's ruling): untouched. Contact resolution, the
@@ -30904,8 +30929,9 @@ var targetLock85Enabled=true; /* v30.85 master "Target lock" flag (default ON) *
 if(!window.__TL85){
 (function(){
  'use strict';
- var TL={version:'tl85-1',alive:false,err:null,on:false,lock:null,day:0,cycles:0,locks:0,breaks:0,lastBreak:'',marker:null,btn:null,orig:null};
+ var TL={version:'tl85-1',alive:false,err:null,on:false,lock:null,day:0,cycles:0,locks:0,breaks:0,lastBreak:'',marker:null,btn:null,orig:null,retreatT:0,lastGT:null,awayCos:0,th0:null};
  var BREAK_RANGE=COMBAT.lockRange+25; /* shipped lock drop range + 25u margin */
+ var RETREAT_COS=0.6,RETREAT_MIN=0.35,RETREAT_HOLD=0.25,RETREAT_DRIFT=0.5; /* v30.88: walking backwards cancels the lock — away-component cosine >= 0.6 of a push >= 0.35 (below the F3 block scale .45 and the F5 charge scale .40, so a full deliberate push registers even through them; above stick tremor), sustained 0.25 game-s at a STABLE bearing (drift > 0.5 rad restarts the timer: a circling opponent swinging the bearing around the player is strafing geometry, not a back-walk — proven necessary by probe88-c, where a live thug's repositioning tripped the break mid-circle) */
  function tlStoreOff(){try{return localStorage.getItem('dale.targetLock85Enabled.v1')==='0';}catch(e){return false;}}
  function tlOn(){return !!targetLock85Enabled&&!tlStoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.targetLock85===0);}
  function tlSetPref(on){try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={hud:1,ctl:1,mm:1,mmShow:true,feed:1,pos:{}};S.ui.targetLock85=on?1:0;}}catch(e){}
@@ -30938,7 +30964,7 @@ if(!window.__TL85){
  }
  function tlOff(reason){
   if(TL.on){TL.breaks++;TL.lastBreak=reason||'';}
-  TL.on=false;TL.lock=null;
+  TL.on=false;TL.lock=null;TL.retreatT=0;TL.lastGT=null;TL.awayCos=0;TL.th0=null;
   if(typeof combat!=='undefined')combat.target=null;
   if(TL.marker)TL.marker.visible=false;
   tlBtnPaint();
@@ -30953,7 +30979,7 @@ if(!window.__TL85){
   var idx=-1;
   if(TL.on&&TL.lock)for(var i=0;i<list.length;i++)if(list[i].o===TL.lock.o){idx=i;break;}
   if(TL.on&&idx===list.length-1){tlOff('cycle');return true;}
-  TL.lock=list[idx+1];TL.on=true;TL.day=(typeof S!=='undefined'&&S&&typeof S.day==='number')?S.day:0;
+  TL.lock=list[idx+1];TL.on=true;TL.retreatT=0;TL.lastGT=null;TL.th0=null;TL.day=(typeof S!=='undefined'&&S&&typeof S.day==='number')?S.day:0;
   TL.cycles++;TL.locks++;
   combat.target=TL.lock;
   tlBtnPaint();
@@ -31033,9 +31059,29 @@ if(!window.__TL85){
     combat pace — COMBAT.blockMoveFrac, the shipped F3 blocking scale.
     Returns [mx, mz, mag] or null (null = the shipped vector stands). */
  function tlMoveVec(mx,mz){
-  if(!tlOn()||!TL.alive||!TL.on||!TL.lock||!footMode)return null;
+  if(!tlOn()||!TL.alive||!TL.on||!TL.lock||!footMode){TL.retreatT=0;TL.lastGT=null;TL.th0=null;return null;}
   var o=TL.lock.o;if(!o)return null;
   var th=Math.atan2(o.x-player.x,o.z-player.z);
+  /* v30.88 RETREAT BREAK (his order: walking backwards cancels the
+     lock): accumulate game-time while the stick's away-from-target
+     component dominates AND the bearing to the target stays stable —
+     a genuine back-walk holds its bearing, while a circling opponent
+     swings the bearing and keeps restarting the timer, so ordinary
+     strafing never trips it. Toward-input resets it too. On the
+     break the hook returns null — the shipped vector stands this
+     very frame, so the combat-pace cap lifts immediately. */
+  var mgv=Math.sqrt(mx*mx+mz*mz);
+  TL.awayCos=mgv>0.001?(-(mx*Math.sin(th)+mz*Math.cos(th)))/mgv:0;
+  var gtv=(typeof gameT!=='undefined'&&typeof gameT==='number')?gameT:null;
+  var dtg=0;
+  if(gtv!==null&&TL.lastGT!==null)dtg=Math.min(0.1,Math.max(0,gtv-TL.lastGT));
+  if(gtv!==null)TL.lastGT=gtv;
+  if(mgv>=RETREAT_MIN&&TL.awayCos>=RETREAT_COS){
+   if(TL.retreatT<=0||TL.th0===null){TL.th0=th;TL.retreatT+=dtg;}
+   else{var dth=th-TL.th0;while(dth>Math.PI)dth-=2*Math.PI;while(dth<-Math.PI)dth+=2*Math.PI;
+    if(Math.abs(dth)>RETREAT_DRIFT){TL.th0=th;TL.retreatT=0;}else TL.retreatT+=dtg;}
+  }else{TL.retreatT=0;TL.th0=null;}
+  if(TL.retreatT>=RETREAT_HOLD){tlOff('retreat');return null;}
   var s=Math.sin(th),c=Math.cos(th);
   var rx=-mz*s-mx*c,rz=-mz*c+mx*s;
   var f=COMBAT.blockMoveFrac;
@@ -31099,7 +31145,7 @@ if(!window.__TL85){
   var closeBtn=card.querySelector('[data-close]');
   if(!closeBtn)return false;
   var row=document.createElement('div');row.className='setRow';
-  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Target lock button</div><div class="setRowNote">On foot: tap \uD83C\uDFAF to lock onto the nearest person (hostiles first), tap again for the next, past the last to release. While locked you slow to combat pace, keep facing them, and the stick strafes around them. Off = no button, and Q cycles hostiles exactly as before.</div></div>';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Target lock button</div><div class="setRowNote">On foot: tap \uD83C\uDFAF to lock onto the nearest person (hostiles first), tap again for the next, past the last to release. While locked you slow to combat pace, keep facing them, and the stick strafes around them. Walking backwards drops the lock. Off = no button, and Q cycles hostiles exactly as before.</div></div>';
   var st=document.createElement('span');st.className='setState';st.id='tl85SetState';st.textContent=tlOn()?'On':'Off';row.appendChild(st);
   var btn=document.createElement('button');btn.type='button';btn.className='setBtn';btn.id='tl85SetBtn';btn.textContent=tlOn()?'Turn off':'Turn on';
   btn.addEventListener('click',function(){tlSetEnabled(!tlOn());});
@@ -31148,7 +31194,7 @@ if(!window.__TL85){
    return {version:TL.version,flagOn:tlOn(),alive:TL.alive,err:TL.err,on:TL.on,
     target:t?{x:Math.round(t.o.x),z:Math.round(t.o.z),hp:Math.round(t.o.hp),s2:t.s2||null,rival:!!t.isRival,key:t.s2Key||null}:null,
     combatTarget:ct?{x:Math.round(ct.o.x),z:Math.round(ct.o.z),hp:Math.round(ct.o.hp),s2:ct.s2||null,rival:!!ct.isRival}:null,
-    cycles:TL.cycles,locks:TL.locks,breaks:TL.breaks,lastBreak:TL.lastBreak,breakRange:BREAK_RANGE,
+    cycles:TL.cycles,locks:TL.locks,breaks:TL.breaks,lastBreak:TL.lastBreak,breakRange:BREAK_RANGE,retreatT:+(TL.retreatT||0).toFixed(3),awayCos:+(TL.awayCos||0).toFixed(3),
     face:(typeof combatFaceAng==='function')?(+combatFaceAng().toFixed(3)):null,
     gameT:(typeof gameT!=='undefined')?(+gameT.toFixed(2)):null,
     markerVisible:!!(TL.marker&&TL.marker.visible),
@@ -31891,7 +31937,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3087={version:'v30.87'};</script>
+<script>window.__V3088={version:'v30.88'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
