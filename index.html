@@ -8075,7 +8075,7 @@ function updateHUD(){
  $('hCash').textContent='£'+S.cash;$('hRep').textContent=S.rep;
  $('heatBar').style.width=S.heat+'%';
  $('hDay').textContent='Day '+S.day;$('hClock').textContent=fmtClock();
- $('stockPanel').innerHTML='<span class="k">Stash · Boot '+totalUnits()+'/'+carSpec().boot+'</span>Crack <b>'+S.stock.crack+'</b> · Heroin <b>'+S.stock.heroin+'</b><br>Ciggies <b>'+S.goods.cigs+'</b> · Alcohol <b>'+S.goods.alcohol+'</b> · Vapes <b>'+S.goods.vapes+'</b>';
+ var __pfHud='<span class="k">Stash · Boot '+totalUnits()+'/'+carSpec().boot+'</span>Crack <b>'+S.stock.crack+'</b> · Heroin <b>'+S.stock.heroin+'</b><br>Ciggies <b>'+S.goods.cigs+'</b> · Alcohol <b>'+S.goods.alcohol+'</b> · Vapes <b>'+S.goods.vapes+'</b>';if(pf89On()){if(PF89.lastStock!==__pfHud){PF89.lastStock=__pfHud;$('stockPanel').innerHTML=__pfHud;PF89.hudWrites++;}else PF89.hudSkips++;}else $('stockPanel').innerHTML=__pfHud;
  $('hWeapon').textContent=WEAPONS[S.weapon].name+(S.weapon==='bat'?'':'') ;
  $('hpBar').style.width=S.hp+'%';$('carBar').style.width=(100-S.carDamage)+'%';
  $('shopBtn').textContent=S.ownedWeapons.bat?'Bat Owned':'Buy Bat · £150';
@@ -8972,7 +8972,7 @@ var camPos={x:0,z:0};
 /* v21: on-foot building test — same buildings[] footprints the car collision
    uses (the Phase 3 inBuilding helper is IIFE-scoped, so the walker gets its
    own global copy of the identical test). */
-function footBlocked(x,z){for(var i=0;i<buildings.length;i++){var b=buildings[i];if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility — a chunk-hidden building cannot block */ if(b.mw!==undefined&&Math.abs(b.msn)>0.02){var fdx=x-b.x,fdz=z-b.z;if(Math.abs(fdx*b.mcs-fdz*b.msn)<b.mw/2+6.5&&Math.abs(fdx*b.msn+fdz*b.mcs)<b.md/2+6.5)return true;}else if(Math.abs(x-b.x)<b.hw+5&&Math.abs(z-b.z)<b.hd+5)return true;}return false;} /* v30.56: rotated buildings block on their true rect (+1.5 pad, +5 margin — the shipped hw+5 analogue) */
+function footBlocked(x,z){if(pf89On())return pf89Foot(x,z);for(var i=0;i<buildings.length;i++){var b=buildings[i];if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility — a chunk-hidden building cannot block */ if(b.mw!==undefined&&Math.abs(b.msn)>0.02){var fdx=x-b.x,fdz=z-b.z;if(Math.abs(fdx*b.mcs-fdz*b.msn)<b.mw/2+6.5&&Math.abs(fdx*b.msn+fdz*b.mcs)<b.md/2+6.5)return true;}else if(Math.abs(x-b.x)<b.hw+5&&Math.abs(z-b.z)<b.hd+5)return true;}return false;} /* v30.56: rotated buildings block on their true rect (+1.5 pad, +5 margin — the shipped hw+5 analogue) */
 function speedNow(){return Math.sqrt(player.vx*player.vx+player.vz*player.vz);}
 function mph(){return speedNow()*.28;}
 function loop(ms){
@@ -9021,7 +9021,7 @@ function loop(ms){
     if(bubbleT<0)$('bubble').style.display='none';}
   if(rival&&!rival.down){var v2=new THREE.Vector3(rival.x,30,rival.z);v2.project(camera);
     var rh=$('rivalHp');rh.style.display='block';rh.style.left=((v2.x*.5+.5)*viewW())+'px';rh.style.top=((-v2.y*.5+.5)*viewH())+'px';
-    rh.innerHTML='Rival HP '+Math.max(0,Math.round(rival.hp))+' · yours '+Math.round(S.hp);}
+    var __pfRh='Rival HP '+Math.max(0,Math.round(rival.hp))+' · yours '+Math.round(S.hp);if(pf89On()){if(PF89.lastRival!==__pfRh){PF89.lastRival=__pfRh;rh.innerHTML=__pfRh;PF89.rivalWrites++;}else PF89.rivalSkips++;}else rh.innerHTML=__pfRh;}
   hudT-=dt;if(hudT<0){hudT=.15;updateHUD();updateObjective();
     if(curArea&&curArea.id===ENDS)$('apName').textContent=areaById(ENDS).name+' — YOUR ENDS ('+endsStatus()+')';}
   mmT-=dt;if(mmT<0){mmT=.25;drawMinimap();}
@@ -9213,7 +9213,7 @@ function updateGame(dt,realDt){
         into-wall velocity component, keeps the along-wall component and
         sheds speed by impact, so a head-on tiers as before and a glancing
         scrape registers as a scrape. No bounce-back, no spin, no sticking. */
-     for(var bi=0;bi<buildings.length;bi++){var b=buildings[bi];
+     var __pfDL=pf89On()?pf89DriveList(player.x,player.z):null;for(var bi=0;bi<(__pfDL?__pfDL.length:buildings.length);bi++){var b=buildings[__pfDL?__pfDL[bi]:bi];
        if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility (see footBlocked) */
        var bcm=(b.cm!==undefined?b.cm:13);
        try{if(window.__PN83&&__PN83.collMargin){var pm83=__PN83.collMargin(b.x,b.z,fx,fz,rx,rz);if(pm83!=null&&pm83>bcm)bcm=pm83;}}catch(e){} /* v30.83: while the Panamera is the driven car, its length reaches this test (see __PN83) */
@@ -17975,7 +17975,7 @@ var npcMemoryEnabled=true; /* spec S3 feature flag (default ON) */
   var rain=0;try{if(typeof WX!=='undefined'&&WX)rain=WX.rain||0;}catch(e){}
   /* adaptive degradation (§11 order): Balanced graphics sheds the
      chatter bed first — extra environmental audio goes before anything */
-  var gfxBal=false;try{gfxBal=!!(S&&S.ui&&S.ui.gfx==='Balanced');}catch(e){}
+  var gfxBal=false;try{gfxBal=!!(S&&S.ui&&S.ui.gfx===0);}catch(e){}
   au.degraded=gfxBal?1:0;
   if(Math.random()<0.35)au.burble=0.55+Math.random()*0.9; /* sparse chatter burble */
   var tgt={
@@ -18109,6 +18109,156 @@ var npcMemoryEnabled=true; /* spec S3 feature flag (default ON) */
  setInterval(ls6Tick,LS6_TICK_MS); /* staggered integration tick — NOT a
     per-frame loop; the shipped walker keeps sole ownership of movement */
 })();
+
+
+/* ================= v30.89 — POLISH STAGE 1: PERFORMANCE (__PF) =================
+   The Stage 1 performance pass (spec: files/polish-programme/STAGE-1-
+   PERFORMANCE.md; audit: hidden_files/perf-stage1-audit/). ONE flag-
+   gated module, spliced BEFORE the v30.40 RC40 layer because Step 3's
+   registry must exist before the first duplicate GLB parse executes.
+   Steps: (1) the LS6 graphics-pref fix is a one-token shipped-line
+   edit recorded in the changelog (S.ui.gfx==='Balanced' -> ===0 —
+   the pref is numeric, 0 = Balanced per gfxTier(), so the Balanced
+   audio degradation never engaged); (2) the DBG counters below,
+   exposed on window.__PF; (3) a spatial-hash broad-phase for
+   footBlocked + the drive building loop — the narrow phase is the
+   shipped code verbatim, the grid only picks candidates, in
+   original-index order for the drive loop; (4) a parse-once GLB
+   registry for the two payload families whose parsers are provably
+   interchangeable (M5: rcParseGLB/ct59ParseGLB are the same reader;
+   Focus: p62/il/re are the same null-repaint reader) — saloon
+   p62<->mc is NOT shared: mc flips UVs in geometry and builds
+   materials its own way, so sharing would change rendering;
+   (5) change-guarded HUD writes (stock panel + rival HP) and
+   panel-open gating for the pure settings-sync intervals.
+   FLAG: perfPassEnabled (default ON) + kill key dale.perfPass.v1 +
+   append-only pref S.ui.perfPass (Settings row below). OFF: every
+   hook stands down and the shipped code paths run verbatim.
+   No save section. Debug: window.__PF. */
+var perfPassEnabled=true; /* v30.89 master performance flag (default ON) */
+var PF89={version:'pf89-1',err:null,grid:null,gridLen:-1,gridCells:0,builds:0,
+ footCalls:0,footCand:0,footMax:0,driveCalls:0,driveCand:0,
+ parses:0,regHits:0,regBypass:0,hudWrites:0,hudSkips:0,rivalWrites:0,rivalSkips:0,
+ gateSkips:0,lastStock:null,lastRival:null};
+var PF89REG={};
+function pf89StoreOff(){try{return localStorage.getItem('dale.perfPass.v1')==='0';}catch(e){return false;}}
+function pf89On(){
+ if(!perfPassEnabled)return false;
+ if(pf89StoreOff())return false;
+ try{if(typeof S!=='undefined'&&S&&S.ui&&S.ui.perfPass===0)return false;}catch(e){}
+ return true;
+}
+function pf89SetPref(on){try{if(typeof S!=='undefined'&&S){if(!S.ui||typeof S.ui!=='object')S.ui={};S.ui.perfPass=on?1:0;}}catch(e){}
+ try{localStorage.setItem('dale.perfPass.v1',on?'1':'0');}catch(e){}}
+function pf89SettingsOpen(){var p=document.getElementById('settingsPanel');return !!(p&&p.classList.contains('on'));}
+function pf89GateSettings(){ /* true = skip this settings sync tick */
+ if(!pf89On())return false;
+ if(pf89SettingsOpen())return false;
+ PF89.gateSkips++;return true;
+}
+/* ---------- Step 3: spatial hash over `buildings` ----------
+   Cell 200u. Each building is inserted into every cell its footprint
+   AABB (rotated rects use their true envelope) overlaps, padded by
+   24u — more than the largest test reach (foot +6.5; drive margin
+   bcm <= ~20 via PN83 + 1.5). A building that can block a point is
+   therefore always in that point's cell (foot), and always in the
+   cells overlapped by the +-48u box around it (drive: covers the
+   sequential-resolution position drift many times over). Indices
+   are stored so drive candidates replay in ascending original
+   order, exactly as the linear scan visits them. The grid rebuilds
+   if the buildings array ever changes length. */
+function pf89CellKey(x,z){return Math.floor(x/200)+','+Math.floor(z/200);}
+function pf89GridEnsure(){
+ if(PF89.grid&&PF89.gridLen===buildings.length)return;
+ var g={},i,b,hw,hd,cx0,cx1,cz0,cz1,cx,cz,key;
+ for(i=0;i<buildings.length;i++){b=buildings[i];
+  if(b.mw!==undefined&&Math.abs(b.msn)>0.02){hw=(Math.abs(b.mw*b.mcs)+Math.abs(b.md*b.msn))/2;hd=(Math.abs(b.mw*b.msn)+Math.abs(b.md*b.mcs))/2;}
+  else{hw=b.hw;hd=b.hd;}
+  cx0=Math.floor((b.x-hw-24)/200);cx1=Math.floor((b.x+hw+24)/200);
+  cz0=Math.floor((b.z-hd-24)/200);cz1=Math.floor((b.z+hd+24)/200);
+  for(cx=cx0;cx<=cx1;cx++)for(cz=cz0;cz<=cz1;cz++){key=cx+','+cz;(g[key]||(g[key]=[])).push(i);}
+ }
+ PF89.grid=g;PF89.gridLen=buildings.length;PF89.gridCells=Object.keys(g).length;PF89.builds++;
+}
+function pf89Foot(x,z){ /* the shipped footBlocked narrow phase, candidates only */
+ PF89.footCalls++;pf89GridEnsure();
+ var list=PF89.grid[pf89CellKey(x,z)],tested=0,blocked=false,k,b;
+ if(list)for(k=0;k<list.length;k++){b=buildings[list[k]];tested++;
+  if(typeof r1HiddenBld==='function'&&r1HiddenBld(b))continue; /* v30.17: collision follows visibility — a chunk-hidden building cannot block */
+  if(b.mw!==undefined&&Math.abs(b.msn)>0.02){var fdx=x-b.x,fdz=z-b.z;if(Math.abs(fdx*b.mcs-fdz*b.msn)<b.mw/2+6.5&&Math.abs(fdx*b.msn+fdz*b.mcs)<b.md/2+6.5){blocked=true;break;}}
+  else if(Math.abs(x-b.x)<b.hw+5&&Math.abs(z-b.z)<b.hd+5){blocked=true;break;}
+ }
+ PF89.footCand+=tested;if(tested>PF89.footMax)PF89.footMax=tested;
+ return blocked;
+}
+function pf89DriveList(x,z){
+ PF89.driveCalls++;pf89GridEnsure();
+ var cx0=Math.floor((x-48)/200),cx1=Math.floor((x+48)/200),cz0=Math.floor((z-48)/200),cz1=Math.floor((z+48)/200);
+ var out=[],seen={},cx,cz,k,list;
+ for(cx=cx0;cx<=cx1;cx++)for(cz=cz0;cz<=cz1;cz++){list=PF89.grid[cx+','+cz];if(!list)continue;
+  for(k=0;k<list.length;k++){var ix=list[k];if(!seen[ix]){seen[ix]=1;out.push(ix);}}}
+ out.sort(function(a,b){return a-b;});
+ PF89.driveCand+=out.length;
+ return out;
+}
+/* ---------- Step 4: parse-once GLB registry ----------
+   First caller parses with its OWN layer parser and the result is
+   cached by payload key; later callers of an interchangeable parser
+   family reuse it. 'm5' consumers build their own meshes/materials
+   from the shared parts, so the parsed structure is returned as-is.
+   'focus' consumers wrap a root group, so later callers get a clone
+   of the canonical root (geometries + materials shared; the async
+   texture loads land on the shared materials exactly as they would
+   on a private parse) with the canonical mats array. Flag OFF: the
+   caller's own parser runs, uncached — shipped behaviour verbatim. */
+function pf89Reg(key,b64,parser,arg){
+ if(!pf89On()){try{PF89.regBypass++;}catch(e){}return parser(b64,arg);}
+ var hit=PF89REG[key];
+ if(hit){PF89.regHits++;
+  if(key==='focus')return {root:hit.root.clone(true),mats:hit.mats};
+  return hit;}
+ var r=parser(b64,arg);PF89.parses++;PF89REG[key]=r;return r;
+}
+/* ---------- settings row (the family idiom) ---------- */
+function pf89BuildSettings(){
+ try{
+  var panel=document.querySelector('#settingsPanel .card');if(!panel)return false;
+  if(document.getElementById('pf89SetRow'))return true;
+  var row=document.createElement('div');row.id='pf89SetRow';row.className='setRow';
+  row.innerHTML='<span>Performance pass — Stage 1</span><span class="setState" id="pf89SetState">ON</span><button class="setBtn" id="pf89SetBtn" type="button">Toggle</button>';
+  var anchor=panel.querySelector('[data-close]');
+  if(anchor)panel.insertBefore(row,anchor);else panel.appendChild(row);
+  document.getElementById('pf89SetBtn').addEventListener('click',function(){window.__PF.setEnabled(!pf89On());pf89SyncSettings();});
+  pf89SyncSettings();
+  return true;
+ }catch(e){PF89.err='settings:'+String(e&&e.message||e);return false;}
+}
+function pf89SyncSettings(){
+ var st=document.getElementById('pf89SetState');if(st)st.textContent=pf89On()?'ON':'OFF';
+ var b=document.getElementById('pf89SetBtn');if(b)b.textContent=pf89On()?'Turn Off':'Turn On';
+}
+var pf89UiTries=0;
+var pf89UiTimer=setInterval(function(){if(pf89BuildSettings()||++pf89UiTries>40)clearInterval(pf89UiTimer);},500);
+setInterval(function(){if(pf89SettingsOpen())pf89SyncSettings();},900);
+window.__PF={
+ version:PF89.version,
+ enabled:pf89On,
+ setEnabled:function(b){perfPassEnabled=!!b;pf89SetPref(b);pf89SyncSettings();return pf89On();},
+ settingsOpen:pf89SettingsOpen,
+ gateSettings:pf89GateSettings,
+ foot:pf89Foot,
+ driveList:pf89DriveList,
+ reg:pf89Reg,
+ counts:function(){return {footCalls:PF89.footCalls,footCand:PF89.footCand,footMax:PF89.footMax,
+  driveCalls:PF89.driveCalls,driveCand:PF89.driveCand,parses:PF89.parses,regHits:PF89.regHits,regBypass:PF89.regBypass,
+  hudWrites:PF89.hudWrites,hudSkips:PF89.hudSkips,rivalWrites:PF89.rivalWrites,rivalSkips:PF89.rivalSkips,
+  gateSkips:PF89.gateSkips,gridBuilds:PF89.builds,gridCells:PF89.gridCells,buildings:PF89.gridLen};},
+ resetCounts:function(){PF89.footCalls=0;PF89.footCand=0;PF89.footMax=0;PF89.driveCalls=0;PF89.driveCand=0;
+  PF89.hudWrites=0;PF89.hudSkips=0;PF89.rivalWrites=0;PF89.rivalSkips=0;PF89.gateSkips=0;},
+ snapshot:function(){return {version:PF89.version,on:pf89On(),err:PF89.err,counts:window.__PF.counts(),
+  regKeys:Object.keys(PF89REG)};}
+};
+/* ================= /v30.89 PERFORMANCE (__PF) ================= */
 
 /* ================= v30.40 TEST — REAL CAR MODEL (BMW M5 CS GLB) ON THE STARTER SALOON =================
    A TEST layer, built exactly on the house GLB pattern (v30.5 tracksuit /
@@ -18309,7 +18459,7 @@ var realCarEnabled=true;
  try{
   if(typeof RC40_GLB_B64==='undefined')throw new Error('embedded payload missing');
   if(typeof THREE==='undefined')throw new Error('THREE missing');
-  var r=rcParseGLB(RC40_GLB_B64);
+  var r=pf89Reg('m5',RC40_GLB_B64,rcParseGLB);
   if(r.g.nodes.length!==RC_EXPECT.nodes)throw new Error('expected '+RC_EXPECT.nodes+' nodes, got '+r.g.nodes.length);
   if(r.g.meshes.length!==RC_EXPECT.meshes)throw new Error('expected '+RC_EXPECT.meshes+' meshes, got '+r.g.meshes.length);
   if((r.g.materials||[]).length!==RC_EXPECT.mats)throw new Error('expected '+RC_EXPECT.mats+' materials, got '+(r.g.materials||[]).length);
@@ -20233,7 +20383,7 @@ var enhancedDrivingEnabled=true; /* P2S3 feature flag (default ON) */
  }
  var d50UiTries=0;
  var d50UiTimer=setInterval(function(){d50BuildUi();if(document.getElementById('d50SetBtn')||++d50UiTries>40)clearInterval(d50UiTimer);},500);
- setInterval(d50SyncUi,1000);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;d50SyncUi();},1000);
  window.__D50={
   version:D50.version,
   enabled:function(){return d50On();},
@@ -20599,7 +20749,7 @@ var policeIntelEnabled=true; /* P2S4 feature flag (default ON) */
  }
  var p51UiTries=0;
  var p51UiTimer=setInterval(function(){p51BuildUi();if(document.getElementById('p51SetBtn')||++p51UiTries>40)clearInterval(p51UiTimer);},500);
- setInterval(p51SyncUi,1000);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;p51SyncUi();},1000);
  function p51IncSummary(inc){
   if(!inc)return null;
   return {id:inc.id,src:inc.src,why:inc.why,phase:p51Phase(inc),pursuitGrade:inc.pursuitGrade,
@@ -20897,7 +21047,7 @@ var contextPromptEnabled=true; /* P2S5 feature flag (default ON) */
  }
  var i52UiTries=0;
  var i52UiTimer=setInterval(function(){i52BuildUi();if($('i52SetBtn')||++i52UiTries>40)clearInterval(i52UiTimer);},500);
- setInterval(i52SyncUi,1000);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;i52SyncUi();},1000);
  /* ---- test surface (the __POLICE_HARNESS idiom): reads/drives the REAL
     shipped interaction state so the sandbox can verify this layer ---- */
  var D52={
@@ -21657,7 +21807,7 @@ var chaseCamEnabled=true; /* v30.54 trial flag (default ON) */
  }
  var cc54UiTries=0;
  var cc54UiTimer=setInterval(function(){cc54BuildUi();if($('cc54SetBtn')||++cc54UiTries>40)clearInterval(cc54UiTimer);},500);
- setInterval(cc54SyncUi,1000);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;cc54SyncUi();},1000);
  /* ---- occlusion measurement (TEST ONLY: mirrors the shipped sight-line
     test — camera -> car mid-body at y=10 — over bMeshes, and reports how
     many buildings the shipped fade currently holds faded) ---- */
@@ -22210,7 +22360,7 @@ function ct59PatrolPhase(){
  function ilySpawn(){
   if(CT.ilyCar)return;
   try{
-   var P=ct59ParseGLB(RC40_GLB_B64);
+   var P=pf89Reg('m5',RC40_GLB_B64,ct59ParseGLB);
    var mats=P.g.materials.map(function(m){return ct59Mat(m);});
    function paint(i,hex,rough,metal){var m=mats[i];if(m){m.color.setHex(hex);if(rough!==undefined)m.roughness=rough;if(metal!==undefined)m.metalness=metal;}}
    [0,1,2,7].forEach(function(i){paint(i,0xf2f3f5,0.38,0.30);});
@@ -22470,7 +22620,7 @@ function ct59PatrolPhase(){
    CT.init=true;audioInit();flagSync();
   }catch(e){CT.err='init:'+String(e&&e.message||e);}
  },700);
- setInterval(function(){try{if(ct59BuildSettings())ct59SyncSettings();}catch(e){}},900);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;try{if(ct59BuildSettings())ct59SyncSettings();}catch(e){}},900);
  setInterval(function(){
   try{
    if(!CT.init)return;
@@ -23357,7 +23507,7 @@ var scalePassEnabled=true; /* v30.61 master scale flag (default ON) */
   }catch(e){}
   return out;
  }
- setInterval(function(){try{scBuildSettings();scSyncSettings();}catch(e){}},900);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;try{scBuildSettings();scSyncSettings();}catch(e){}},900);
  setInterval(function(){try{applyAll();}catch(e){SC.err='tick:'+String(e&&e.message||e);}},500);
  applyAll();
  window.__SC61={
@@ -23808,7 +23958,7 @@ function p62BuildTemplates(){
   P62F.tpl.saloon=p62Fit(s.root,Math.PI,'saloon');
  }catch(e){}
  try{
-  var f=p62ParseGLB(P62_B64.focus,null);
+  var f=pf89Reg('focus',P62_B64.focus,p62ParseGLB,null);
   P62F.tpl.focus=p62Fit(f.root,Math.PI/2,'focus');
  }catch(e){}
  try{
@@ -23877,6 +24027,7 @@ setInterval(function(){
  try{
   var panel=document.querySelector('#settingsPanel .card');
   if(!panel)return;
+  if(window.__PF&&__PF.gateSettings())return;
   var row=document.getElementById('p62SetRow');
   if(!row){
    row=document.createElement('div');row.id='p62SetRow';row.className='setRow';
@@ -25170,7 +25321,7 @@ if(!window.__MS66){
   msSyncSettings();
   return msOn();
  }
- setInterval(function(){try{msBuildSettings();msSyncSettings();}catch(e){}},900);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;try{msBuildSettings();msSyncSettings();}catch(e){}},900);
  window.__MS66={
   version:'v30.66',
   on:msOn,
@@ -25747,7 +25898,7 @@ function ilBuildTpl(){
  if(IL.tpl||IL.tplErr)return;
  try{
   if(typeof P62_B64==='undefined'||!P62_B64.focus)throw new Error('no focus payload');
-  var parsed=ilParseGLB(P62_B64.focus);
+  var parsed=pf89Reg('focus',P62_B64.focus,ilParseGLB);
   var f=ilFit(parsed.root,Math.PI/2);
   var bar=new THREE.Group();bar.name='il68bar';
   var base=new THREE.Mesh(new THREE.BoxGeometry(9.6,1.1,3.2),new THREE.MeshBasicMaterial({color:0x14161c}));
@@ -27299,7 +27450,7 @@ if(!window.__ML70){ (function(){
   }catch(e){ML.err='tick:'+String(e&&e.message||e);}
  }
  requestAnimationFrame(mlTick);
- setInterval(function(){try{if(ML.init){mlBuildSettings();mlSyncSettings();}}catch(e){}},900);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;try{if(ML.init){mlBuildSettings();mlSyncSettings();}}catch(e){}},900);
  /* the mates view is wiped by a shipped 600 ms re-render — the phone
     section re-appends on a shorter cycle so the rows are there to
     tap (the __CR64 flicker class, tightened) */
@@ -27628,7 +27779,7 @@ if(!window.__RE72){ (function(){
   if(RE.tpl||RE.tplErr)return;
   try{
    if(typeof P62_B64==='undefined'||!P62_B64.focus)throw new Error('no focus payload');
-   RE.tpl=reFit(reParseGLB(P62_B64.focus).root,Math.PI/2);
+   RE.tpl=reFit(pf89Reg('focus',P62_B64.focus,reParseGLB).root,Math.PI/2);
   }catch(e){RE.tplErr=String(e&&e.message||e);}
  }
 
@@ -31486,7 +31637,7 @@ idle:{r:15,d:1.667,f:[[0.342,0.013,-0.003,-0.284,0.479,-0.134,0.331,0.175,-0.291
   if(typeof animateFigure!=='function')throw new Error('animateFigure missing');
   FA.alive=true;
  }catch(e){FA.err='install:'+String((e&&e.message)||e);}
- setInterval(function(){try{faBuildSettings();faSyncSettings();}catch(e){}},250);
+ setInterval(function(){if(window.__PF&&__PF.gateSettings())return;try{faBuildSettings();faSyncSettings();}catch(e){}},250);
  window.__FA86={
   version:'v30.86',
   on:faOn,
@@ -31937,7 +32088,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3088={version:'v30.88'};</script>
+<script>window.__V3089={version:'v30.89'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
