@@ -3849,12 +3849,10 @@ function updateMarkers(fx,fz){
   ch.material.opacity=.42+.33*Math.sin(gameT*5-k*.9);
  }
 }
-/* player marker: soft shadow + gold ground ring so the player always reads against road/buildings */
+/* player marker: soft shadow so the player always reads against road/buildings */
 var pMark=new THREE.Group();
 var pShadow=new THREE.Mesh(new THREE.CircleGeometry(19,20),new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:.34,depthWrite:false}));
 pShadow.rotation.x=-Math.PI/2;pShadow.position.y=.5;pMark.add(pShadow);
-var pRingM=new THREE.Mesh(new THREE.RingGeometry(14.5,18,28),new THREE.MeshBasicMaterial({color:0xe8b33a,side:THREE.DoubleSide,transparent:true,opacity:.95,depthWrite:false}));
-pRingM.rotation.x=-Math.PI/2;pRingM.position.y=.75;pMark.add(pRingM);
 scene.add(pMark);
 /* §9 player-car chevron (▼): small floating gold cone above the player's car, gentle bob, visible ONLY while driving — no other vehicle ever gets a ring or chevron */
 var carChev=new THREE.Mesh(new THREE.ConeGeometry(7,12,4),new THREE.MeshBasicMaterial({color:0xe8b33a}));
@@ -30084,7 +30082,7 @@ function hmParseGLB(b64){
     roughness:(p.roughnessFactor!==undefined?p.roughnessFactor:.88),
     metalness:(p.metallicFactor!==undefined?p.metallicFactor:0)}));});
   if(!mats.length)mats.push(new THREE.MeshStandardMaterial({vertexColors:true,color:0xffffff,roughness:.88,metalness:0}));
-  HM.mats=mats;HM_G=r;HM.tris=r.tris;HM.ok=true;
+  mats.forEach(function(m){m.side=THREE.DoubleSide;});HM.mats=mats;HM_G=r;HM.tris=r.tris;HM.ok=true;
   console.log('[Dale] Hero model OK — '+r.tris+' tris, 13 pivots, '+mats.length+' materials');
  }catch(e){HM.ok=false;HM.err=String((e&&e.message)||e);console.warn('[Dale] Hero model FAILED ('+HM.err+') — the current player model stays on for this session.');}
  window.__HM80_AUDIT={ok:HM.ok,err:HM.err,tris:HM.tris};
@@ -30920,7 +30918,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3083={version:'v30.83'};</script>
+<script>window.__V3084={version:'v30.84'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
