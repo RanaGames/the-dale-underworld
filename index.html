@@ -32035,6 +32035,636 @@ idle:{r:15,d:1.667,f:[[0.342,0.013,-0.003,-0.284,0.479,-0.134,0.331,0.175,-0.291
   }, 900);
 })();
 
+'use strict';
+/* RT93 — v30.93 ROCHDALE TERRACE PILOT (Tweedale Street) module source.
+   Spliced by build93.js immediately before the gameReady anchor, i.e.
+   inside the main IIFE scope (THREE, scene, P5_BUILD, bMeshes,
+   buildings, S, saveGame all in scope), AFTER the EV91 module.
+   A flag-gated presentation layer: ONE reference-true Rochdale terrace
+   unit built in the game's own low-poly style (primitives + canvas
+   textures drawn from real Deeplish listing photos — flat-front
+   orange-red brick, black lintels, tall narrow windows, strong door
+   colours, shallow slate roofs, shared chimney stacks, satellite
+   dishes), dressed onto the six buildings that front Tweedale Street,
+   plus a corner-shop variant of the same unit placed as a NEW building
+   on the Fareed's yard plot (FENCE 1030,1827) with a real collision
+   footprint through the shipped buildings registry.
+   Supersede rule vs EV91: for the six street buildings RT93 records
+   the CURRENT underlying state (parts visibility + lit-window
+   matrices, i.e. whatever EV91 or base has set), hides it, and shows
+   its own unit; un-apply restores the recorded state exactly. A
+   watcher re-asserts after any EV91 toggle. Flag OFF (with EV91 off)
+   restores base exactly. No save section is added (pref lives in
+   S.ui like EV91's); no gameplay writes except the flag-gated
+   collision entry for the new Fareed's building. */
+(function () {
+  var rt93Enabled = true;
+  try { rt93Enabled = localStorage.getItem('dale.rt93.v1') !== '0'; } catch (e) {}
+  try { if (typeof S !== 'undefined' && S && S.ui && S.ui.rtTerraces != null) rt93Enabled = !!S.ui.rtTerraces; } catch (e) {}
+
+  /* The Tweedale Street set, frozen from the v30.92 world audit:
+     buildings whose centre sits ~51u from the Tweedale Street
+     centreline ([[694,1585],[828,1595],[968,1609]], w18) with their
+     shipped front normal (sin rot, cos rot) pointing at the street.
+     [x, z] keys; heights/rot read live from P5_BUILD at apply time. */
+  var RT93_SET = [
+    [720.83, 1535.86], [967.53, 1557.70],
+    [748.34, 1640.20], [783.45, 1642.82], [852.31, 1648.69], [887.33, 1652.19]
+  ];
+  var FAREED = { x: 1076, z: 1827, rot: -Math.PI / 2, w: 34, d: 22, h: 40 };
+
+  var applied = false, dressed = 0;
+  var units = [];        /* {p5e, bme, grp, underVis:[], winSaved:[]} */
+  var shopGrp = null, shopEntry = null;
+  var failed = [];
+  var TEX = null;
+
+  function hashN(x, z, i) {
+    var s = Math.sin(x * 12.9898 + z * 78.233 + (i || 0) * 37.719) * 43758.5453;
+    return s - Math.floor(s);
+  }
+  function rng(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ---------------- canvas texture painters ---------------- */
+  function cnv(w, h) { var c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+  function texOf(c, srgb) {
+    var t = new THREE.CanvasTexture(c);
+    if (srgb !== false && THREE.sRGBEncoding) t.encoding = THREE.sRGBEncoding;
+    t.anisotropy = 4;
+    return t;
+  }
+  /* brick wall painter: fills rect (px) with courses; u = px per unit
+     horizontally, courseH px per course. Base tint jitter per brick. */
+  function paintBrick(g, W, H, opt) {
+    var o = opt || {};
+    var base = o.base || [163, 79, 44];            /* warm orange-red */
+    var courseH = o.courseH || 16, brickL = o.brickL || 44;
+    var r = rng(o.seed || 7);
+    g.fillStyle = 'rgb(' + (base[0] - 26) + ',' + (base[1] - 20) + ',' + (base[2] - 14) + ')';
+    g.fillRect(0, 0, W, H);
+    var row = 0;
+    for (var y = 0; y < H; y += courseH, row++) {
+      var off = (row % 2) * (brickL / 2);
+      for (var x = -brickL; x < W + brickL; x += brickL) {
+        var j = (r() - 0.5) * 22, j2 = (r() - 0.5) * 10;
+        g.fillStyle = 'rgb(' + Math.round(base[0] + j + j2) + ',' + Math.round(base[1] + j * 0.72) + ',' + Math.round(base[2] + j * 0.5) + ')';
+        g.fillRect(x + off + 1.5, y + 1.5, brickL - 3, courseH - 3);
+        if (r() < 0.06) { g.fillStyle = 'rgba(60,32,20,0.25)'; g.fillRect(x + off + 3, y + 3, brickL - 8, courseH - 6); }
+      }
+    }
+    if (o.weather !== false) {
+      var gr = g.createLinearGradient(0, H * 0.72, 0, H);
+      gr.addColorStop(0, 'rgba(40,26,18,0)'); gr.addColorStop(1, 'rgba(40,26,18,0.28)');
+      g.fillStyle = gr; g.fillRect(0, H * 0.72, W, H * 0.28);
+    }
+  }
+  function band(g, x, y, w, h, col) { g.fillStyle = col; g.fillRect(x, y, w, h); }
+
+  /* One house bay front, drawn in a 256x1024 cell: the bay is 11.333u
+     wide x 40u tall (sx 22.59 px/u, sy 25.6 px/u). y here is canvas
+     DOWN from the top; ground is at canvas y=1024. Feature heights in
+     units are converted with Y(u) = 1024 - u*25.6. */
+  function paintBay(g, ox, variant, mirror, seed) {
+    var SX = 256 / 11.333, SY = 1024 / 40;
+    function X(u) { return ox + (mirror ? (11.333 - u) : u) * SX; }
+    function Wd(u) { return u * SX; }
+    function Y(u) { return 1024 - u * SY; }
+    var r = rng(seed);
+    if (variant === 2) {           /* rendered cream front */
+      g.fillStyle = '#d9cfb8'; g.fillRect(ox, 0, 256, 1024);
+      for (var i = 0; i < 260; i++) { g.fillStyle = 'rgba(120,105,80,' + (r() * 0.08) + ')'; g.fillRect(ox + r() * 256, r() * 1024, 3 + r() * 14, 2 + r() * 5); }
+      var gr2 = g.createLinearGradient(0, 760, 0, 1024);
+      gr2.addColorStop(0, 'rgba(70,58,40,0)'); gr2.addColorStop(1, 'rgba(70,58,40,0.25)');
+      g.fillStyle = gr2; g.fillRect(ox, 760, 256, 264);
+    } else {
+      g.save(); g.beginPath(); g.rect(ox, 0, 256, 1024); g.clip();
+      g.translate(ox, 0); paintBrick(g, 256, 1024, { seed: seed, courseH: 16, brickL: 44 });
+      g.restore();
+    }
+    var lintel = variant === 1 ? '#e9e3d5' : (variant === 2 ? '#b3a284' : '#16151a');
+    var sill = variant === 1 ? '#e9e3d5' : (variant === 2 ? '#b3a284' : '#201e24');
+    var frame = variant === 1 ? '#ddd6c6' : '#26221f';
+    var doorCols = ['#6e1f1a', '#274a72', '#232323', '#7a4a22'];
+    /* plinth */
+    band(g, ox, Y(1.35), 256, 1.35 * SY, '#1b1917');
+    /* soil pipe at the bay's right edge (unmirrored side reads either way) */
+    band(g, ox + 246, 0, 7, 1024, 'rgba(28,24,22,0.85)');
+    band(g, ox + 244, Y(21.2), 11, 5, 'rgba(28,24,22,0.9)');
+    band(g, ox + 244, Y(2.2), 11, 5, 'rgba(28,24,22,0.9)');
+    function window_(cxU, sillU, headU, wU, treat) {
+      var x0 = X(cxU - wU / 2), wpx = Wd(wU);
+      if (mirror) x0 = X(cxU + wU / 2);
+      var yT = Y(headU), hpx = (headU - sillU) * SY;
+      band(g, x0 - 7, yT - 1.7 * SY + 6, wpx + 14, 1.7 * SY - 4, lintel);          /* lintel band above */
+      band(g, x0 - 5, yT, wpx + 10, hpx, frame);                                   /* frame */
+      var gx = x0 + 4, gw = wpx + 2, gy = yT + 5, gh = hpx - 10;
+      var grd = g.createLinearGradient(0, gy, 0, gy + gh);
+      grd.addColorStop(0, '#4d5a60'); grd.addColorStop(0.5, '#39444a'); grd.addColorStop(1, '#2c3438');
+      g.fillStyle = grd; g.fillRect(gx, gy, gw, gh);
+      if (treat === 0) {          /* curtains: lace top, darker below */
+        g.fillStyle = 'rgba(232,226,210,0.92)'; g.fillRect(gx, gy, gw, gh * 0.52);
+        g.fillStyle = 'rgba(200,192,170,0.5)';
+        for (var cx2 = gx + 3; cx2 < gx + gw - 2; cx2 += 7) g.fillRect(cx2, gy + gh * 0.44, 3, gh * 0.08);
+        g.fillStyle = 'rgba(24,22,20,0.55)'; g.fillRect(gx, gy + gh * 0.55, gw, gh * 0.45);
+      } else if (treat === 1) {   /* blinds */
+        g.fillStyle = 'rgba(214,208,192,0.85)';
+        for (var by = gy + 3; by < gy + gh * 0.66; by += 7) g.fillRect(gx, by, gw, 3.4);
+        g.fillStyle = 'rgba(20,20,20,0.35)'; g.fillRect(gx, gy + gh * 0.66, gw, gh * 0.34);
+      } else if (treat === 2) {   /* net curtain full */
+        g.fillStyle = 'rgba(226,220,204,0.75)'; g.fillRect(gx, gy, gw, gh);
+        g.fillStyle = 'rgba(160,150,130,0.35)';
+        for (var nx = gx + 4; nx < gx + gw; nx += 9) for (var ny = gy + 5; ny < gy + gh; ny += 11) g.fillRect(nx, ny, 2, 2);
+      } else {                    /* open dark glass, faint reflection */
+        g.fillStyle = 'rgba(190,205,210,0.20)'; g.beginPath();
+        g.moveTo(gx + gw * 0.15, gy + gh); g.lineTo(gx + gw * 0.55, gy); g.lineTo(gx + gw * 0.8, gy); g.lineTo(gx + gw * 0.4, gy + gh); g.fill();
+      }
+      band(g, gx + gw / 2 - 2, gy, 4, gh, frame);                                  /* centre mullion */
+      band(g, x0 - 6, Y(sillU) - 4, wpx + 12, 0.95 * SY, sill);                    /* sill band below */
+    }
+    /* door: near one edge; window beside it (mirror flips the pair) */
+    var doorCx = 2.85, winCx = 7.9;
+    var dx0 = X(doorCx - 1.65); if (mirror) dx0 = X(doorCx + 1.65);
+    var dw = Wd(3.3), dTop = Y(12.3), dBot = Y(0.25);
+    band(g, dx0 - 8, dTop - 1.7 * SY + 6, dw + 16, 1.7 * SY - 4, lintel);          /* door lintel */
+    band(g, dx0 - 5, dTop, dw + 10, dBot - dTop, '#211d1a');                       /* frame */
+    band(g, dx0, dTop + 5, dw, dBot - dTop - 8, doorCols[variant]);                /* leaf */
+    var gg = g.createLinearGradient(0, dTop + 26, 0, dTop + 150);                  /* glazed panel */
+    gg.addColorStop(0, '#c8d2cc'); gg.addColorStop(1, '#8d9a94');
+    g.fillStyle = gg;
+    var gw2 = dw * 0.52, gx2 = dx0 + (dw - gw2) / 2;
+    g.fillRect(gx2, dTop + 26, gw2, 118);
+    band(g, gx2 + gw2 / 2 - 2, dTop + 26, 4, 118, doorCols[variant]);
+    band(g, dx0 + 8, dTop + 205, dw - 16, 10, '#c9a44f');                          /* letterbox */
+    g.fillStyle = '#d8c26a'; g.beginPath(); g.arc(dx0 + dw - 11, dTop + 168, 4.5, 0, 7); g.fill();  /* knob */
+    band(g, dx0 - 9, dBot - 2, dw + 18, 8, '#3d3a37');                             /* step */
+    var treatG = variant === 3 ? 2 : (variant === 1 ? 1 : 0);
+    window_(winCx, 4.6, 15.2, 3.6, treatG);
+    window_(2.95, 24.2, 34.8, 2.7, (variant + 1) % 4 === 3 ? 3 : treatG);
+    window_(8.25, 24.2, 34.8, 2.7, variant === 1 ? 0 : (variant === 3 ? 2 : 1));
+    /* door number-ish plate + a hint of a house number plaque */
+    band(g, dx0 + dw + 13, dTop + 60, 10, 14, 'rgba(20,20,20,0.65)');
+  }
+
+  function buildTextures() {
+    if (TEX) return TEX;
+    /* facade atlas: 4 cells x 256x1024 */
+    var atlas = cnv(1024, 1024), ag = atlas.getContext('2d');
+    var variants = [0, 1, 2, 3];
+    for (var i = 0; i < 4; i++) paintBay(ag, i * 256, variants[i], false, 101 + i * 37);
+    var atlasTex = texOf(atlas); atlasTex.wrapS = THREE.ClampToEdgeWrapping; atlasTex.wrapT = THREE.ClampToEdgeWrapping;
+    /* back bay: 256x1024, repeated per bay */
+    var back = cnv(256, 1024), bg = back.getContext('2d');
+    paintBrick(bg, 256, 1024, { seed: 55, courseH: 16, brickL: 44, base: [148, 72, 42] });
+    band(bg, 0, 1024 - 1.35 * 25.6, 256, 1.35 * 25.6, '#1b1917');
+    function backWin(cxU, sillU, headU, wU) {
+      var sx = 256 / 11.333, x0 = (cxU - wU / 2) * sx, wpx = wU * sx;
+      var yT = 1024 - headU * 25.6, hpx = (headU - sillU) * 25.6;
+      band(bg, x0 - 4, yT, wpx + 8, hpx, '#241f1c');
+      band(bg, x0 + 3, yT + 4, wpx - 6, hpx - 8, '#33393d');
+      band(bg, x0 - 5, 1024 - sillU * 25.6 - 3, wpx + 10, 20, '#201e24');
+    }
+    backWin(3.1, 5.5, 14.5, 3.2); backWin(8.3, 5.5, 14.5, 3.2);
+    backWin(3.1, 24.5, 34.5, 2.8); backWin(8.3, 24.5, 34.5, 2.8);
+    band(bg, 128, 0, 7, 1024, 'rgba(28,24,22,0.8)');
+    var backTex = texOf(back); backTex.wrapS = THREE.RepeatWrapping;
+    /* tiling brick for cores/sides */
+    var tile = cnv(256, 256), tg = tile.getContext('2d');
+    paintBrick(tg, 256, 256, { seed: 91, courseH: 32, brickL: 62, weather: false });
+    var tileTex = texOf(tile); tileTex.wrapS = THREE.RepeatWrapping; tileTex.wrapT = THREE.RepeatWrapping;
+    /* slate */
+    var slate = cnv(256, 256), sg = slate.getContext('2d');
+    var sr = rng(31);
+    sg.fillStyle = '#33383f'; sg.fillRect(0, 0, 256, 256);
+    for (var yy = 0; yy < 256; yy += 32) {
+      for (var xx = 0; xx < 256; xx += 42) {
+        var sj = (sr() - 0.5) * 12;
+        sg.fillStyle = 'rgb(' + Math.round(56 + sj) + ',' + Math.round(62 + sj) + ',' + Math.round(70 + sj) + ')';
+        sg.fillRect(xx + ((yy / 32) % 2) * 21 - 21, yy + 2, 39, 28);
+      }
+      sg.fillStyle = 'rgba(12,13,16,0.55)'; sg.fillRect(0, yy, 256, 2.5);
+    }
+    var slateTex = texOf(slate); slateTex.wrapS = THREE.RepeatWrapping; slateTex.wrapT = THREE.RepeatWrapping;
+    /* shop front: 1024x1024 for a 34u x 40u face (sx 30.12, sy 25.6) */
+    var shop = cnv(1024, 1024), pg = shop.getContext('2d');
+    paintBrick(pg, 1024, 1024, { seed: 77, courseH: 16, brickL: 44 });
+    var PSX = 1024 / 34, PSY = 1024 / 40;
+    function PY(u) { return 1024 - u * PSY; }
+    /* upper windows x4 */
+    [4.9, 12.9, 21.1, 29.1].forEach(function (cxU, wi) {
+      var x0 = (cxU - 1.5) * PSX, wpx = 3 * PSX, yT = PY(34.5), hpx = (34.5 - 24) * PSY;
+      band(pg, x0 - 8, yT - 1.7 * PSY + 6, wpx + 16, 1.7 * PSY - 4, '#16151a');
+      band(pg, x0 - 5, yT, wpx + 10, hpx, '#26221f');
+      var grd = pg.createLinearGradient(0, yT, 0, yT + hpx);
+      grd.addColorStop(0, '#57646a'); grd.addColorStop(1, '#2e363a');
+      pg.fillStyle = grd; pg.fillRect(x0 + 4, yT + 5, wpx - 8, hpx - 10);
+      if (wi % 2 === 0) { pg.fillStyle = 'rgba(230,224,208,0.85)'; pg.fillRect(x0 + 4, yT + 5, wpx - 8, (hpx - 10) * 0.5); }
+      band(pg, x0 + wpx / 2 - 2, yT + 5, 4, hpx - 10, '#26221f');
+      band(pg, x0 - 6, PY(24) - 4, wpx + 12, 0.95 * PSY, '#201e24');
+    });
+    band(pg, 1004, 0, 8, PY(17), 'rgba(28,24,22,0.85)');
+    /* fascia board y 12.3..17 */
+    band(pg, 0, PY(17), 1024, (17 - 12.3) * PSY, '#5f1d16');
+    band(pg, 0, PY(17), 1024, 5, '#d8c9a3'); band(pg, 0, PY(12.3) - 5, 1024, 5, '#d8c9a3');
+    pg.fillStyle = '#efe3c2'; pg.font = '700 84px Arial, sans-serif';
+    pg.textAlign = 'center'; pg.textBaseline = 'middle';
+    try { pg.fillText("FAREED'S", 512, (PY(17) + PY(12.3)) / 2 + 2); } catch (e) {}
+    /* ground floor: stallriser + plate glass + door */
+    band(pg, 0, PY(1.0), 1024, 1.0 * PSY, '#232120');
+    var glassY = PY(12.3), glassH = (12.3 - 1.0) * PSY;
+    var grd2 = pg.createLinearGradient(0, glassY, 0, glassY + glassH);
+    grd2.addColorStop(0, '#3d4a4e'); grd2.addColorStop(0.55, '#2b3438'); grd2.addColorStop(1, '#232a2d');
+    pg.fillStyle = grd2; pg.fillRect(0.8 * PSX, glassY, (23.5 - 0.8) * PSX, glassH);
+    pg.fillStyle = 'rgba(214,196,150,0.16)';                                     /* interior glow hints */
+    for (var sh = 0; sh < 3; sh++) pg.fillRect(1.6 * PSX, glassY + 26 + sh * 74, 20.5 * PSX, 7);
+    pg.fillStyle = 'rgba(226,220,200,0.75)'; pg.fillRect(3.2 * PSX, glassY + 34, 3.4 * PSX, 4.6 * PSY);   /* posters */
+    pg.fillStyle = 'rgba(196,60,44,0.8)'; pg.fillRect(3.6 * PSX, glassY + 44, 2.6 * PSX, 1.7 * PSY);
+    pg.fillStyle = 'rgba(226,220,200,0.65)'; pg.fillRect(17.6 * PSX, glassY + 120, 3 * PSX, 3.4 * PSY);
+    band(pg, 10.6 * PSX - 5, glassY, 10, glassH, '#1e1c1a'); band(pg, 17.2 * PSX - 5, glassY, 10, glassH, '#1e1c1a');
+    band(pg, 0.8 * PSX - 6, glassY - 4, (23.5 - 0.8) * PSX + 12, 9, '#1e1c1a');
+    /* door at right x 25..29 */
+    var dX = 25 * PSX, dW = 4 * PSX;
+    band(pg, dX - 6, glassY - 4, dW + 12, glassH + 4, '#1e1c1a');
+    band(pg, dX, glassY + 4, dW, glassH - 6, '#3a2320');
+    var grd3 = pg.createLinearGradient(0, glassY + 14, 0, glassY + 150);
+    grd3.addColorStop(0, '#b9c4be'); grd3.addColorStop(1, '#7e8c86');
+    pg.fillStyle = grd3; pg.fillRect(dX + dW * 0.22, glassY + 14, dW * 0.56, 128);
+    band(pg, dX + 10, glassY + glassH - 58, dW - 20, 9, '#c9a44f');
+    var shopTex = texOf(shop);
+    TEX = {
+      atlas: atlasTex, back: backTex, tile: tileTex, slate: slateTex, shop: shopTex,
+      matAtlas: new THREE.MeshLambertMaterial({ map: atlasTex }),
+      matBack: new THREE.MeshLambertMaterial({ map: backTex }),
+      matTile: new THREE.MeshLambertMaterial({ map: tileTex }),
+      matSlate: new THREE.MeshLambertMaterial({ map: slateTex, side: THREE.DoubleSide }),
+      matShop: new THREE.MeshLambertMaterial({ map: shopTex }),
+      matDark: new THREE.MeshLambertMaterial({ color: 0x17181a }),
+      matBrickPlain: new THREE.MeshLambertMaterial({ color: 0x9a5638, side: THREE.DoubleSide }),
+      matDish: new THREE.MeshLambertMaterial({ color: 0x8f9599, side: THREE.DoubleSide })
+    };
+    return TEX;
+  }
+
+  /* ---------------- geometry helpers ---------------- */
+  function xform(geo, x, y, z, rx, ry, rz, sx, sy, sz) {
+    var m = new THREE.Matrix4();
+    var q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx || 0, ry || 0, rz || 0));
+    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx == null ? 1 : sx, sy == null ? 1 : sy, sz == null ? 1 : sz));
+    geo.applyMatrix4(m);
+    return geo;
+  }
+  function mergeGeos(list) {
+    var pos = [], nor = [], uv = [], idx = [], off = 0;
+    for (var i = 0; i < list.length; i++) {
+      var g = list[i].index ? list[i].toNonIndexed() : list[i];
+      var p = g.attributes.position.array, n = g.attributes.normal.array, u = g.attributes.uv ? g.attributes.uv.array : null;
+      for (var j = 0; j < p.length; j += 3) { pos.push(p[j], p[j + 1], p[j + 2]); nor.push(n[j], n[j + 1], n[j + 2]); }
+      for (var k = 0; k < p.length / 3; k++) { uv.push(u ? u[k * 2] : 0, u ? u[k * 2 + 1] : 0); idx.push(off + k); }
+      off += p.length / 3;
+    }
+    var out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    out.setIndex(idx);
+    return out;
+  }
+  function quadGeo(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, uRep, vRep) {
+    /* two triangles a-b-c, a-c-d with uv scaled for tiling */
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz], 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, uRep, 0, uRep, vRep, 0, vRep], 2));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    g.computeVertexNormals();
+    return g;
+  }
+  /* remap a BoxGeometry's +z face UVs into an atlas cell */
+  function remapFaceUV(geo, cell, mirror) {
+    var uv = geo.attributes.uv;
+    var u0 = cell * 0.25, u1 = u0 + 0.25;
+    for (var i = 16; i < 20; i++) {
+      var u = uv.getX(i), v = uv.getY(i);
+      uv.setXY(i, mirror ? (u1 - u * 0.25) : (u0 + u * 0.25), v);
+    }
+    uv.needsUpdate = true;
+    return geo;
+  }
+  function scaleUVs(geo, su, sv) {
+    var uv = geo.attributes.uv;
+    for (var i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+    uv.needsUpdate = true;
+    return geo;
+  }
+
+  /* Build one terrace unit in building-local frame (front = +z).
+     Returns a Group. seedX/seedZ drive variant/dish hashes. */
+  function buildUnit(w, d, h, seedX, seedZ, isShop) {
+    var T = buildTextures();
+    var grp = new THREE.Group();
+    var nB = Math.max(1, Math.round(w / 11.333));
+    var bayW = w / nB;
+    /* core */
+    var core = new THREE.Mesh(scaleUVs(new THREE.BoxGeometry(w, h, d), 5, 6), T.matTile);
+    core.position.set(0, h / 2, 0);
+    grp.add(core);
+    /* facade: thin boxes proud of the core front (covers the shipped
+       plinth's front face), +z face sampled from the atlas. Bay boxes
+       tile a span of w+1.1 so seams meet without overlap or gaps. */
+    if (isShop) {
+      var sbg = new THREE.BoxGeometry(w + 0.2, h, 1.8);
+      var sbay = new THREE.Mesh(sbg, [T.matTile, T.matTile, T.matTile, T.matTile, T.matShop, T.matTile]);
+      sbay.position.set(0, h / 2, d / 2 + 0.9);
+      grp.add(sbay);
+    } else {
+      var baseVar = Math.floor(hashN(seedX, seedZ, 0) * 4) % 4;
+      var span = w + 1.1, pitch = span / nB;
+      for (var b = 0; b < nB; b++) {
+        var cell = (baseVar + b + (b === 2 ? 2 : 0)) % 4;
+        var mir = hashN(seedX, seedZ, 11 + b) < 0.5;
+        var bg2 = new THREE.BoxGeometry(pitch + 0.02, h, 1.8);
+        remapFaceUV(bg2, cell, mir);
+        var bay = new THREE.Mesh(bg2, [T.matTile, T.matTile, T.matTile, T.matTile, T.matAtlas, T.matTile]);
+        bay.position.set(-span / 2 + pitch * (b + 0.5), h / 2, d / 2 + 0.9);
+        grp.add(bay);
+      }
+    }
+    /* back plane */
+    var bk = new THREE.Mesh(scaleUVs(new THREE.PlaneGeometry(w, h), nB, 1), T.matBack);
+    bk.position.set(0, h / 2, -d / 2 - 0.07);
+    bk.rotation.y = Math.PI;
+    grp.add(bk);
+    /* roof: two slate slopes + ridge cap */
+    var rise = 9.5, over = 2.2;
+    var halfD = d / 2 + over, slopeLen = Math.sqrt(halfD * halfD + rise * rise);
+    var roofGeos = [
+      quadGeo(-w / 2 - 1.3, h, halfD, w / 2 + 1.3, h, halfD, w / 2 + 1.3, h + rise, 0, -w / 2 - 1.3, h + rise, 0, (w + 2.6) / 8, slopeLen / 8),
+      quadGeo(w / 2 + 1.3, h, -halfD, -w / 2 - 1.3, h, -halfD, -w / 2 - 1.3, h + rise, 0, w / 2 + 1.3, h + rise, 0, (w + 2.6) / 8, slopeLen / 8)
+    ];
+    var roof = new THREE.Mesh(mergeGeos(roofGeos), T.matSlate);
+    grp.add(roof);
+    var ridge = new THREE.Mesh(new THREE.BoxGeometry(w + 2.6, 0.7, 1.6), T.matDark);
+    ridge.position.set(0, h + rise + 0.2, 0);
+    grp.add(ridge);
+    /* gutters */
+    var trimD = [];
+    trimD.push(xform(new THREE.BoxGeometry(w + 1.4, 0.85, 0.6), 0, h + 0.35, d / 2 + over - 0.3, 0, 0, 0));
+    trimD.push(xform(new THREE.BoxGeometry(w + 1.4, 0.85, 0.6), 0, h + 0.35, -(d / 2 + over - 0.3), 0, 0, 0));
+    grp.add(new THREE.Mesh(mergeGeos(trimD), T.matDark));
+    /* gables + chimney stacks (brick) */
+    var trimB = [];
+    trimB.push(quadGeo(-w / 2, h - 0.1, -d / 2, -w / 2, h - 0.1, d / 2, -w / 2, h + rise, 0, -w / 2, h + rise, 0, 1, 1));
+    trimB.push(quadGeo(w / 2, h - 0.1, d / 2, w / 2, h - 0.1, -d / 2, w / 2, h + rise, 0, w / 2, h + rise, 0, 1, 1));
+    for (var s2 = 1; s2 < nB; s2++) {
+      var sx2 = -w / 2 + bayW * s2;
+      trimB.push(xform(new THREE.BoxGeometry(2.6, 6.2, 2.6), sx2, h + rise + 1.1, 0, 0, 0, 0));
+      trimB.push(xform(new THREE.BoxGeometry(3.2, 0.8, 3.2), sx2, h + rise + 4.4, 0, 0, 0, 0));
+    }
+    if (isShop) {
+      trimB.push(xform(new THREE.BoxGeometry(2.6, 6.2, 2.6), -w / 4, h + rise + 1.1, 0, 0, 0, 0));
+      trimB.push(xform(new THREE.BoxGeometry(3.2, 0.8, 3.2), -w / 4, h + rise + 4.4, 0, 0, 0, 0));
+    }
+    grp.add(new THREE.Mesh(mergeGeos(trimB), T.matBrickPlain));
+    /* satellite dishes on ~1 in 3 bays */
+    var dishGeos = [];
+    for (var db = 0; db < nB; db++) {
+      if (hashN(seedX, seedZ, 21 + db) > 0.38) continue;
+      var dcx = -w / 2 + bayW * (db + 0.5) - bayW * 0.22;
+      var dcy = h * (0.68 + hashN(seedX, seedZ, 31 + db) * 0.14);
+      dishGeos.push(xform(new THREE.CircleGeometry(1.7, 12), dcx, dcy, d / 2 + 2.15, -0.5, 0, 0));
+      dishGeos.push(xform(new THREE.BoxGeometry(0.28, 0.28, 1.6), dcx, dcy - 0.3, d / 2 + 1.35, 0, 0, 0));
+    }
+    if (dishGeos.length) grp.add(new THREE.Mesh(mergeGeos(dishGeos), T.matDish));
+    return grp;
+  }
+
+  /* ---------------- lit-window zeroing (EV91's matcher, mirrored) -- */
+  var ZERO_M = null, winMeshes = null;
+  function findWinMeshes() {
+    if (winMeshes) return winMeshes;
+    winMeshes = [];
+    scene.traverse(function (o) {
+      if (o.isInstancedMesh && o.material && o.material.isMeshBasicMaterial) {
+        var hx = o.material.color ? o.material.color.getHex() : 0;
+        if (hx === 0xffb45c || hx === 0xffc98a) winMeshes.push(o);
+      }
+    });
+    return winMeshes;
+  }
+  function zeroWindows(p5e, saved) {
+    if (!ZERO_M) ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
+    var meshes = findWinMeshes();
+    if (!meshes.length) return 0;
+    var cosr = Math.cos(p5e.rot), sinr = Math.sin(p5e.rot);
+    var tmpM = new THREE.Matrix4(), tmpP = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpS = new THREE.Vector3();
+    var n = 0;
+    for (var mi = 0; mi < meshes.length; mi++) {
+      var o = meshes[mi];
+      for (var i = 0; i < o.count; i++) {
+        o.getMatrixAt(i, tmpM);
+        tmpM.decompose(tmpP, tmpQ, tmpS);
+        var dx = tmpP.x - p5e.x, dz = tmpP.z - p5e.z;
+        if (Math.abs(dx) > p5e.w + p5e.d || Math.abs(dz) > p5e.w + p5e.d) continue;
+        var lx = dx * cosr - dz * sinr, lz = dx * sinr + dz * cosr;
+        if (Math.abs(Math.abs(lz) - (p5e.d / 2 + 0.35)) > 0.3) continue;
+        if (Math.abs(lx) > p5e.w / 2 - 3) continue;
+        if (tmpP.y < 2 || tmpP.y > p5e.h + 1) continue;
+        if (tmpS.x === 0 && tmpS.y === 0 && tmpS.z === 0) continue;   /* already zero (EV91) — its record owns the restore */
+        saved.push({ mesh: o, idx: i, els: Array.prototype.slice.call(tmpM.elements) });
+        o.setMatrixAt(i, ZERO_M);
+        n++;
+      }
+      if (n) o.instanceMatrix.needsUpdate = true;
+    }
+    return n;
+  }
+  function restoreWindows(saved) {
+    var touched = {};
+    for (var i = 0; i < saved.length; i++) {
+      saved[i].mesh.setMatrixAt(saved[i].idx, new THREE.Matrix4().fromArray(saved[i].els));
+      touched[saved[i].mesh.uuid] = saved[i].mesh;
+    }
+    for (var u in touched) touched[u].instanceMatrix.needsUpdate = true;
+  }
+
+  function key2(x, z) { return Math.round(x * 2) + ',' + Math.round(z * 2); }
+
+  function dressBuilding(p5e, bme) {
+    var grp = bme.parts && bme.parts.length && bme.parts[0] && bme.parts[0].parent;
+    if (!grp) { failed.push('nogroup ' + p5e.x + ',' + p5e.z); return null; }
+    if (Math.abs(grp.position.x - p5e.x) > 1.5 || Math.abs(grp.position.z - p5e.z) > 1.5) {
+      failed.push('grpmismatch ' + p5e.x + ',' + p5e.z); return null;
+    }
+    var u = { p5e: p5e, bme: bme, grp: grp, unit: null, underVis: [], winSaved: [] };
+    u.unit = buildUnit(p5e.w, p5e.d, p5e.h, p5e.x, p5e.z, false);
+    u.unit.name = 'RT93UNIT';
+    grp.add(u.unit);
+    assertUnit(u);
+    return u;
+  }
+  /* (Re-)impose RT93 on a unit: record the CURRENT underlying state
+     (what base/EV91 wants shown), then hide it and show the unit. */
+  function assertUnit(u) {
+    u.underVis = [];
+    for (var i = 0; i < u.bme.parts.length; i++) u.underVis.push(u.bme.parts[i].visible);
+    restoreWindows(u.winSaved);           /* undo our previous zeroing so the record below is the true underlying state */
+    u.winSaved = [];
+    zeroWindows(u.p5e, u.winSaved);
+    for (var j = 0; j < u.bme.parts.length; j++) u.bme.parts[j].visible = false;
+    if (u.unit) u.unit.visible = true;
+  }
+  function releaseUnit(u) {
+    for (var i = 0; i < u.bme.parts.length; i++) {
+      if (i < u.underVis.length) u.bme.parts[i].visible = u.underVis[i];
+      else u.bme.parts[i].visible = !(window.__EV91 && __EV91.on);
+    }
+    restoreWindows(u.winSaved);
+    u.winSaved = [];
+    if (u.unit) { u.grp.remove(u.unit); u.unit = null; }
+  }
+
+  function applyAll() {
+    if (applied) return true;
+    buildTextures();
+    var bmByKey = {};
+    for (var i = 0; i < bMeshes.length; i++) bmByKey[key2(bMeshes[i].x, bMeshes[i].z)] = bMeshes[i];
+    var p5ByKey = {};
+    for (var j = 0; j < P5_BUILD.length; j++) p5ByKey[key2(P5_BUILD[j].x, P5_BUILD[j].z)] = P5_BUILD[j];
+    dressed = 0;
+    for (var k = 0; k < RT93_SET.length; k++) {
+      var key = key2(RT93_SET[k][0], RT93_SET[k][1]);
+      var p5e = p5ByKey[key], bme = bmByKey[key];
+      if (!p5e) { failed.push('nop5 ' + RT93_SET[k]); continue; }
+      if (!bme) { failed.push('nobm ' + RT93_SET[k]); continue; }
+      var u = dressBuilding(p5e, bme);
+      if (u) { units.push(u); dressed++; }
+    }
+    /* Fareed's: new shop building on the yard plot + collision entry */
+    shopGrp = buildUnit(FAREED.w, FAREED.d, FAREED.h, FAREED.x, FAREED.z, true);
+    shopGrp.name = 'RT93SHOP';
+    shopGrp.position.set(FAREED.x, 0, FAREED.z);
+    shopGrp.rotation.y = FAREED.rot;
+    scene.add(shopGrp);
+    shopEntry = {
+      x: FAREED.x, z: FAREED.z, hw: FAREED.d / 2, hd: FAREED.w / 2,
+      mw: FAREED.w, md: FAREED.d, mcs: Math.cos(FAREED.rot), msn: Math.sin(FAREED.rot), rt93: 1
+    };
+    buildings.push(shopEntry);
+    applied = true;
+    reassert.evSeen = (window.__EV91 && __EV91.state) ? __EV91.state().applied : null;
+    return true;
+  }
+
+  function unapplyAll() {
+    for (var i = units.length - 1; i >= 0; i--) releaseUnit(units[i]);
+    units = [];
+    dressed = 0;
+    if (shopGrp) { scene.remove(shopGrp); shopGrp = null; }
+    if (shopEntry) {
+      var ix = buildings.indexOf(shopEntry);
+      if (ix >= 0) buildings.splice(ix, 1);
+      shopEntry = null;
+    }
+    applied = false;
+  }
+
+  function refresh93() {
+    if (rt93Enabled) { if (!applied) applyAll(); }
+    else if (applied) unapplyAll();
+  }
+  function reassert() {
+    if (!applied) return;
+    /* Only re-record when EV91's applied state actually changed since
+       the last assert — otherwise the parts' current visibility is
+       RT93's own suppression, not an underlying state. */
+    var cur = (window.__EV91 && __EV91.state) ? __EV91.state().applied : null;
+    if (cur === reassert.evSeen) return;
+    reassert.evSeen = cur;
+    for (var i = 0; i < units.length; i++) assertUnit(units[i]);
+  }
+  reassert.evSeen = undefined;
+  window.__RT93 = {
+    version: 'v30.93',
+    get on() { return rt93Enabled; },
+    setEnabled: function (on) {
+      rt93Enabled = !!on;
+      try { localStorage.setItem('dale.rt93.v1', on ? '1' : '0'); } catch (e) {}
+      try { if (typeof S !== 'undefined' && S && S.ui) { S.ui.rtTerraces = rt93Enabled; if (typeof saveGame === 'function') saveGame(); } } catch (e) {}
+      refresh93();
+      return rt93Enabled;
+    },
+    state: function () {
+      return {
+        version: 'v30.93', enabled: rt93Enabled, applied: applied, dressed: dressed,
+        setSize: RT93_SET.length, fareeds: !!shopGrp, collisionIn: !!shopEntry,
+        failed: failed.slice(0, 20)
+      };
+    }
+  };
+  /* Coordinate with EV91: if EV91 (re-)applies while RT93 holds
+     lit-windows zeroed, EV91 would record the zero matrices as its
+     originals. So before any EV91 toggle, hand the windows back;
+     EV91 then records the true matrices, and re-assert re-zeroes. */
+  if (window.__EV91 && __EV91.setEnabled && !__EV91.__rt93Wrapped) {
+    var origSet91 = __EV91.setEnabled;
+    __EV91.setEnabled = function (on) {
+      if (applied) for (var i = 0; i < units.length; i++) { restoreWindows(units[i].winSaved); units[i].winSaved = []; }
+      var r = origSet91(on);
+      reassert();
+      return r;
+    };
+    __EV91.__rt93Wrapped = true;
+  }
+  var rtPolls = 0, rtLastLen = -1, rtStable = 0;
+  var rtIv = setInterval(function () {
+    rtPolls++;
+    try {
+      var len = (typeof P5_BUILD !== 'undefined' ? P5_BUILD.length : 0) + (typeof bMeshes !== 'undefined' ? bMeshes.length : 0);
+      if (len === rtLastLen && len > 0) rtStable++; else rtStable = 0;
+      rtLastLen = len;
+      if (rtStable >= 3 || rtPolls > 40) { clearInterval(rtIv); refresh93(); }
+    } catch (e) { if (rtPolls > 40) clearInterval(rtIv); }
+  }, 300);
+  /* watcher: catch EV91 state changes that bypass setEnabled (its
+     initial poll-apply) and re-assert while RT93 is on */
+  var lastSig = '';
+  setInterval(function () {
+    try {
+      var e91 = window.__EV91 ? __EV91.state() : null;
+      var sig = (e91 ? (e91.enabled ? '1' : '0') + (e91.applied ? 'A' : '-') : 'x') + '|' + (rt93Enabled ? '1' : '0');
+      if (sig !== lastSig) {
+        var first = lastSig === '';
+        lastSig = sig;
+        if (!first && rt93Enabled && applied) reassert();
+      }
+    } catch (e) {}
+  }, 600);
+  /* Settings row (same pattern as the EV91/PF89 rows). */
+  var rtRowTries = 0;
+  var rtRowIv = setInterval(function () {
+    rtRowTries++;
+    var card = document.querySelector('#settingsPanel .card');
+    if (!card) { if (rtRowTries > 30) clearInterval(rtRowIv); return; }
+    clearInterval(rtRowIv);
+    if (document.getElementById('rt93Row')) return;
+    var anchor = card.querySelector('[data-close]');
+    var row = document.createElement('div');
+    row.className = 'setRow'; row.id = 'rt93Row';
+    row.innerHTML = '<div class="setRowMain"><div class="setRowLabel">Tweedale Rochdale terraces</div><div class="setRowNote">The v30.93 pilot: Tweedale Street\u2019s houses rebuilt from real Rochdale photos — flat-front red-brick terraces with black lintels and tall windows, plus Fareed\u2019s shop on its own plot. Off = whatever the model-buildings setting shows.</div></div><div class="setRowState" id="rt93State"></div><button class="setBtn" id="rt93Btn" type="button"></button>';
+    if (anchor) card.insertBefore(row, anchor); else card.appendChild(row);
+    var st = document.getElementById('rt93State'), btn = document.getElementById('rt93Btn');
+    function paint93() { if (st) st.textContent = rt93Enabled ? 'ON' : 'OFF'; if (btn) btn.textContent = rt93Enabled ? 'Turn off' : 'Turn on'; }
+    btn.addEventListener('click', function () { window.__RT93.setEnabled(!rt93Enabled); paint93(); });
+    paint93();
+  }, 900);
+})();
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -32451,7 +33081,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3092={version:'v30.92'};</script>
+<script>window.__V3093={version:'v30.93'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
