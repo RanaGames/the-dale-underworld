@@ -15284,6 +15284,7 @@ if(typeof SEATS!=='undefined'&&SEATS.panamera==null){SEATS.panamera=2;}
   try{if(window.__R74&&__R74.saveSection){var r74d=__R74.saveSection();if(r74d)sec.localStanding={version:1,data:r74d};}}catch(e){}
   try{if(window.__T75&&__T75.saveSection){var t75d=__T75.saveSection();if(t75d)sec.territory={version:1,data:t75d};}}catch(e){}
   try{if(window.__R76&&__R76.saveSection){var r76d=__R76.saveSection();if(r76d)sec.relationships={version:1,data:r76d};}}catch(e){}
+  try{if(window.__MI94&&__MI94.saveSection){var mi94d=__MI94.saveSection();if(mi94d)sec.missions={version:1,data:mi94d};}}catch(e){}
   /* carry over sections this build does not manage (forward compatibility:
      a later stage's section survives this build's re-saves verbatim) */
   try{
@@ -32665,6 +32666,589 @@ idle:{r:15,d:1.667,f:[[0.342,0.013,-0.003,-0.284,0.479,-0.134,0.331,0.175,-0.291
   }, 900);
 })();
 
+/* ================= v30.94 — MISSION CHAINS PILOT: KUZZO / "THE FIRM" (__MI94) =================
+   The game's first authored mission chain: five sequential missions for
+   KUZZO of the Spotland Firm (Ings Lane), built as a THIN authored layer
+   over the shipped side-job engine — not a new engine. M1 (courier),
+   M2 (chop) and M3 (debt) run on the shipped updateSideJobs progression
+   verbatim: on accept this layer constructs a shipped-shaped sideJob
+   (fixed spots, fixed timer, tagged __mi) and lets the shipped loop
+   drive it; the shipped completion/failure gates (jobDone / jobFail /
+   jobDoneDebt) are wrapped so a tagged job settles through the mission
+   gate instead. M4 re-skins the shipped fraud circuit's idx/stops
+   structure as three delivery drops (pin advancing per stop, arrival
+   radius 40 — the fraud branch's own numbers) because the shipped fraud
+   branch is shop-entry fiction (till work, suspicion, CCTV delayed
+   Heat) that the mission spec explicitly strips out; it reuses the
+   shipped pins, addHeat and the mission fail gate. M5 places a named
+   rival ("Vic") on the shipped rival/combat system (the spawnRival
+   object shape, driven by the shipped updateCombat brain, target lock
+   and fight animations included) at College Bank.
+
+   FRAMEWORK RULES (the pilot spec, binding):
+   - Own slot: missions live in this layer's MI.job, never in the
+     shipped sideJob slot as far as the GAME is concerned — the tagged
+     sideJob above is the shipped engine's own working object, created
+     and retired by this layer; mission state (chain position, offers,
+     Vic/Daz) never touches shipped stores.
+   - One objective at a time, both ways: a mission cannot be accepted
+     while a Line drop (job), a side job (sideJob) or custody is
+     active; while a mission is active, makeJobOffer does not fire and
+     acceptJob is refused. Line calls keep their shipped behaviour
+     (during M1–M4 the shipped scheduler already holds calls while a
+     sideJob exists; during M5 a call can ring and a drop can be taken
+     — the player's choice, exactly as the spec rules).
+   - Chevron precedence with the flag ON: active drop -> mission pin
+     -> side-job pin -> safe house. For M1–M4 the mission pin IS the
+     sideJob pin, so the shipped updateMarkers branch already yields
+     it; for M5 (and M4, whose pin this layer holds) updateMarkers is
+     wrapped delegate-first and the trail is repainted toward the
+     mission pin with the shipped trail math, only when no drop and
+     no side job outrank it. Flag OFF restores shipped precedence
+     exactly (the wrap is a pass-through).
+   - Accept flow: mission offers live in the phone JOBS tab as a
+     distinct tappable MISSION row (the shipped games/settings views'
+     tappable-row idiom, rendered by a delegate-first renderPhone
+     wrap — the __ML70 precedent). M1 additionally requires having
+     talked to Kuzzo once: leaderInteract is wrapped (delegate first,
+     observe after) to set the metKuzzo bit when the talk target is
+     Kuzzo, and his intro pool gains the mission line while M1 is
+     available (removed when it no longer is). Later offers arrive as
+     Nokia texts from KUZZO (the shipped miniText/lastText idiom).
+   - Fail & retry: timeout / custody / day-end / downed (M5) -> toast
+     + the dry Kuzzo fail text -> the mission returns to OFFERED. No
+     standing loss, no cash loss, unlimited retries. Custody fails the
+     mission cleanly via an arrest wrap (delegate first — the shipped
+     booking is untouched); the day boundary fails it via a startDay
+     wrap (clear before, re-offer after). Custody outcomes, driving
+     physics, on-foot feel and the police FSM are never edited.
+   - Rewards: cash through the mission gate below — it does NOT
+     increment S.sideDone (missions never eat the 3/day side-job cap)
+     and pushes "Mission: <name> +£<pay>" to S.jobsToday so the day
+     sheet reads right. Standing goes through __R74.grant ONLY, at the
+     shipped side-job step (area Respect +1 / Trust +2, crew Respect
+     +1 — the exact grant jobDone earns) with a stable mission event
+     ID; M5 earns two steps. Tension via addTension, Heat via addHeat
+     (M4: +4 per stop, the shipped swipe-scale "small" — 12 total).
+   - CHAIN PERK (spec option (a), the hook is real): on chain
+     completion, Spotland Line drops pay +10%. makeCall IS the shipped
+     drop-pay calculation — its result lands in ringing.payout, which
+     acceptCall copies into the drop and completeJob pays — so the
+     wrap adjusts ringing.payout by x1.1, rounded, after the shipped
+     calculation runs, only when the chain is done and the drop's area
+     is Spotland. The caller sees the boosted figure on the call card.
+   - Timer behaviour per type (reported, not invented): M1/M2 use the
+     shipped sideJob timers — they tick in updateSideJobs whenever the
+     game updates (they keep ticking alongside a Line drop, exactly as
+     shipped side jobs do; the game does not update while paused, and
+     custody fails the mission outright). M3 is untimed, as shipped
+     debt is. M4's 240s ticks on gameT deltas in this layer's own
+     tick, skipping paused time — the same effective rule. M5 is
+     untimed; Vic's rival timer is set far out because he is a placed
+     opponent who waits on his spot, not an interception runner (the
+     shipped 34s give-up clock is an interceptor's, and the spec's
+     fiction is that he is grafting off College Bank until dealt with).
+
+   SPAWNS: Rehan is the shipped __CT59 figure — never duplicated; the
+   M1 pickup point is his live position (fallback: the Ings Lane SPOT
+   anchor). Daz (M3) and Vic (M5) are this layer's figures: Daz stands
+   at College Bank while M3 is offered/active and despawns on settle;
+   Vic spawns when the player first comes within 300u of College Bank
+   during M5 and despawns cleanly on complete/fail/day-end/custody.
+
+   PERSISTENCE: ONE new versioned section, `missions`, through the
+   v30.35 save system — one added try-line in svCollect calls
+   __MI94.saveSection() (the __R74/__ML70 precedent); restore reads the
+   stored payload directly, lazily, at first use (order-independent,
+   read-only — the __R74 pattern). Section shape:
+   {chain:'kuzzo', next:0..5, metKuzzo:bool, done:bool}. Old saves (no
+   section) start the chain fresh. Flag OFF: saveSection returns null,
+   so any stored section is carried over verbatim by the shipped
+   carry-over — it round-trips harmlessly, frozen.
+
+   FLAG: missionsEnabled (default ON), pref S.ui.missions, mirrored in
+   localStorage dale.missions.v1 (the __R74 reasoning). OFF = no
+   offers, no JOBS mission row, no Kuzzo mission line, any active
+   mission parks safely (spawns/pins cleared, chain progress kept) —
+   the game exactly as v30.93. Failure isolation: any throw inside
+   this layer's hooks leaves the shipped path running and is recorded
+   on MI.err; a throw at init disables ONLY this module.
+   Debug: window.__MI94 (state / setEnabled / saveSection / audit). */
+var missionsEnabled=true; /* v30.94 master "Mission chains" flag (default ON) */
+if(!window.__MI94){ (function(){
+ 'use strict';
+ /* ---------------- the chain: dialogue FINAL, per spec ------------- */
+ var MI_TALK_LINE="Got a bit of work, if you're not a wasteman. Check your fone.";
+ var MI_FAIL_TEXT="Didn't happen then. Come see me when you're ready.";
+ var MI_CHAIN_TEXT="Firm business is done. You need owt in Spotland, you come to me.";
+ var MI_DEFS=[
+  {id:1,name:"Prove It",kind:"courier",pay:150,risk:"Risk: low Heat",
+   intro:"Rehan's holding summat for me. Pick it up, bring it to Spotland Road. No mithering, no detours.",
+   outro:"Sound. Didn't think you'd manage it clean."},
+  {id:2,name:"Hot Metal",kind:"chop",pay:300,risk:"Risk: hot car — police interest up",
+   intro:"Motor on Spotland Road needs moving. Castleton lock-up. It's hot, so don't go sightseeing.",
+   outro:"Sound. Lock-up lads said it rolled in tidy."},
+  {id:3,name:"He Owes",kind:"debt",pay:120,risk:"Risk: Tension if it kicks off",
+   intro:"Daz. College Bank. Owes the Firm. Get it, or get a reason why not.",
+   outroPaid:"He paid? Must be losing his touch.",
+   outroFight:"He swung on you? Daft sod. Money's money."},
+  {id:4,name:"Three Drops",kind:"drops",pay:350,risk:"Risk: Heat on every stop",
+   intro:"Three drops, all Spotland, all today. Weight's in the boot. Don't get pulled.",
+   outro:"All three? On my own patch and not a whisper. Proper."},
+  {id:5,name:"Firm Business",kind:"fight",pay:250,risk:"Risk: a fight — come ready",
+   intro:"Norden lad's been grafting off College Bank. My patch. Go and explain it to him.",
+   outro:"Kasmira, you actually did it. Spotland looks after its own — and now you're one of 'em. Sound."}
+ ];
+ var MI={ver:'v30.94',err:null,next:0,metKuzzo:false,done:false,restored:false,
+         offer:null,offerDay:0,job:null,dazFig:null,dazLabel:null,vicLabel:null,lastGT:0,completions:0,fails:0};
+ function miStoreOff(){try{return localStorage.getItem('dale.missions.v1')==='0';}catch(e){return false;}}
+ function miOn(){return !!missionsEnabled&&!miStoreOff()&&!(typeof S!=='undefined'&&S&&S.ui&&S.ui.missions===0);}
+ function miSetPref(on){try{if(typeof S!=='undefined'&&S&&S.ui)S.ui.missions=on?1:0;}catch(e){}
+  try{localStorage.setItem('dale.missions.v1',on?'1':'0');}catch(e){}}
+ /* ---------------- geography (shipped SPOT anchors, resolved live) - */
+ function miSpot(street){try{for(var i=0;i<SPOTS.length;i++)if(SPOTS[i].street===street)return SPOTS[i];}catch(e){}return null;}
+ function miRehanPt(){
+  try{if(window.__CT59&&__CT59.state){var st=__CT59.state();
+   if(st&&st.figs&&st.figs.rehan)return {x:st.figs.rehan[0],z:st.figs.rehan[1]};}}catch(e){}
+  var sp=miSpot('Ings Lane, Spotland');return sp?{x:sp.x,z:sp.z}:{x:-2252,z:-902};
+ }
+ /* ---------------- Nokia text from KUZZO (shipped text idiom) ------ */
+ function miText(body){
+  try{$('miniText').innerHTML='txt frm KUZZO:<br>'+body;lastText='KUZZO: '+body;
+   if(phoneIsOn()){toast('\uD83D\uDCF1 txt frm KUZZO');sfx('ring');}}catch(e){}
+ }
+ function miSay(body){try{feedPush('KUZZO: '+body,'say',6500);}catch(e){}}
+ /* ---------------- standing: __R74's write path ONLY --------------- */
+ function miStanding(mid,steps){
+  try{if(window.__R74&&__R74.grant){
+   __R74.grant('mission:kuzzo:'+mid,[{s:'area',k:'spotland',r:1*steps,t:2*steps},
+                                     {s:'crew',k:'spotland',r:1*steps}]);
+  }}catch(e){}
+ }
+ /* ---------------- restore (lazy, order-independent, read-only) ---- */
+ function miRestore(){
+  if(MI.restored)return;MI.restored=true;
+  try{var raw=localStorage.getItem('dale.save.v1');if(!raw)return;
+   var p=JSON.parse(raw),sec=(p&&p.state&&p.state.sections)?p.state.sections.missions:null;
+   if(sec&&sec.version===1&&sec.data&&sec.data.chain==='kuzzo'){
+    var d=sec.data;
+    if(typeof d.next==='number'&&isFinite(d.next))MI.next=Math.max(0,Math.min(5,Math.floor(d.next)));
+    MI.metKuzzo=!!d.metKuzzo;MI.done=!!d.done||MI.next>=5;
+   }}catch(e){}
+ }
+ function miSaveSection(){
+  if(!miOn())return null; /* OFF: the shipped carry-over keeps any stored section verbatim */
+  miRestore();
+  try{return JSON.parse(JSON.stringify({chain:'kuzzo',next:MI.next,metKuzzo:MI.metKuzzo,done:MI.done}));}
+  catch(e){return null;}
+ }
+ /* ---------------- Kuzzo's intro pool: the mission line ------------ */
+ function miSyncPool(){
+  try{var p=LEADER_LINES.kuzzo.intro,i=p.indexOf(MI_TALK_LINE);
+   var want=miOn()&&MI.next===0&&!MI.done;
+   if(want&&i<0)p.push(MI_TALK_LINE);
+   if(!want&&i>=0)p.splice(i,1);}catch(e){}
+ }
+ /* ---------------- mission NPCs ------------------------------------ */
+ function miSpawnDaz(){
+  if(MI.dazFig)return;
+  var sp=miSpot('College Bank');if(!sp)return;
+  try{var fig=makeFigure(0x37404d,0x1c1e22,0xc9a189);
+   fig.position.set(sp.x+14,0,sp.z+10);scene.add(fig);
+   var lab=makeNameSprite('DAZ',areaById('spotland').color);
+   lab.position.set(sp.x+14,38,sp.z+10);scene.add(lab);
+   MI.dazFig=fig;MI.dazLabel=lab;}catch(e){MI.err='daz:'+String(e&&e.message||e);}
+ }
+ function miDespawnDaz(){
+  try{if(MI.dazFig){scene.remove(MI.dazFig);MI.dazFig=null;}}catch(e){}
+  try{if(MI.dazLabel){scene.remove(MI.dazLabel);MI.dazLabel=null;}}catch(e){}
+ }
+ function miSpawnVic(){
+  var sp=miSpot('College Bank');if(!sp)return false;
+  try{var a=areaById('norden');
+   var fig=makeFigure(parseInt(a.color.slice(1),16),0x1c1e22,0xc9a189);
+   fig.position.set(sp.x,0,sp.z);scene.add(fig);
+   rival={x:sp.x,z:sp.z,hp:100,maxHp:100,mesh:fig,areaId:'spotland',timer:99999,atkT:0,down:false,downT:0,__miVic:true};
+   var lab=makeNameSprite('VIC',a.color);lab.position.set(sp.x,38,sp.z);scene.add(lab);
+   MI.vicLabel=lab;
+   toast("Norden lad \u2014 \u2018Vic\u2019. That's him, on College Bank.");
+   sfx('rob');
+   return true;}catch(e){MI.err='vic:'+String(e&&e.message||e);return false;}
+ }
+ /* ---------------- runtime clear (complete / fail / park) ---------- */
+ function miClearRuntime(){
+  try{if(typeof sideJob!=='undefined'&&sideJob&&sideJob.__mi)sideJob=null;}catch(e){}
+  try{clearPin();}catch(e){}
+  try{hideProg();}catch(e){}
+  try{var dc=$('debtCard');if(dc)dc.style.display='none';}catch(e){}
+  miDespawnDaz();
+  try{if(MI.vicLabel){scene.remove(MI.vicLabel);MI.vicLabel=null;}}catch(e){}
+  try{if(typeof rival!=='undefined'&&rival&&rival.__miVic)clearRival();}catch(e){}
+  MI.job=null;
+ }
+ function miSetOffer(def){
+  MI.offer=def;MI.offerDay=(typeof S!=='undefined'&&S)?S.day:0;
+  if(def&&def.id===3)miSpawnDaz();
+ }
+ function miEnsureOffer(announce){
+  miRestore();
+  if(!miOn()||MI.done||MI.job||MI.next>=5){if(!MI.job)MI.offer=null;return;}
+  if(MI.next===0&&!MI.metKuzzo){MI.offer=null;return;}
+  var def=MI_DEFS[MI.next];
+  var fresh=!MI.offer||MI.offer.id!==def.id||MI.offerDay!==((typeof S!=='undefined'&&S)?S.day:0);
+  miSetOffer(def);
+  if(fresh&&announce)miText(def.intro);
+ }
+ /* ---------------- the mission gates ------------------------------- */
+ function miComplete(settlePay){
+  var def=MI_DEFS[MI.next];if(!def)return;
+  var job=MI.job;
+  var pay=def.pay,fightPaid=!!(job&&job.fightPaid);
+  if(def.id===2&&typeof settlePay==='number'){
+   /* the shipped chop branch hands jobDone max(60, 280-4*dmg) with its
+      own dmgD already computed — the mission scale is the same £4/pt
+      off a £300 base with a £150 floor, which is exactly
+      max(150, shippedPay+20) for every dmg (at the shipped £60 floor,
+      dmg>=55, the mission figure is under its own floor too) */
+   pay=Math.max(150,settlePay+20);}
+  MI.job=null; /* settle first: the clear below must not re-enter completion */
+  miClearRuntime();
+  S.cash+=pay;S.earned+=pay;
+  S.jobsToday.push('Mission: '+def.name+' +\u00A3'+pay);
+  miStanding(def.id,def.id===5?2:1);
+  MI.next++;MI.completions++;
+  var outro=def.id===3?(fightPaid?def.outroFight:def.outroPaid):def.outro;
+  toast('Mission done: '+def.name+' +\u00A3'+pay);sfx('good');
+  miSay(outro);
+  if(MI.next>=5){MI.done=true;MI.offer=null;miText(MI_CHAIN_TEXT);}
+  else{miSetOffer(MI_DEFS[MI.next]);miText(MI_DEFS[MI.next].intro);}
+  miSyncPool();
+  try{updateObjective();updateHUD();}catch(e){}
+ }
+ function miFail(why){
+  var def=MI_DEFS[MI.next];if(!def||!MI.job)return;
+  MI.job=null;
+  miClearRuntime();
+  S.jobsToday.push('Mission: '+def.name+' (failed)');
+  MI.fails++;
+  if(why)toast(why);
+  miText(MI_FAIL_TEXT);
+  miSetOffer(def);
+  try{updateObjective();updateHUD();}catch(e){}
+ }
+ function miDeny(msg){try{toast(msg);sfx('bad');}catch(e){}}
+ /* ---------------- accept (the JOBS-row tap calls this) ------------ */
+ function miAccept(){
+  if(!miOn()||!MI.offer||MI.job)return false;
+  if(typeof custody!=='undefined'&&custody){miDeny('Not now \u2014 you\u2019re in custody.');return false;}
+  if(typeof job!=='undefined'&&job){miDeny('Finish the drop first \u2014 one job at a time.');return false;}
+  if(typeof sideJob!=='undefined'&&sideJob){miDeny('You\u2019re on a job already \u2014 one at a time.');return false;}
+  var def=MI.offer;
+  if(def.kind==='courier'){
+   var a=miRehanPt(),b=miSpot('Spotland Road');if(!b)return false;
+   sideJob={type:'courier',phase:'pickup',a:{x:a.x,z:a.z},b:{x:b.x,z:b.z},timeLeft:150,payout:150,__mi:true,mid:1};
+   setPin(a.x,a.z,0x2ec4b6);MI.job={mid:1,kind:'side'};
+  }else if(def.kind==='chop'){
+   sideJob={type:'chop',phase:'pickup',a:{x:-1700,z:-2580},b:{x:-3580,z:3740},timeLeft:150,dmgStart:0,__mi:true,mid:2};
+   setPin(-1700,-2580,0x2ec4b6);MI.job={mid:2,kind:'side'};
+  }else if(def.kind==='debt'){
+   var sp=miSpot('College Bank');if(!sp)return false;
+   sideJob={type:'debt',spot:sp,arrived:false,__mi:true,mid:3};
+   setPin(sp.x,sp.z,0x2ec4b6);MI.job={mid:3,kind:'side',fightPaid:false};
+  }else if(def.kind==='drops'){
+   var s1=miSpot('Ings Lane, Spotland'),s2=miSpot('Edenfield Road, Spotland'),s3=miSpot('College Bank');
+   if(!s1||!s2||!s3)return false;
+   MI.job={mid:4,kind:'drops',idx:0,timeLeft:240,
+    stops:[{x:s1.x,z:s1.z,street:s1.street},{x:s2.x,z:s2.z,street:s2.street},{x:s3.x,z:s3.z,street:s3.street}]};
+   setPin(s1.x,s1.z,0x2ec4b6);
+  }else if(def.kind==='fight'){
+   var sp5=miSpot('College Bank');if(!sp5)return false;
+   MI.job={mid:5,kind:'fight',vicSpawned:false,vicDown:false};
+   setPin(sp5.x,sp5.z,0x2ec4b6);
+  }else return false;
+  MI.offer=null;
+  try{closePhone();updateObjective();}catch(e){}
+  toast('Mission on: '+def.name);sfx('good');
+  return true;
+ }
+ /* ---------------- hooks (delegate first / observe after) ---------- */
+ try{ /* completion + failure gates: a tagged sideJob settles as a mission */
+  var miOrigJobDone=jobDone;
+  jobDone=function(text,pay){
+   try{if(miOn()&&MI.job&&typeof sideJob!=='undefined'&&sideJob&&sideJob.__mi){miComplete(pay);return;}}catch(e){MI.err='jobDone:'+String(e&&e.message||e);}
+   return miOrigJobDone(text,pay);
+  };
+  var miOrigJobFail=jobFail;
+  jobFail=function(text){
+   try{if(miOn()&&MI.job&&typeof sideJob!=='undefined'&&sideJob&&sideJob.__mi){
+    miFail('Mission failed: '+MI_DEFS[MI.next].name);return;}}catch(e){MI.err='jobFail:'+String(e&&e.message||e);}
+   return miOrigJobFail(text);
+  };
+  var miOrigJobDoneDebt=jobDoneDebt;
+  jobDoneDebt=function(){
+   try{if(miOn()&&MI.job&&MI.job.mid===3){MI.job.fightPaid=true;miComplete();return;}}catch(e){MI.err='jobDoneDebt:'+String(e&&e.message||e);}
+   return miOrigJobDoneDebt();
+  };
+  var miOrigResolveDebt=resolveDebt;
+  resolveDebt=function(kind){
+   var wasMission=false;
+   try{wasMission=miOn()&&MI.job&&MI.job.mid===3&&typeof sideJob!=='undefined'&&sideJob&&sideJob.__mi;}catch(e){}
+   var r=miOrigResolveDebt(kind);
+   try{if(wasMission&&MI.job&&MI.job.mid===3&&typeof sideJob!=='undefined'&&!sideJob){
+    /* the intimidate-fail path retired the sideJob and spawned the
+       debt rival: Daz steps into that rival — his own figure goes */
+    miDespawnDaz();}}catch(e){}
+   return r;
+  };
+ }catch(e){MI.err='gates:'+String(e&&e.message||e);}
+ try{ /* exclusivity: no side offers during a mission; no side-job
+         accept during a mission either (enforced both ways) */
+  var miOrigMakeJobOffer=makeJobOffer;
+  makeJobOffer=function(){
+   try{if(miOn()&&MI.job)return;}catch(e){}
+   return miOrigMakeJobOffer();
+  };
+  var miOrigAcceptJob=acceptJob;
+  acceptJob=function(){
+   try{if(miOn()&&MI.job){miDeny('Finish the mission first \u2014 one job at a time.');return;}}catch(e){}
+   return miOrigAcceptJob();
+  };
+ }catch(e){MI.err='excl:'+String(e&&e.message||e);}
+ try{ /* metKuzzo + the mission line, from the shipped talk flow */
+  var miOrigLeaderInteract=leaderInteract;
+  leaderInteract=function(n,kind){
+   var r=miOrigLeaderInteract(n,kind);
+   try{
+    if(miOn()&&n&&n.leaderRef&&n.leaderRef.def&&n.leaderRef.def.id==='kuzzo'){
+     if(!MI.metKuzzo){MI.metKuzzo=true;}
+     if(MI.next===0&&!MI.job&&!MI.done){
+      var hadOffer=!!MI.offer;
+      miEnsureOffer(false);
+      if(MI.offer&&!hadOffer)miText(MI.offer.intro);
+      if(kind==='chat')bubble(n.leaderRef.fig,MI_TALK_LINE);
+     }
+     miSyncPool();
+    }}catch(e){MI.err='talk:'+String(e&&e.message||e);}
+   return r;
+  };
+ }catch(e){MI.err='talkhook:'+String(e&&e.message||e);}
+ try{ /* custody + day boundary fail an active mission cleanly */
+  var miOrigArrest=arrest;
+  arrest=function(reasons){
+   var had=false;try{had=miOn()&&!!MI.job;}catch(e){}
+   var r=miOrigArrest(reasons);
+   try{if(had&&MI.job)miFail('Busted \u2014 mission failed: '+MI_DEFS[MI.next].name);}catch(e){MI.err='arrest:'+String(e&&e.message||e);}
+   return r;
+  };
+  var miOrigStartDay=startDay;
+  startDay=function(first){
+   var had=false;try{had=miOn()&&!!MI.job;}catch(e){}
+   try{if(had){MI.job=null;miClearRuntime();MI.fails++;}}catch(e){}
+   var r=miOrigStartDay(first);
+   try{if(miOn()){
+    if(had){miSetOffer(MI_DEFS[MI.next]);miText(MI_FAIL_TEXT);}
+    else miEnsureOffer(true);
+    miSyncPool();
+   }}catch(e){MI.err='startDay:'+String(e&&e.message||e);}
+   return r;
+  };
+  var miOrigRobbery=robbery;
+  robbery=function(){
+   var r=miOrigRobbery();
+   try{if(miOn()&&MI.job&&MI.job.mid===5)miFail('Downed \u2014 mission failed: Firm Business');}catch(e){MI.err='robbery:'+String(e&&e.message||e);}
+   return r;
+  };
+  var miOrigClearRival=clearRival;
+  clearRival=function(){
+   var vicDown=false;
+   try{vicDown=!!(typeof rival!=='undefined'&&rival&&rival.__miVic&&rival.down);}catch(e){}
+   var r=miOrigClearRival();
+   try{if(vicDown&&miOn()&&MI.job&&MI.job.mid===5&&!MI.job.vicDown){MI.job.vicDown=true;miComplete();}}catch(e){MI.err='clearRival:'+String(e&&e.message||e);}
+   return r;
+  };
+ }catch(e){MI.err='failhooks:'+String(e&&e.message||e);}
+ try{ /* the chain perk: Spotland Line drops +10% (spec option (a)) —
+         makeCall is the shipped drop-pay calculation; its result is
+         ringing.payout, which the call card shows and completeJob pays */
+  var miOrigMakeCall=makeCall;
+  makeCall=function(){
+   var r=miOrigMakeCall();
+   try{if(miOn()&&MI.done&&typeof ringing!=='undefined'&&ringing&&ringing.area&&ringing.area.id==='spotland'){
+    ringing.payout=Math.round(ringing.payout*1.1);}}catch(e){}
+   return r;
+  };
+ }catch(e){MI.err='perk:'+String(e&&e.message||e);}
+ try{ /* objective line + guide chevrons: mission precedence */
+  var miOrigUpdateObjective=updateObjective;
+  updateObjective=function(){
+   var r=miOrigUpdateObjective();
+   try{
+    if(miOn()&&MI.job){
+     var def=MI_DEFS[MI.next],o=$('objLine');
+     if(o){var extra='',tl='';
+      if(MI.job.kind==='drops'){extra=' \u2014 drop '+(MI.job.idx+1)+'/3: '+MI.job.stops[MI.job.idx].street;tl=' \u00B7 <b>'+Math.ceil(MI.job.timeLeft)+'s</b>';}
+      else if(MI.job.kind==='fight'){extra=' \u2014 College Bank. Sort Vic out.';}
+      else if(typeof sideJob!=='undefined'&&sideJob&&sideJob.__mi){
+       if(sideJob.type==='courier')extra=sideJob.phase==='pickup'?' \u2014 pick up from Rehan':' \u2014 deliver to Spotland Road';
+       else if(sideJob.type==='chop')extra=sideJob.phase==='pickup'?' \u2014 get the motor on Spotland Road':' \u2014 Castleton lock-up, keep it clean';
+       else if(sideJob.type==='debt')extra=' \u2014 Daz, College Bank';
+       if(sideJob.timeLeft)tl=' \u00B7 <b>'+Math.ceil(sideJob.timeLeft)+'s</b>';
+      }
+      o.innerHTML='\uD83C\uDFAF <b>MISSION:</b> '+def.name+extra+tl;
+     }
+    }}catch(e){}
+   return r;
+  };
+  var miOrigUpdateMarkers=updateMarkers;
+  updateMarkers=function(fx,fz){
+   var r=miOrigUpdateMarkers(fx,fz);
+   try{
+    if(miOn()&&MI.job&&!(typeof job!=='undefined'&&job)&&!(typeof sideJob!=='undefined'&&sideJob)){
+     var tx=null,tz=null;
+     if(MI.job.kind==='drops'){var st=MI.job.stops[MI.job.idx];tx=st.x;tz=st.z;}
+     else if(MI.job.kind==='fight'){var sp=miSpot('College Bank');if(sp){tx=sp.x;tz=sp.z;}}
+     if(tx!==null){ /* the shipped trail, repainted at the mission pin */
+      var showGuide=dist2(fx,fz,tx,tz)>70;
+      for(var k=0;k<guideChevs.length;k++){var ch=guideChevs[k];
+       if(!showGuide){ch.visible=false;continue;}
+       var f=.16+k*.15,gx=fx+(tx-fx)*f,gzz=fz+(tz-fz)*f;
+       if(dist2(fx,fz,gx,gzz)>430){ch.visible=false;continue;}
+       ch.visible=true;ch.position.set(gx,1.7,gzz);
+       ch.rotation.z=Math.atan2(tx-fx,tz-fz)-Math.PI/2;
+       ch.material.color.setHex(0xe8b33a);
+       ch.material.opacity=.42+.33*Math.sin(gameT*5-k*.9);
+      }
+     }
+    }}catch(e){}
+   return r;
+  };
+ }catch(e){MI.err='objhooks:'+String(e&&e.message||e);}
+ try{ /* the JOBS tab: a distinct, tappable MISSION row (delegate-first
+         renderPhone wrap — the __ML70 precedent) */
+  var miOrigRenderPhone=renderPhone;
+  renderPhone=function(){
+   var r=miOrigRenderPhone();
+   try{
+    if(miOn()&&typeof phoneView!=='undefined'&&phoneView==='jobs'){
+     var m=$('bigMain');if(m){
+      if(MI.job){
+       m.textContent=m.textContent+'\n\nMISSION ACTIVE:\n'+MI_DEFS[MI.next].name+' \u2014 THE FIRM '+(MI.next+1)+'/5\nFollow the teal pin.';
+      }else if(MI.offer){
+       var info=document.createElement('span');
+       info.textContent='\n\nMISSION \u2014 KUZZO \u00B7 Spotland Firm\n'+MI.offer.risk+'\nTHE FIRM \u2014 '+MI.next+'/5 done';
+       var row=document.createElement('span');
+       row.className='mi sel';row.id='mi94JobRow';
+       row.textContent='> MISSION: '+MI.offer.name+' \u00B7 \u00A3'+MI.offer.pay+' \u2014 TAKE';
+       row.onclick=function(){miAccept();try{renderPhone();}catch(e){}};
+       m.appendChild(info);m.appendChild(document.createTextNode('\n'));m.appendChild(row);
+      }else if(MI.done){
+       m.textContent=m.textContent+'\n\nTHE FIRM \u2014 COMPLETE\nKuzzo looks after you in Spotland.\nLine drops here pay +10%.';
+      }else{
+       m.textContent=m.textContent+'\n\nTHE FIRM \u2014 '+MI.next+'/5'+(MI.next===0&&!MI.metKuzzo?'\nWork starts with a word.\nKuzzo \u2014 Ings Lane, Spotland.':'');
+      }
+     }
+    }}catch(e){MI.err='phone:'+String(e&&e.message||e);}
+   return r;
+  };
+ }catch(e){MI.err='phonehook:'+String(e&&e.message||e);}
+ /* ---------------- the layer tick: M4 drops, Vic, housekeeping ----- */
+ setInterval(function(){
+  try{
+   if(!miOn())return;
+   miRestore();
+   if(typeof S==='undefined'||!S||!S.playing)return;
+   if(MI.lastGT===0)MI.lastGT=gameT;
+   var dtg=gameT-MI.lastGT;MI.lastGT=gameT;
+   if(S.paused){return;}
+   if(dtg<0)dtg=0;if(dtg>.35)dtg=.35;
+   if(!MI.job){miEnsureOffer(false);miSyncPool();return;}
+   var j=MI.job;
+   if(j.kind==='drops'){
+    j.timeLeft-=dtg;
+    if(j.timeLeft<0){miFail('Out of time \u2014 mission failed: Three Drops');return;}
+    var st=j.stops[j.idx];
+    if(dist2(player.x,player.z,st.x,st.z)<40){
+     addHeat(4); /* small, per stop — the shipped swipe-scale heat */
+     j.idx++;
+     if(j.idx>=3){miComplete();return;}
+     setPin(j.stops[j.idx].x,j.stops[j.idx].z,0x2ec4b6);
+     toast('Drop '+j.idx+'/3 done. Next \u2014 '+j.stops[j.idx].street+'.');
+     try{updateObjective();}catch(e){}
+    }
+   }else if(j.kind==='fight'){
+    if(!j.vicSpawned&&!(typeof rival!=='undefined'&&rival)){
+     var sp=miSpot('College Bank');
+     if(sp&&dist2(player.x,player.z,sp.x,sp.z)<300){if(miSpawnVic())j.vicSpawned=true;}
+    }
+    if(MI.vicLabel&&typeof rival!=='undefined'&&rival&&rival.__miVic){
+     MI.vicLabel.position.set(rival.x,38,rival.z);
+     MI.vicLabel.visible=dist2(player.x,player.z,rival.x,rival.z)<300;
+    }
+    if(j.vicSpawned&&typeof rival!=='undefined'&&rival&&rival.__miVic&&rival.down&&!j.vicDown){
+     j.vicDown=true;miComplete();return;
+    }
+   }
+  }catch(e){MI.err='tick:'+String(e&&e.message||e);}
+ },200);
+ /* ---------------- setEnabled / state / audit ---------------------- */
+ function miSetEnabled(on){
+  on=!!on;missionsEnabled=on;miSetPref(on);
+  try{
+   if(!on){ /* park safely: runtime cleared, chain progress kept */
+    if(MI.job){MI.job=null;miClearRuntime();}
+    MI.offer=null;miDespawnDaz();
+   }else{miEnsureOffer(false);}
+   miSyncPool();
+  }catch(e){MI.err='setEnabled:'+String(e&&e.message||e);}
+  return miOn();
+ }
+ function miState(){
+  miRestore();
+  var cb=miSpot('College Bank'),sr=miSpot('Spotland Road');
+  return {version:MI.ver,on:miOn(),err:MI.err,next:MI.next,metKuzzo:MI.metKuzzo,done:MI.done,
+   offer:MI.offer?{id:MI.offer.id,name:MI.offer.name,pay:MI.offer.pay}:null,
+   job:MI.job?{mid:MI.job.mid,kind:MI.job.kind,idx:(MI.job.idx||0),timeLeft:(MI.job.timeLeft!==undefined?Math.round(MI.job.timeLeft):null),
+               vicSpawned:!!MI.job.vicSpawned,vicDown:!!MI.job.vicDown}:null,
+   daz:!!MI.dazFig,completions:MI.completions,fails:MI.fails,
+   anchors:{rehan:miRehanPt(),collegeBank:cb?{x:cb.x,z:cb.z}:null,spotlandRoad:sr?{x:sr.x,z:sr.z}:null,
+            kuzzo:(function(){var L=(typeof leaderById==='function')?leaderById('kuzzo'):null;return L?{x:Math.round(L.x),z:Math.round(L.z)}:null;})()}};
+ }
+ function miAudit(){
+  var lines=[MI_TALK_LINE,MI_FAIL_TEXT,MI_CHAIN_TEXT],i;
+  for(i=0;i<MI_DEFS.length;i++){var d=MI_DEFS[i];
+   lines.push(d.intro);if(d.outro)lines.push(d.outro);
+   if(d.outroPaid)lines.push(d.outroPaid);if(d.outroFight)lines.push(d.outroFight);}
+  var joined=lines.join('\n');
+  return {defs:MI_DEFS.map(function(d){return {id:d.id,name:d.name,kind:d.kind,pay:d.pay};}),
+   lines:lines,kasmiraCount:(joined.split('Kasmir'+'a').length-1), /* needle assembled so the word itself stays grep-clean: it occurs once, in the M5 outro */
+   hooks:['jobDone','jobFail','jobDoneDebt','resolveDebt','makeJobOffer','acceptJob',
+          'leaderInteract','arrest','startDay','robbery','clearRival','makeCall',
+          'updateObjective','updateMarkers','renderPhone']};
+ }
+ /* ---------------- init -------------------------------------------- */
+ try{miRestore();miSyncPool();}catch(e){MI.err='init:'+String(e&&e.message||e);missionsEnabled=false;}
+ /* ---------------- Settings row (the __RT93 idiom) ----------------- */
+ var miRowTries=0;
+ var miRowIv=setInterval(function(){
+  miRowTries++;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card){if(miRowTries>30)clearInterval(miRowIv);return;}
+  clearInterval(miRowIv);
+  if(document.getElementById('mi94Row'))return;
+  var anchor=card.querySelector('[data-close]');
+  var row=document.createElement('div');
+  row.className='setRow';row.id='mi94Row';
+  row.innerHTML='<div class="setRowMain"><div class="setRowLabel">Mission chains \u2014 The Firm</div><div class="setRowNote">The v30.94 pilot: Kuzzo\u2019s five-mission chain in Spotland, run on the game\u2019s own side-job engine. Off = no mission offers; chain progress is kept.</div></div><div class="setRowState" id="mi94State"></div><button class="setBtn" id="mi94Btn" type="button"></button>';
+  if(anchor)card.insertBefore(row,anchor);else card.appendChild(row);
+  var st=document.getElementById('mi94State'),btn=document.getElementById('mi94Btn');
+  function paint94(){if(st)st.textContent=miOn()?'ON':'OFF';if(btn)btn.textContent=miOn()?'Turn off':'Turn on';}
+  btn.addEventListener('click',function(){window.__MI94.setEnabled(!miOn());paint94();});
+  paint94();
+ },900);
+ window.__MI94={version:'v30.94',on:miOn,setEnabled:miSetEnabled,state:miState,
+  saveSection:miSaveSection,audit:miAudit};
+})();}
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -33081,7 +33665,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3093={version:'v30.93'};</script>
+<script>window.__V3094={version:'v30.94'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
