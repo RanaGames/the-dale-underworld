@@ -11162,6 +11162,229 @@ var P5={night:0,hour:12,wet:0,tier:'full',errs:0};
  window.__GFX16={tier:gfxTier,apply:gfxApply,shadowMats:function(){return GFX16.shadowMats.length;},pixelCap:function(){return gfxTier()===1?1.5:1.15;},version:'v30.16'};
 })();
 
+/* ================= v30.97 — CINEMATIC GRAPHICS GRADE (__CG97) =================
+   House-compliant adoption of the ChatGPT v30.95C "Cinematic Graphics"
+   pass (see CINEMATIC-AUDIT.md §5), re-based onto v30.96 and rebuilt as
+   ONE flag-gated layer. Presentation only: a compositor colour grade +
+   vignette over the 3D view, wet-asphalt sheen decals (fake sheen — no
+   reflections, no env map, no render target) and headlight ground-beam
+   decals at night. No shadow maps, no new lights, no composer, no
+   tone-mapping / fog / pixel-ratio change. Effects run only on the
+   shipped High graphics tier (__GFX16.tier()===1); on Balanced they are
+   off, exactly as the source variant behaved.
+   Kill key: localStorage dale.cin97.v1 = '0'; default enabled.
+   OFF — at boot or toggled mid-session from the Settings row
+   "Cinematic grade" — removes everything: the render wrap is unwound,
+   the decals/beams leave the scene, the layer's own style element is
+   removed and the canvas filter is cleared, so the game is the shipped
+   v30.96 again. No save section; the layer writes nothing but its own
+   kill key, and only when the row is toggled. */
+if(!window.__CG97){(function(){
+ 'use strict';
+ var KEY='dale.cin97.v1';
+ var GRADE='contrast(1.085) saturate(.90) brightness(.985)';
+ var CG={version:'v30.97',errors:[],frames:0,wetInstances:0,lastCell:'',lastTier:-1};
+ var sessionOverride=null,enabledNow=false,installed=false,active=false,inChain=false;
+ var bootRender=renderer.render,chainOrig=null;
+ var gameEl=document.getElementById('game');
+ var lim=22,mm=new THREE.Object3D();
+ var puddles=null,puddleMat=null,puddleGeo=null,puddleTex=null;
+ var headG=null,headMat=null,headTex=null,beamGeo=null;
+ var styleEl=null,row=null,err=null;
+ function on(){try{var v=localStorage.getItem(KEY);if(v!==null)return v!=='0';}catch(e){}
+  return sessionOverride===null?true:sessionOverride;}
+ function radialTexture(){
+  var cv=document.createElement('canvas');cv.width=cv.height=96;
+  var g=cv.getContext('2d');var rg=g.createRadialGradient(48,48,6,48,48,47);
+  rg.addColorStop(0,'rgba(226,239,244,.88)');
+  rg.addColorStop(.40,'rgba(178,205,220,.64)');
+  rg.addColorStop(.76,'rgba(133,166,185,.21)');
+  rg.addColorStop(1,'rgba(120,154,169,0)');
+  g.fillStyle=rg;g.fillRect(0,0,96,96);
+  var t=new THREE.CanvasTexture(cv);t.encoding=THREE.sRGBEncoding;return t;
+ }
+ function headlightsTexture(){
+  var cv=document.createElement('canvas');cv.width=128;cv.height=256;
+  var g=cv.getContext('2d');
+  var x=g.createRadialGradient(64,224,6,64,130,156);
+  x.addColorStop(0,'rgba(255,248,204,0)');
+  x.addColorStop(.22,'rgba(255,243,186,.45)');
+  x.addColorStop(.62,'rgba(255,232,160,.22)');
+  x.addColorStop(1,'rgba(255,225,150,0)');
+  g.fillStyle=x;g.fillRect(0,0,128,256);
+  var t=new THREE.CanvasTexture(cv);t.encoding=THREE.sRGBEncoding;return t;
+ }
+ function ensureMeshes(){
+  if(puddles&&headG){
+   if(puddles.parent!==scene)scene.add(puddles);
+   if(headG.parent!==scene)scene.add(headG);
+   return;
+  }
+  try{
+   if(!puddles&&THREE.InstancedMesh){
+    puddleTex=radialTexture();
+    puddleGeo=new THREE.CircleGeometry(1,16);puddleGeo.rotateX(-Math.PI/2);
+    puddleMat=new THREE.MeshBasicMaterial({map:puddleTex,color:0x9cb6bc,
+     transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,
+     polygonOffset:true,polygonOffsetFactor:-2});
+    puddles=new THREE.InstancedMesh(puddleGeo,puddleMat,lim);
+    puddles.name='CG97_local_wet_asphalt';puddles.frustumCulled=false;puddles.renderOrder=2;
+    puddles.visible=false;scene.add(puddles);
+   }
+   if(!headG){
+    headTex=headlightsTexture();
+    headMat=new THREE.MeshBasicMaterial({map:headTex,transparent:true,
+     opacity:0,depthWrite:false,side:THREE.DoubleSide,
+     polygonOffset:true,polygonOffsetFactor:-2});
+    beamGeo=new THREE.PlaneGeometry(20,78);
+    headG=new THREE.Group();headG.name='CG97_headlamp_ground_beams';
+    for(var n=0;n<2;n++){
+     var beam=new THREE.Mesh(beamGeo,headMat);
+     beam.rotation.x=-Math.PI/2;
+     beam.position.set(n?8:-8,0,-43);
+     beam.renderOrder=3;headG.add(beam);
+    }
+    headG.visible=false;headG.position.y=.66;scene.add(headG);
+   }
+  }catch(e){if(CG.errors.length<5)CG.errors.push('setup: '+String(e));}
+ }
+ function numberHash(a,b,c){var n=Math.sin(a*127.1+b*311.7+c*74.7)*43758.5453;return n-Math.floor(n);}
+ function repopulate(){
+  if(!puddles||!player)return;
+  var cx=Math.floor(player.x/155),cz=Math.floor(player.z/155),cell=cx+','+cz;
+  if(cell===CG.lastCell)return;CG.lastCell=cell;
+  var nr=0;
+  for(var i=0;i<lim;i++){
+   var t=(i+numberHash(cx,cz,i)*.35)/lim*Math.PI*2;
+   var d=35+Math.sqrt((i+1)/lim)*225;
+   var x=player.x+Math.cos(t)*d,z=player.z+Math.sin(t)*d;
+   x+=numberHash(cx+i,cz,9)*24-12;
+   z+=numberHash(cx,cz+i,13)*24-12;
+   var ok=false;try{ok=onRoad(x,z);}catch(e){}
+   mm.position.set(x,.665,z);
+   mm.rotation.set(0,numberHash(cx,cz,i+91)*Math.PI,0);
+   if(ok){var w=10+numberHash(cx,cz,i+33)*18;
+    mm.scale.set(w,1,3.6+numberHash(cx,cz,i+59)*5.6);nr++;
+   }else{mm.scale.set(.001,.001,.001);}
+   mm.updateMatrix();puddles.setMatrixAt(i,mm.matrix);
+  }
+  puddles.instanceMatrix.needsUpdate=true;CG.wetInstances=nr;
+ }
+ function highQuality(){try{return !window.__GFX16||window.__GFX16.tier()===1;}catch(e){return true;}}
+ function updateLook(){
+  CG.frames++;
+  if(!gameEl)return;
+  ensureMeshes();
+  var high=highQuality(),playing=!!(S&&S.playing),wet=(typeof P5!=='undefined'&&P5)?(P5.wet||0):0;
+  var night=(typeof P5!=='undefined'&&P5)?(P5.night||0):0;
+  var onNow=enabledNow&&high;
+  if(CG.lastTier!==(onNow?1:0)){
+   CG.lastTier=onNow?1:0;
+   gameEl.classList.toggle('dale-cinematic',onNow);
+   renderer.domElement.style.filter=onNow?GRADE:'none';
+   document.body.classList.toggle('dale-cinematic',onNow);
+  }
+  if(puddles){
+   var show=onNow&&playing&&wet>.14;
+   puddles.visible=show;
+   if(show){repopulate();puddleMat.opacity=Math.min(.33,.08+wet*.25);}
+  }
+  if(headG){
+   var drive=playing&&document.body.classList.contains('driving');
+   var lit=onNow&&drive&&night>.14;
+   headG.visible=lit;
+   if(lit){
+    headG.position.set(player.x,.665,player.z);
+    headG.rotation.y=-player.h;
+    headMat.opacity=Math.min(.29,.10+night*.22);
+   }
+  }
+ }
+ function cgRender(){
+  if(active){try{updateLook();}catch(e){if(CG.errors.length<5)CG.errors.push('render: '+String(e));}}
+  return chainOrig.apply(this,arguments);
+ }
+ function install(){
+  if(installed)return;
+  try{
+   styleEl=document.createElement('style');styleEl.id='cg97Style';
+   styleEl.textContent='#game.dale-cinematic{isolation:isolate;}\n'+
+    '#game.dale-cinematic::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:1;'+
+    'background:radial-gradient(ellipse 79% 71% at 50% 48%,transparent 45%,rgba(5,9,13,.18) 83%,rgba(2,4,8,.32) 100%),'+
+    'linear-gradient(180deg,rgba(9,17,25,.05) 0%,transparent 22%,transparent 74%,rgba(4,8,12,.13) 100%);}';
+   (document.head||document.body).appendChild(styleEl);
+   if(!inChain){chainOrig=renderer.render;renderer.render=cgRender;inChain=true;}
+   active=true;installed=true;enabledNow=true;
+  }catch(e){err='install: '+String(e&&e.message||e);uninstall();}
+ }
+ function uninstall(){
+  active=false;enabledNow=false;
+  if(inChain&&renderer.render===cgRender){renderer.render=chainOrig;inChain=false;}
+  if(puddles){if(puddles.parent)puddles.parent.remove(puddles);puddles=null;}
+  if(headG){if(headG.parent)headG.parent.remove(headG);headG=null;}
+  if(puddleGeo){puddleGeo.dispose();puddleGeo=null;}
+  if(beamGeo){beamGeo.dispose();beamGeo=null;}
+  if(puddleMat){puddleMat.dispose();puddleMat=null;}
+  if(headMat){headMat.dispose();headMat=null;}
+  if(puddleTex){puddleTex.dispose();puddleTex=null;}
+  if(headTex){headTex.dispose();headTex=null;}
+  if(styleEl){styleEl.remove();styleEl=null;}
+  if(gameEl)gameEl.classList.remove('dale-cinematic');
+  document.body.classList.remove('dale-cinematic');
+  try{renderer.domElement.style.filter='';}catch(e){}
+  CG.lastTier=-1;CG.lastCell='';CG.wetInstances=0;installed=false;
+ }
+ function paint(){
+  var s=document.getElementById('cg97SetState'),b=document.getElementById('cg97SetBtn');
+  if(s)s.textContent=on()?'On':'Off';
+  if(b)b.textContent=on()?'Turn off':'Turn on';
+ }
+ function installSetting(){
+  if(row)return true;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return false;
+  row=document.createElement('div');row.className='setRow';row.id='cg97SetRow';
+  var main=document.createElement('div');main.className='setRowMain';
+  var label=document.createElement('div');label.className='setRowLabel';label.textContent='Cinematic grade';
+  var note=document.createElement('div');note.className='setRowNote';
+  note.textContent='Colour grade, vignette, wet-road sheen and headlight beams over the 3D view (High graphics setting only). Off removes them completely.';
+  main.appendChild(label);main.appendChild(note);row.appendChild(main);
+  var state=document.createElement('span');state.className='setState';state.id='cg97SetState';
+  row.appendChild(state);
+  var b=document.createElement('button');b.type='button';b.className='setBtn';b.id='cg97SetBtn';
+  b.addEventListener('click',function(){setEnabled(!on());});row.appendChild(b);
+  var last=card.querySelector('[data-close]');card.insertBefore(row,last||null);
+  paint();
+  return true;
+ }
+ function setEnabled(value){
+  sessionOverride=!!value;
+  try{localStorage.setItem(KEY,value?'1':'0');}catch(e){err='storage: '+String(e&&e.message||e);}
+  if(on())install();else uninstall();
+  paint();return on();
+ }
+ try{
+  if(!installSetting()){
+   var tries=0,iv=setInterval(function(){tries++;if(installSetting()||tries>40)clearInterval(iv);},300);
+  }
+  if(on())install();
+ }catch(e){err='boot: '+String(e&&e.message||e);uninstall();}
+ window.__CG97={version:'v30.97',on:on,setEnabled:setEnabled,
+  state:function(){return {version:CG.version,enabled:on(),installed:installed,active:active,
+   inChain:inChain,renderOnTop:renderer.render===cgRender,renderIsBoot:renderer.render===bootRender,
+   stylePresent:!!document.getElementById('cg97Style'),
+   classOn:gameEl?gameEl.classList.contains('dale-cinematic'):null,
+   filter:renderer.domElement.style.filter||'',
+   puddles:!!puddles,puddlesInScene:!!(puddles&&puddles.parent===scene),
+   puddlesVisible:!!(puddles&&puddles.visible),
+   beams:!!headG,beamsInScene:!!(headG&&headG.parent===scene),
+   beamsVisible:!!(headG&&headG.visible),
+   wetInstances:CG.wetInstances,tier:CG.lastTier,frames:CG.frames,
+   gfxTier:(window.__GFX16&&__GFX16.tier)?__GFX16.tier():null,
+   errors:CG.errors.slice(),err:err};}};
+})();}
+/* ================= END v30.97 __CG97 ================= */
+
 /* ================= INIT ================= */
 /* ================= R1 (v30.14) — CHUNKED ACTIVATION (plan §5.5) =================
    The world is now ~9x the shipped area; per-frame cost near the player is
@@ -33787,7 +34010,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3096={version:'v30.96'};</script>
+<script>window.__V3097={version:'v30.97'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
