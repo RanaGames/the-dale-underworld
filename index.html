@@ -33249,6 +33249,147 @@ if(!window.__MI94){ (function(){
   saveSection:miSaveSection,audit:miAudit};
 })();}
 
+/* ================= v30.95 — FIGHTING PROGRAMME STAGE 2A: KICK (__FK95) =================
+   Append-only layer INSIDE the shipped main IIFE to reach its scoped combat
+   engine, without changing any original function's text or data tables.
+   Kill key: localStorage dale.fightingKick.v1 = '0'; default enabled.
+   OFF restores the ORIGINAL combatApplyHit function reference, removes the
+   extra action button, and makes K a no-op. No new persistent save section.
+   Kicks use the shipped fist swing/state machine/hit detection, cooldown,
+   chain, stamina, defense, heat and animation data. No invented damage path.
+   Scope: this substage wires the already-baked kickR/kickL clips ONLY;
+   grapple, finishers and environment combat are subsequent stages. */
+if(!window.__FK95){(function(){
+ 'use strict';
+ var KEY='dale.fightingKick.v1',originalHit=combatApplyHit;
+ var activeSwing=-1,kickHit=false,kickSide=0,pressCount=0,hits=0,denied=0;
+ var btn=null,row=null,live=false,err=null,sessionOverride=null;
+ function on(){try{var val=localStorage.getItem(KEY);if(val!==null)return val!=='0';}catch(e){}
+  return sessionOverride===null?true:sessionOverride;}
+ function wasBlocked(){return !!(pReact.staggerT>0||pReact.kdT>0||combat.blockStunT>0||
+  combat.dodgeT>0||combat.f5Grab||combat.f5GrabRecoverT>0||combat.f5Charge||
+  combat.phase!=='idle'||combat.hitStopT>0);}
+ function validContext(){return !!(S&&S.playing&&!S.paused&&footMode&&
+  !document.hidden&&!(typeof phoneOpen!=='undefined'&&phoneOpen)&&
+  !document.querySelector('.screen.on'));}
+ function kickedHit(h,f5Factor){
+  /* This wrapper delegates to the original collision/reaction/economy
+     pathway. Only a kick swing can enter its one-target gate; all ordinary
+     fists, other weapons, bat multi-hit, police and custody are untouched. */
+  if(!on()||activeSwing!==combat.swingId||S.weapon==='bat')
+   return originalHit.apply(this,arguments);
+  if(kickHit)return;
+  kickHit=true;hits++;
+  return originalHit.apply(this,arguments);
+ }
+ function hook(){
+  if(live)return;
+  originalHit=combatApplyHit;
+  combatApplyHit=kickedHit;
+  live=true;
+ }
+ function unhook(){
+  if(live&&combatApplyHit===kickedHit)combatApplyHit=originalHit;
+  live=false;activeSwing=-1;kickHit=false;
+  try{
+   if(player&&player.fig&&player.fig.userData&&player.fig.userData.fa){
+    var fa=player.fig.userData.fa;
+    if(fa.play&&fa.play._fk95)fa.play=null;
+   }
+  }catch(e){}
+ }
+ function kick(){
+  if(!on()||!validContext())return false;
+  if(S.weapon!=='fists'){denied++;toast('Switch to fists to kick');return false;}
+  if(wasBlocked()){denied++;return false;}
+  /* Delegate FIRST: no swing if the shipped core rejects range/target.
+     Do not mutate damage, movement, stamina, cooldown or weapons. */
+  var started=combatStartSwing();
+  if(!started){denied++;return false;}
+  activeSwing=combat.swingId;kickHit=false;pressCount++;
+  /* FA86's existing animation API uses the baked foot channels. The
+     time stretch matches the EXISTING three phase durations; the hit
+     still resolves when the original contact window says so. */
+  if(window.__FA86&&__FA86.on&&__FA86.on()&&__FA86.play&&player&&player.fig){
+   var w=WEAPONS.fists,prof=combat.curHit,fw=F5W.fists;
+   var dur=Math.max(.15,combat.phaseT+
+    w.cd*prof.ph[1]*combat.phaseMul+
+    w.cd*prof.ph[2]*combat.phaseMul*fw.recovery);
+   var clip=(kickSide++%2===0)?'kickR':'kickL';
+   try{
+    if(__FA86.play(player.fig,clip,dur)){
+     var fa=player.fig.userData.fa;
+     if(fa&&fa.play)fa.play._fk95=true;
+    }
+   }catch(e){err='animation: '+String(e&&e.message||e);}
+  }
+  return true;
+ }
+ function installBtn(){
+  if(btn||!on())return;
+  var cluster=document.getElementById('fightBtns'),attack=document.getElementById('attackBtn');
+  if(!cluster||!attack)return;
+  btn=document.createElement('button');btn.id='fk95KickBtn';btn.className='btn';
+  btn.type='button';btn.textContent='🦵';btn.title='Kick (K) — fists only';
+  btn.setAttribute('aria-label','Kick');
+  cluster.insertBefore(btn,attack.nextSibling);
+  var pid=null;
+  btn.addEventListener('pointerdown',function(e){
+   if(pid!==null)return;e.preventDefault();pid=e.pointerId;
+   try{btn.setPointerCapture(pid);}catch(x){}kick();
+  });
+  function end(e){if(pid!==null&&e.pointerId!==undefined&&pid!==e.pointerId)return;pid=null;}
+  btn.addEventListener('pointerup',end);btn.addEventListener('pointercancel',end);
+  btn.addEventListener('lostpointercapture',end);
+  /* click fallback for assistive devices, avoiding a duplicate pointer
+     click from the same physical tap. */
+  btn.addEventListener('click',function(e){if(e.detail===0)kick();});
+ }
+ function removeBtn(){if(btn){btn.remove();btn=null;}}
+ function paint(){
+  var state=document.getElementById('fk95SetState'),b=document.getElementById('fk95SetBtn');
+  if(state)state.textContent=on()?'On':'Off';
+  if(b)b.textContent=on()?'Turn off':'Turn on';
+ }
+ function installSetting(){
+  if(row)return;
+  var card=document.querySelector('#settingsPanel .card');
+  if(!card)return;
+  row=document.createElement('div');row.className='setRow';row.id='fk95SetRow';
+  var main=document.createElement('div');main.className='setRowMain';
+  var label=document.createElement('div');label.className='setRowLabel';label.textContent='Kick move';
+  var note=document.createElement('div');note.className='setRowNote';
+  note.textContent='New on-foot Kick button or K key. Fists only; uses existing fighting rules. Off restores the original controls and combat.';
+  main.appendChild(label);main.appendChild(note);row.appendChild(main);
+  var state=document.createElement('span');state.className='setState';state.id='fk95SetState';
+  row.appendChild(state);
+  var b=document.createElement('button');b.type='button';b.className='setBtn';b.id='fk95SetBtn';
+  b.addEventListener('click',function(){setEnabled(!on());});row.appendChild(b);
+  var last=card.querySelector('[data-close]');card.insertBefore(row,last||null);
+  paint();
+ }
+ function setEnabled(value){
+  sessionOverride=!!value;
+  try{localStorage.setItem(KEY,value?'1':'0');}catch(e){err='storage: '+String(e&&e.message||e);}
+  if(on()){hook();installBtn();}else{unhook();removeBtn();}
+  paint();return on();
+ }
+ window.addEventListener('keydown',function(e){
+  if(!on()||e.repeat||e.altKey||e.ctrlKey||e.metaKey||e.key.toLowerCase()!=='k')return;
+  if(!validContext())return;
+  var target=e.target;
+  if(target&&(/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)||target.isContentEditable))return;
+  e.preventDefault();kick();
+ });
+ try{
+  installSetting();
+  if(on()){hook();installBtn();}
+ }catch(e){err='install: '+String(e&&e.message||e);unhook();removeBtn();}
+ window.__FK95={version:'v30.95',on:on,setEnabled:setEnabled,kick:kick,
+  state:function(){return {enabled:on(),hooked:live,button:!!btn,presses:pressCount,
+   hits:hits,denied:denied,activeSwing:activeSwing,err:err};}};
+})();}
+
 if(window.__daleBoot)window.__daleBoot.gameReady();
 })();
 </script>
@@ -33665,7 +33806,7 @@ setInterval(tick,250);
 })();
 </script>
 <!-- ================= v30.41 PHONE-FIX BUNDLE (appended layer; fixes 2-4 + version marker) ================= -->
-<script>window.__V3094={version:'v30.94'};</script>
+<script>window.__V3095={version:'v30.95'};</script>
 <style id="fix41-tasks-css">
 html body.tasks-collapsed #tasksBody{max-height:0;opacity:0;padding-top:0;padding-bottom:0;overflow:hidden;}
 body.tasks-collapsed #h24ObjLine{display:none;}
@@ -33812,6 +33953,22 @@ body.feed41-shut #sideFeed .feedItem:not(.pin){display:none;}
   window.addEventListener('orientationchange',sync);
 }catch(e){}})();
 </script>
+<style id="fk95-css">
+/* The Dale v30.95: appended combat action, visually consistent with HUD24. */
+#fk95KickBtn{display:none!important;order:92;touch-action:none;
+ background:rgba(56,38,11,.82)!important;border:1px solid rgba(232,179,58,.68)!important;
+ color:#ffe8ab!important;box-shadow:0 2px 12px rgba(0,0,0,.32);
+ width:56px;height:56px;min-width:56px;line-height:54px;font-size:23px;padding:0;border-radius:50%;}
+body.onfoot #fightBtns #fk95KickBtn{display:block!important;}
+body.driving #fightBtns #fk95KickBtn{display:none!important;}
+@media (orientation:landscape) and (max-height:540px){
+ #fightBtns #fk95KickBtn{width:44px;height:44px;min-width:44px;line-height:42px;font-size:19px;}
+}
+@media(max-width:540px){
+ html.dale-rot #fightBtns #fk95KickBtn{width:44px;height:44px;min-width:44px;line-height:42px;font-size:19px;}
+}
+
+</style>
 </body>
 </html>
 </body>
